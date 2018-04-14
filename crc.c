@@ -17,7 +17,7 @@
  
   This program is also available under a commercial license with
   customization/support packages and additional features.  For more 
-  information, please contact us at cbfillet@gmail.com
+  information, please contact us at cannonbeachgoonie@gmail.com
 
 ******************************************************************************/
 
