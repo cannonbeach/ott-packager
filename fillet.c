@@ -788,7 +788,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 		int64_t mod_overflow = vstream->last_timestamp_dts % 8589934592;
 		if (delta_dts < -OVERFLOW_DTS && mod_overflow > OVERFLOW_DTS) {
 		    vstream->overflow_dts += 8589934592;
-		    fprintf(stderr,"DELTA_DTS:%ld OVERFLOW DTS:%ld\n", delta_dts, vstream->overflow_dts);
+		    fprintf(stderr,"FILLET: DELTA_DTS:%ld OVERFLOW DTS:%ld\n", delta_dts, vstream->overflow_dts);
 		    syslog(LOG_INFO,"(%d) VIDEO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW DTS:%ld  LAST:%ld  DTS:%ld\n",
 			   source,
 			   delta_dts,
@@ -796,14 +796,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 			   vstream->last_timestamp_dts,
 			   dts);
 		} else if (delta_dts < 0 || delta_dts > 60000) {
-		    fprintf(stderr,"DELTA_DTS:%ld OVERFLOW DTS:%ld (SIGNAL DISCONTINUITY)\n", delta_dts, vstream->overflow_dts);
+		    fprintf(stderr,"FILLET: DELTA_DTS:%ld OVERFLOW DTS:%ld (SIGNAL DISCONTINUITY)\n", delta_dts, vstream->overflow_dts);
 		    syslog(LOG_INFO,"(%d) VIDEO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW DTS:%ld  LAST:%ld  DTS:%ld (SIGNAL DISCONTINUITY)\n",
 			   source,
 			   delta_dts,
 			   vstream->overflow_dts,
 			   vstream->last_timestamp_dts,
 			   dts);
-		    fprintf(stderr,"(%d) RESTARTING SYNC THREAD\n", source);
+		    fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
 		    restart_sync_thread = 1;
 		} 
 	    }
@@ -879,20 +879,20 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    int64_t mod_overflow = astream->last_timestamp_pts % 8589934592;
 	    if (delta_pts < -OVERFLOW_DTS && mod_overflow > OVERFLOW_DTS) {	    
 		astream->overflow_pts += 8589934592;
-		fprintf(stderr,"DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
+		fprintf(stderr,"FILLET: DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
 		syslog(LOG_INFO,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld\n",
 		       source,
 		       delta_pts,
 		       astream->overflow_pts,
 		       pts);
 	    } else if (delta_pts < 0 || delta_pts > 60000) {
-		fprintf(stderr,"DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
+		fprintf(stderr,"FILLET: DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
 		syslog(LOG_INFO,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld\n",
 		       source,
 		       delta_pts,
 		       astream->overflow_pts,
 		       pts);		
-		fprintf(stderr,"(%d) RESTARTING SYNC THREAD\n", source);
+		fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
 		restart_sync_thread = 1;
 	    } 	    
 	}   	
@@ -953,6 +953,8 @@ int main(int argc, char **argv)
      config_data.rollover_size = MAX_ROLLOVER_SIZE;
      config_data.active_sources = 0;
      config_data.identity = 1000;
+     config_data.enable_ts_output = 1;
+     config_data.enable_fmp4_output = 0;
      
      sprintf(config_data.manifest_directory,"/var/www/hls/");
      

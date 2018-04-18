@@ -46,6 +46,7 @@
 #include "mempool.h"
 #include "udpsource.h"
 #include "tsdecode.h"
+#include "mp4core.h"
 
 #define MAX_STR_SIZE               512
 #define MAX_AUDIO_SOURCES          5
@@ -87,6 +88,9 @@ typedef struct _config_options_struct_ {
     int              segment_length;
     int              rollover_size;
     int              identity;
+
+    int              enable_ts_output;
+    int              enable_fmp4_output;
 } config_options_struct;
 
 typedef struct _packet_struct_ {
@@ -106,7 +110,8 @@ typedef struct _stream_struct_ {
     int64_t                  file_sequence_number;
     int64_t                  media_sequence_number;
     int64_t                  fragments_published;
-    FILE                     *output_file;
+    FILE                     *output_ts_file;
+    FILE                     *output_fmp4_file;
 
     void                     *source_queue;
     int                      cnt;
@@ -114,6 +119,8 @@ typedef struct _stream_struct_ {
 
     int                      pat_cnt;
     int                      pmt_cnt;
+
+    fragment_file_struct     *fmp4;    
 } stream_struct;
 
 typedef struct _hlsmux_struct_ {
@@ -121,6 +128,7 @@ typedef struct _hlsmux_struct_ {
     
     stream_struct            audio[MAX_AUDIO_SOURCES];
     stream_struct            video[MAX_VIDEO_SOURCES];
+    
     pthread_t                hlsmux_thread_id;
 } hlsmux_struct;
 

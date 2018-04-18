@@ -29,6 +29,7 @@
 #include "mempool.h"
 #include "tsdecode.h"
 #include "crc.h"
+#include "mp4core.h"
 #include "hlsmux.h"
 
 #define MAX_STREAM_NAME       256
@@ -61,9 +62,26 @@ typedef struct _source_context_struct_ {
     double        segment_lengths[MAX_ROLLOVER_SIZE];
     int           discontinuity[MAX_ROLLOVER_SIZE];
     int           source_discontinuity;
+    
     int           h264_sps_decoded;
     int           h264_profile;
     int           h264_level;
+
+    uint8_t       h264_sps[MAX_PRIVATE_DATA_SIZE];
+    int           h264_sps_size;   
+
+    uint8_t       h264_pps[MAX_PRIVATE_DATA_SIZE];
+    int           h264_pps_size;
+
+    uint8_t       hevc_sps[MAX_PRIVATE_DATA_SIZE];
+    int           hevc_sps_size;
+    
+    uint8_t       hevc_pps[MAX_PRIVATE_DATA_SIZE];
+    int           hevc_pps_size;
+
+    uint8_t       hevc_vps[MAX_PRIVATE_DATA_SIZE];
+    int           hevc_vps_size;
+    
     int           width;
     int           height;
     uint8_t       midbyte;
@@ -122,6 +140,60 @@ uint32_t getse(decode_struct *d)
 	r = -(r/2);
     }
     return r;
+}
+
+static int get_h264_sps(source_context_struct *sdata, uint8_t *buffer, int buffer_size)
+{
+    int i;
+    uint8_t *sps_buffer = buffer;
+    int sps_size = 0;
+    int parsing_sps = 0;
+
+    for (i = 0; i < buffer_size - 3; i++) {
+	if (buffer[i+0] == 0x00 &&
+	    buffer[i+1] == 0x00 &&
+	    buffer[i+2] == 0x01) {
+	    int nal_type = buffer[i+3] & 0x1f;
+	    if (parsing_sps) {
+		sps_size = buffer + i - sps_buffer;
+		sdata->h264_sps_size = sps_size;
+		memcpy(sdata->h264_sps, sps_buffer, sps_size);
+		return 0;
+	    }
+	    if (nal_type == 7) {
+		sps_buffer = buffer + i + 3;
+		parsing_sps = 1;
+	    }
+	}
+    }
+    return 0;	    
+}
+
+static int get_h264_pps(source_context_struct *sdata, uint8_t *buffer, int buffer_size)
+{
+    int i;
+    uint8_t *pps_buffer = buffer;
+    int pps_size = 0;
+    int parsing_pps = 0;
+
+    for (i = 0; i < buffer_size - 3; i++) {
+	if (buffer[i+0] == 0x00 &&
+	    buffer[i+1] == 0x00 &&
+	    buffer[i+2] == 0x01) {
+	    int nal_type = buffer[i+3] & 0x1f;
+	    if (parsing_pps) {
+		pps_size = buffer + i - pps_buffer;
+		sdata->h264_pps_size = pps_size;
+		memcpy(sdata->h264_pps, pps_buffer, pps_size);
+		return 0;
+	    }
+	    if (nal_type == 8) {
+		pps_buffer = buffer + i + 3;
+		parsing_pps = 1;
+	    }
+	}
+    }
+    return 0;	    
 }
 
 int find_and_decode_sps(source_context_struct *sdata, uint8_t *buffer, int buffer_size)
@@ -827,20 +899,93 @@ static int muxaudiosample(fillet_app_struct *core, stream_struct *stream, sorted
     return packetcount;
 }
 
-static int start_fragment(fillet_app_struct *core, stream_struct *stream, int source, int video)
+static int start_ts_fragment(fillet_app_struct *core, stream_struct *stream, int source, int video)
 {
-    if (!stream->output_file) {
+    if (!stream->output_ts_file) {
 	char stream_name[MAX_STREAM_NAME];
 	if (video) {
 	    snprintf(stream_name, MAX_STREAM_NAME-1, "%s/video_stream%d_%ld.ts", core->cd->manifest_directory, source, stream->file_sequence_number);
 	} else {
 	    snprintf(stream_name, MAX_STREAM_NAME-1, "%s/audio_stream%d_%ld.ts", core->cd->manifest_directory, source, stream->file_sequence_number);	    
 	}
-	stream->output_file = fopen(stream_name,"w");
+	stream->output_ts_file = fopen(stream_name,"w");
     }
     
     return 0;
 }
+
+static int start_init_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int source, int video)
+{
+    struct stat sb;
+    
+    if (!stream->output_fmp4_file) {
+	char stream_name[MAX_STREAM_NAME];
+	char local_dir[MAX_STREAM_NAME];
+	if (video) {
+	    snprintf(local_dir, MAX_STREAM_NAME-1, "%s/video%d", core->cd->manifest_directory, source);	    
+	} else {
+	    snprintf(local_dir, MAX_STREAM_NAME-1, "%s/audio%d", core->cd->manifest_directory, source);	    
+	}
+	if (stat(local_dir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory exists: %s\n", local_dir);
+	} else {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory does not exist: %s (CREATING)\n", local_dir);
+	    mkdir(local_dir, 0700);
+	    fprintf(stderr,"STATUS: Done creating fMP4 manifest directory\n");
+	}
+	
+	snprintf(stream_name, MAX_STREAM_NAME-1, "%s/init.mp4", local_dir);
+	stream->output_fmp4_file = fopen(stream_name,"w");
+    }
+    return 0;
+}
+
+static int end_init_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int source)
+{
+    if (stream->output_fmp4_file) {
+	fclose(stream->output_fmp4_file);
+	stream->output_fmp4_file = NULL;
+    }
+    
+    return 0;
+}
+
+static int start_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int source, int video)
+{
+    struct stat sb;
+    
+    if (!stream->output_fmp4_file) {
+	char stream_name[MAX_STREAM_NAME];
+	char local_dir[MAX_STREAM_NAME];
+	if (video) {
+	    snprintf(local_dir, MAX_STREAM_NAME-1, "%s/video%d", core->cd->manifest_directory, source);	    
+	} else {
+	    snprintf(local_dir, MAX_STREAM_NAME-1, "%s/audio%d", core->cd->manifest_directory, source);	    
+	}
+	if (stat(local_dir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory exists: %s\n", local_dir);
+	} else {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory does not exist: %s (CREATING)\n", local_dir);
+	    mkdir(local_dir, 0700);
+	    fprintf(stderr,"STATUS: Done creating fMP4 manifest directory\n");
+	}
+
+	snprintf(stream_name, MAX_STREAM_NAME-1, "%s/segment%d.mp4", local_dir, stream->file_sequence_number);
+	stream->output_fmp4_file = fopen(stream_name,"w");
+    }
+    return 0;
+}
+
+static int end_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int source)
+{
+    if (stream->output_fmp4_file) {
+	fclose(stream->output_fmp4_file);
+	stream->output_fmp4_file = NULL;
+    }
+    
+    return 0;
+}
+
 
 static int update_video_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
 {
@@ -967,11 +1112,11 @@ static int write_master_manifest(fillet_app_struct *core, source_context_struct 
     return 0;
 }
 
-static int end_fragment(fillet_app_struct *core, stream_struct *stream, int source)
+static int end_ts_fragment(fillet_app_struct *core, stream_struct *stream, int source)
 {
-    if (stream->output_file) {
-	fclose(stream->output_file);
-	stream->output_file = NULL;
+    if (stream->output_ts_file) {
+	fclose(stream->output_ts_file);
+	stream->output_ts_file = NULL;
 	stream->fragments_published++;
     }
     
@@ -1003,10 +1148,12 @@ void *mux_pump_thread(void *context)
 	source_data[i].source_discontinuity = 0;
 	memset(source_data[i].discontinuity, 0, sizeof(source_data[i].discontinuity));
 	source_data[i].h264_sps_decoded = 0;
+	source_data[i].h264_sps_size = 0;
+	source_data[i].h264_pps_size = 0;
 	source_data[i].h264_profile = 0;
 	source_data[i].h264_level = 0;
 	source_data[i].width = 0;
-	source_data[i].height = 0;
+	source_data[i].height = 0;      
     }
 
     for (i = 0; i < num_sources; i++) {
@@ -1014,19 +1161,23 @@ void *mux_pump_thread(void *context)
 	hlsmux->video[i].pesbuffer = (uint8_t*)malloc(MAX_VIDEO_PES_BUFFER);
 	hlsmux->video[i].packettable = (packet_struct*)malloc(sizeof(packet_struct)*(MAX_VIDEO_MUX_BUFFER/188));
 	hlsmux->video[i].packet_count = 0;
-	hlsmux->video[i].output_file = NULL;
+	hlsmux->video[i].output_ts_file = NULL;
+	hlsmux->video[i].output_fmp4_file = NULL;
 	hlsmux->video[i].file_sequence_number = 0;
 	hlsmux->video[i].media_sequence_number = 0;
 	hlsmux->video[i].fragments_published = 0;
+	hlsmux->video[i].fmp4 = NULL;
 	
 	hlsmux->audio[i].muxbuffer = (uint8_t*)malloc(MAX_VIDEO_MUX_BUFFER);
 	hlsmux->audio[i].pesbuffer = (uint8_t*)malloc(MAX_VIDEO_PES_BUFFER);
 	hlsmux->audio[i].packettable = (packet_struct*)malloc(sizeof(packet_struct)*(MAX_VIDEO_MUX_BUFFER/188));
 	hlsmux->audio[i].packet_count = 0;
-	hlsmux->audio[i].output_file = NULL;
+	hlsmux->audio[i].output_ts_file = NULL;
+	hlsmux->audio[i].output_fmp4_file = NULL;	
 	hlsmux->audio[i].file_sequence_number = 0;
 	hlsmux->audio[i].media_sequence_number = 0;
 	hlsmux->audio[i].fragments_published = 0;
+	hlsmux->audio[i].fmp4 = NULL;
     }
 
     while (1) {
@@ -1053,6 +1204,9 @@ void *mux_pump_thread(void *context)
 		source_data[i].expected_audio_duration = 0;
 		source_data[i].expected_video_duration = 0;
 		source_data[i].video_fragment_ready = 0;
+		source_data[i].h264_sps_decoded = 0;		
+		source_data[i].h264_sps_size = 0;
+		source_data[i].h264_pps_size = 0;
 		if (available) {
 		    source_data[i].source_discontinuity = 1;
 		}
@@ -1067,20 +1221,33 @@ void *mux_pump_thread(void *context)
 	    
 	    for (i = 0; i < num_sources; i++) {
 		hlsmux->video[i].packet_count = 0;
-		if (hlsmux->video[i].output_file) {
-		    fclose(hlsmux->video[i].output_file);
-		    hlsmux->video[i].output_file = NULL;		    
+		if (hlsmux->video[i].output_ts_file) {
+		    fclose(hlsmux->video[i].output_ts_file);
+		    hlsmux->video[i].output_ts_file = NULL;		    
 		}		
 		hlsmux->audio[i].packet_count = 0;
-		if (hlsmux->audio[i].output_file) {
-		    fclose(hlsmux->audio[i].output_file);
-		    hlsmux->audio[i].output_file = NULL;
+		if (hlsmux->audio[i].output_ts_file) {
+		    fclose(hlsmux->audio[i].output_ts_file);
+		    hlsmux->audio[i].output_ts_file = NULL;
+		}
+		if (core->cd->enable_fmp4_output) {
+		    if (hlsmux->video[i].output_fmp4_file) {
+			fclose(hlsmux->video[i].output_fmp4_file);
+			hlsmux->video[i].output_fmp4_file = NULL;		    
+		    }		
+		    hlsmux->audio[i].packet_count = 0;
+		    if (hlsmux->audio[i].output_fmp4_file) {
+			fclose(hlsmux->audio[i].output_fmp4_file);
+			hlsmux->audio[i].output_fmp4_file = NULL;
+		    }
 		}
 
 		hlsmux->video[i].file_sequence_number = first_video_file_sequence_number;
 		hlsmux->video[i].media_sequence_number = first_video_media_sequence_number;
+		hlsmux->video[i].fmp4 = NULL;
 		hlsmux->audio[i].file_sequence_number = first_video_file_sequence_number;
 		hlsmux->audio[i].media_sequence_number = first_video_media_sequence_number;
+		hlsmux->audio[i].fmp4 = NULL;
 	    }
 	    source_discontinuity = 0;
 	}
@@ -1094,7 +1261,16 @@ void *mux_pump_thread(void *context)
 	    
 	    if (!source_data[source].h264_sps_decoded) {
 		find_and_decode_sps(&source_data[source], frame->buffer, frame->buffer_size);
-	    }   
+	    }
+
+	    if (source_data[source].h264_sps_size == 0) {
+		get_h264_sps(&source_data[source], frame->buffer, frame->buffer_size);
+		fprintf(stderr,"HLSMUX: SAVING SPS: SIZE:%d\n", source_data[source].h264_sps_size);
+	    }
+	    if (source_data[source].h264_pps_size == 0) {
+		get_h264_pps(&source_data[source], frame->buffer, frame->buffer_size);
+		fprintf(stderr,"HLSMUX: SAVING PPS: SIZE:%d\n", source_data[source].h264_pps_size);		
+	    }
 
 	    for (n = 0; n < num_sources; n++) {
 		if (source_data[n].h264_sps_decoded) {
@@ -1118,11 +1294,75 @@ void *mux_pump_thread(void *context)
 			frame->pts, frame->dts);
 		if (source_data[source].start_time_video == -1) {
 		    source_data[source].start_time_video = frame->full_time;
+		    fprintf(stderr,"HLSMUX: WRITING OUT INIT SEGMENT SIZE:  PPS:%d  SPS:%d\n",
+			    source_data[source].h264_pps_size,
+			    source_data[source].h264_sps_size);
+		    
+		    if (core->cd->enable_fmp4_output) {
+			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;										
+			hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
+								      90000, // timescale for H264 video
+								      0x15c7, // english language code
+								      fragment_length);  // fragment length in seconds
+
+			fmp4_video_set_sps(hlsmux->video[source].fmp4,
+					   source_data[source].h264_sps,
+					   source_data[source].h264_sps_size);
+
+			fmp4_video_set_pps(hlsmux->video[source].fmp4,
+					   source_data[source].h264_pps,
+					   source_data[source].h264_pps_size);			
+
+			fmp4_video_track_create(hlsmux->video[source].fmp4,
+						source_data[source].width,
+						source_data[source].height,
+						vstream->video_bitrate);	
+								
+			start_init_mp4_fragment(core, &hlsmux->video[source], source, 1);
+
+			fprintf(stderr,"HLSMUX: CREATED INITIAL MP4 FRAGMENT(%d): %p\n",
+				source,
+				hlsmux->video[source].fmp4->buffer);
+			
+			fmp4_output_header(hlsmux->video[source].fmp4);
+			
+			fprintf(stderr,"HLSMUX: WRITING OUT VIDEO INIT FILE - FMP4(%d): %ld\n",
+				source,
+				hlsmux->video[source].fmp4->buffer_offset);
+			
+			fwrite(hlsmux->video[source].fmp4->buffer, 1, hlsmux->video[source].fmp4->buffer_offset, hlsmux->video[source].output_fmp4_file);
+			end_init_mp4_fragment(core, &hlsmux->video[source], source);
+			
+			fmp4_file_finalize(hlsmux->video[source].fmp4);			
+			hlsmux->video[source].fmp4 = NULL;
+		    }
 		}
 		frag_delta = (frame->full_time - source_data[source].start_time_video) / 90000.0;
 		if (source_data[source].total_video_duration+frag_delta >= source_data[source].expected_video_duration+fragment_length) {
-		    end_fragment(core, &hlsmux->video[source], source);
+		    end_ts_fragment(core, &hlsmux->video[source], source);
 
+		    fprintf(stderr,"fMP4:%p\n", hlsmux->video[source].fmp4);
+		    if (hlsmux->video[source].fmp4) {
+			fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): BUFFER:%p SIZE:%d TF:%d\n",
+				source,
+				hlsmux->video[source].fmp4->buffer,
+				hlsmux->video[source].fmp4->buffer_offset,
+				hlsmux->video[source].fmp4->fragment_count);
+		    }
+		    
+		    if (core->cd->enable_fmp4_output) {
+			if (hlsmux->video[source].fmp4) {
+			    fmp4_fragment_end(hlsmux->video[source].fmp4);
+			    fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): SIZE:%d\n",
+				    source,
+				    hlsmux->video[source].fmp4->buffer_offset);			    
+			    fwrite(hlsmux->video[source].fmp4->buffer, 1, hlsmux->video[source].fmp4->buffer_offset, hlsmux->video[source].output_fmp4_file);
+			    end_mp4_fragment(core, &hlsmux->video[source], source);
+			    fmp4_file_finalize(hlsmux->video[source].fmp4);
+			    hlsmux->video[source].fmp4 = NULL;
+			}
+		    }
+		    
 		    hlsmux_save_state(core, &source_data[0]);
 
 		    source_data[source].segment_lengths[hlsmux->video[source].file_sequence_number] = frag_delta;
@@ -1141,23 +1381,63 @@ void *mux_pump_thread(void *context)
 		    source_data[source].start_time_video = frame->full_time;
 		    fprintf(stderr,"HLSMUX: STARTING NEW VIDEO FRAGMENT: LENGTH:%.2f  TOTAL:%.2f (NEW START:%ld)\n",
 			    frag_delta, source_data[source].total_video_duration, source_data[source].start_time_video);
+		    
 		    source_data[source].total_video_duration += frag_delta;
 		    source_data[source].expected_video_duration += fragment_length;
 		    source_data[source].video_fragment_ready = 1;
 
-		    start_fragment(core, &hlsmux->video[source], source, 1);  // start first video fragment
+		    start_ts_fragment(core, &hlsmux->video[source], source, 1);  // start first video fragment
+		    if (core->cd->enable_fmp4_output) {
+			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;													
+			start_mp4_fragment(core, &hlsmux->video[source], source, 1);
+			hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
+								      90000, // timescale for H264 video
+								      0x157c, // english language code
+								      fragment_length);  // fragment length in seconds
+			fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
+				source,
+				hlsmux->video[source].fmp4);				
+			
+			fmp4_video_track_create(hlsmux->video[source].fmp4,
+						source_data[source].width,
+						source_data[source].height,
+						vstream->video_bitrate);
+		    }		    				     
 		}
 	    }
-	    if (hlsmux->video[source].output_file != NULL) {
+	    if (core->cd->enable_fmp4_output) {	    
+		if (hlsmux->video[source].output_fmp4_file != NULL) {
+		    if (hlsmux->video[source].fmp4) {
+			//frame->buffer, frame->buffer_size
+			double fragment_timestamp;
+			int fragment_duration;
+			int64_t fragment_composition_time;
+
+			fprintf(stderr,"ADDING FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d\n",
+				source,
+				hlsmux->video[source].fmp4->fragment_count,
+				hlsmux->video[source].fmp4->buffer,
+				hlsmux->video[source].fmp4->buffer_offset);
+			
+			fmp4_fragment_add(hlsmux->video[source].fmp4,
+					  frame->buffer,
+					  frame->buffer_size,
+					  fragment_timestamp,
+					  fragment_duration,
+					  fragment_composition_time);		    
+		    }
+		}
+	    }
+	    if (hlsmux->video[source].output_ts_file != NULL) {
 		int s;
 		uint8_t pat[188];
 		uint8_t pmt[188];
 		int64_t pc;
 
 		muxpatsample(core, &hlsmux->video[source], &pat[0]);
-		fwrite(pat, 1, 188, hlsmux->video[source].output_file);
+		fwrite(pat, 1, 188, hlsmux->video[source].output_ts_file);
 		muxpmtsample(core, &hlsmux->video[source], &pmt[0], VIDEO_PID, CODEC_H264);
-		fwrite(pmt, 1, 188, hlsmux->video[source].output_file);
+		fwrite(pmt, 1, 188, hlsmux->video[source].output_ts_file);
 		
 		pc = muxvideosample(core, &hlsmux->video[source], frame);
 		
@@ -1199,7 +1479,7 @@ void *mux_pump_thread(void *context)
 			muxbuffer[10] = ((0x01 & base) << 7) | 0x7e | ((0x100 & ext) >> 8);
 			muxbuffer[11] = (0xff & ext);
 		    }
-		    fwrite(&muxbuffer[s*188], 1, 188, hlsmux->video[source].output_file);
+		    fwrite(&muxbuffer[s*188], 1, 188, hlsmux->video[source].output_ts_file);
 		}
 	    }
 	} else if (frame->frame_type == FRAME_TYPE_AUDIO) {
@@ -1218,7 +1498,7 @@ void *mux_pump_thread(void *context)
 	    }
 	    frag_delta = (frame->full_time - source_data[source].start_time_audio) / 90000.0;
 	    if (source_data[source].total_audio_duration+frag_delta >= source_data[source].total_video_duration && source_data[source].video_fragment_ready) {
-		end_fragment(core, &hlsmux->audio[source], source);
+		end_ts_fragment(core, &hlsmux->audio[source], source);
 		
 		source_data[source].segment_lengths[hlsmux->audio[source].file_sequence_number] = frag_delta;
 		source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;		
@@ -1243,19 +1523,19 @@ void *mux_pump_thread(void *context)
 		source_data[source].total_audio_duration += frag_delta;
 		source_data[source].expected_audio_duration += fragment_length;
 
-		start_fragment(core, &hlsmux->audio[source], source, 0);  // start first video fragment
+		start_ts_fragment(core, &hlsmux->audio[source], source, 0);  // start first video fragment
 	    }
 
-	    if (hlsmux->audio[source].output_file != NULL) {
+	    if (hlsmux->audio[source].output_ts_file != NULL) {
 		int s;
 		uint8_t pat[188];
 		uint8_t pmt[188];
 		int64_t pc;
 
 		muxpatsample(core, &hlsmux->audio[source], &pat[0]);
-		fwrite(pat, 1, 188, hlsmux->audio[source].output_file);
+		fwrite(pat, 1, 188, hlsmux->audio[source].output_ts_file);
 		muxpmtsample(core, &hlsmux->audio[source], &pmt[0], AUDIO_BASE_PID, CODEC_AAC);
-		fwrite(pmt, 1, 188, hlsmux->audio[source].output_file);
+		fwrite(pmt, 1, 188, hlsmux->audio[source].output_ts_file);
 		
 		pc = muxaudiosample(core, &hlsmux->audio[source], frame, 0);
 		
@@ -1292,7 +1572,7 @@ void *mux_pump_thread(void *context)
 			muxbuffer[10] = ((0x01 & base) << 7) | 0x7e | ((0x100 & ext) >> 8);
 			muxbuffer[11] = (0xff & ext);
 		    }
-		    fwrite(&muxbuffer[s*188], 1, 188, hlsmux->audio[source].output_file);
+		    fwrite(&muxbuffer[s*188], 1, 188, hlsmux->audio[source].output_ts_file);
 		}
 	    }
 	}
