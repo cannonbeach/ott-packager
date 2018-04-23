@@ -246,8 +246,8 @@ static int output_fmp4_tkhd(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tkhd");
     buffer_offset += output32(fmp4, 0x7); // flags, track_enabled, etc.
-    buffer_offset += output32(fmp4, 0);  //creation_time - TODO
-    buffer_offset += output32(fmp4, 0);  //modification_time - TODO
+    buffer_offset += output32(fmp4, 485168486);  //creation_time - TODO
+    buffer_offset += output32(fmp4, 485168486);  //modification_time - TODO
     buffer_offset += output32(fmp4, fmp4->track_id);
     buffer_offset += output32(fmp4, 0);  //reservd
     buffer_offset += output32(fmp4, 0);  //duration - TODO
@@ -298,8 +298,8 @@ static int output_fmp4_mdhd(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4, "mdhd");
     buffer_offset += output32(fmp4, 0);
-    buffer_offset += output32(fmp4, 0);  // creation_time
-    buffer_offset += output32(fmp4, 0);  // modification_time
+    buffer_offset += output32(fmp4, 485168486);  // creation_time
+    buffer_offset += output32(fmp4, 485168486);  // modification_time
     buffer_offset += output32(fmp4, fmp4->timescale);
     buffer_offset += output32(fmp4, 0); // duration?
     buffer_offset += output16(fmp4, fmp4->lang_code);
@@ -572,7 +572,7 @@ static int output_fmp4_esds(fragment_file_struct *fmp4)
     buffer_offset += output8(fmp4, 0x80);
     buffer_offset += output8(fmp4, fmp4->audio_config_size);
     for (i = 0; i < fmp4->audio_config_size; i++) {
-	buffer_offset += output8(fmp4, fmp4->audio_config[i]);  // only 2 bytes?
+	buffer_offset += output8(fmp4, fmp4->audio_config[i]);
     }
 
     // SL descriptor
@@ -781,7 +781,7 @@ static int output_fmp4_minf(fragment_file_struct *fmp4)
     } else if (fmp4->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output_fmp4_smhd(fmp4);
     } else {
-	// TODO
+	buffer_offset += 0;
     }
     buffer_offset += output_fmp4_dinf(fmp4);
     buffer_offset += output_fmp4_stbl(fmp4);
@@ -871,7 +871,6 @@ static int output_fmp4_tfhd(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tfhd");
 
-    // TODO -- check for subtitle track
     buffer_offset += output32(fmp4, 0x020000);
     buffer_offset += output32(fmp4, fmp4->track_id);
 
@@ -940,7 +939,7 @@ static int output_fmp4_trun(fragment_file_struct *fmp4)
     fmp4->total_duration = total_duration;
 
     output32_raw(data, buffer_offset);
-    output32_raw(data_start, buffer_offset + 8);
+    output32_raw(data_start, fmp4->buffer_offset + 8);
 
     return buffer_offset;
 }
@@ -994,6 +993,9 @@ static int output_fmp4_mdat(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"mdat");
 
     for (frag = 0; frag < fmp4->fragment_count; frag++) {
+	uint32_t *fragsize = (uint32_t*)fmp4->fragments[frag].fragment_buffer;
+	fprintf(stderr,"writing frag size: %u\n", ntohl(*fragsize));
+	
 	buffer_offset += output_raw_data(fmp4, fmp4->fragments[frag].fragment_buffer, fmp4->fragments[frag].fragment_buffer_size);
 	free(fmp4->fragments[frag].fragment_buffer);
     }
@@ -1181,16 +1183,87 @@ int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int 
     return 0;
 }
 
+static int replace_startcode_with_size(uint8_t *input_buffer, int input_buffer_size, uint8_t *output_buffer, int max_output_buffer_size)
+{
+    int i;
+    int parsing_sample = 0;
+    uint8_t *sample_buffer = output_buffer;
+    int saved_position = 0;
+    int sample_size;
+    int output_sample_size;
+    int read_pos = 0;
+    int write_pos = 0;
 
-int fmp4_fragment_add(fragment_file_struct *fmp4,
-		      uint8_t *fragment_buffer,
-		      int fragment_buffer_size,
-		      double fragment_timestamp,
-		      int fragment_duration,
-		      int64_t fragment_composition_time)
+    for (i = 0; i < input_buffer_size; i++) {
+	if (input_buffer[read_pos+0] == 0x00 &&
+	    input_buffer[read_pos+1] == 0x00 &&
+	    input_buffer[read_pos+2] == 0x01) {	    
+	    int nal_type = input_buffer[read_pos+3] & 0x1f;
+	    if (parsing_sample) {
+		sample_size = write_pos - saved_position - 4;
+		fprintf(stderr,"DONE PARSING SAMPLE: %d  SAVED_POS:%d\n",
+			sample_size,
+			saved_position);
+		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
+		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
+		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
+		*(sample_buffer+saved_position+3) = sample_size & 0xff;
+	    }
+	    if (nal_type == 6) {
+		int sei_type = input_buffer[read_pos+4];
+		if (sei_type != 4) {
+		    parsing_sample = 0;
+		    read_pos += 3;
+		    continue;
+		}		    
+	    }
+	    if (nal_type == 9 || nal_type == 12) {
+		parsing_sample = 0;
+		read_pos += 3;	     
+		continue;
+	    }
+	    fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+	    saved_position = write_pos;
+	    *(sample_buffer+write_pos+0) = 0xf0;
+	    *(sample_buffer+write_pos+1) = 0x0d;
+	    *(sample_buffer+write_pos+2) = 0xf0;
+	    *(sample_buffer+write_pos+3) = 0x0d;	    
+	    parsing_sample = 1;
+	    read_pos += 3;
+	    write_pos += 4;
+	} else {
+	    if (parsing_sample) {
+		sample_buffer[write_pos] = input_buffer[read_pos];
+		write_pos++;
+	    }
+	    read_pos++;	    
+	}
+	if (read_pos == i) {
+	    break;
+	}
+    }
+    if (parsing_sample) {
+	sample_size = write_pos - saved_position - 4;
+	fprintf(stderr,"DONE PARSING LAST SAMPLE: %d  SAVED_POS:%d\n", sample_size, sample_size);
+	*(sample_buffer+saved_position+0) = ((uint32_t)sample_size >> 24) & 0xff;
+	*(sample_buffer+saved_position+1) = ((uint32_t)sample_size >> 16) & 0xff;
+	*(sample_buffer+saved_position+2) = ((uint32_t)sample_size >> 8) & 0xff;
+	*(sample_buffer+saved_position+3) = (uint32_t)sample_size & 0xff;
+    }    
+    return write_pos;
+}
+
+int fmp4_video_fragment_add(fragment_file_struct *fmp4,
+			    uint8_t *fragment_buffer,
+			    int fragment_buffer_size,
+			    double fragment_timestamp,
+			    int fragment_duration,
+			    int64_t fragment_composition_time)
 {
     int frag = fmp4->fragment_count;
     uint8_t *new_frag;
+    int i;
+    int updated_fragment_buffer_size;
 
     if (frag >= MAX_FRAGMENTS) {
 	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF FRAGMENTS!\n");
@@ -1201,13 +1274,55 @@ int fmp4_fragment_add(fragment_file_struct *fmp4,
 	fmp4->fragment_start_timestamp = fragment_timestamp * fmp4->timescale;
     }
 
-    new_frag = (uint8_t*)malloc(fragment_buffer_size);
+    new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
+
+    updated_fragment_buffer_size = replace_startcode_with_size(fragment_buffer, fragment_buffer_size, new_frag, fragment_buffer_size*2);
+
+    uint32_t *fragsize = (uint32_t*)new_frag;
+    fprintf(stderr,"new frag size: %u   0x%x 0x%x 0x%x 0x%x\n", ntohl(*fragsize),
+	    new_frag[0], new_frag[1], new_frag[2], new_frag[3]);
+    
+    fmp4->fragments[frag].fragment_buffer = new_frag;
+    fmp4->fragments[frag].fragment_buffer_size = updated_fragment_buffer_size;
+    fmp4->fragments[frag].fragment_duration = fragment_duration;
+    fmp4->fragments[frag].fragment_timestamp = fragment_timestamp * fmp4->timescale;
+    fmp4->fragments[frag].fragment_composition_time = fragment_composition_time;
+
+    fmp4->fragment_count++;
+
+    return 0;
+}
+
+int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
+			    uint8_t *fragment_buffer,
+			    int fragment_buffer_size,
+			    double fragment_timestamp,
+			    int fragment_duration)
+{
+    int frag = fmp4->fragment_count;
+    uint8_t *new_frag;
+    int i;
+#define ADTS_HEADER_SIZE 7    
+
+    if (frag >= MAX_FRAGMENTS) {
+	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF FRAGMENTS!\n");
+	return -1;
+    }    
+    
+    if (frag == 0) {
+	fmp4->fragment_start_timestamp = fragment_timestamp * fmp4->timescale;
+    }
+
+    new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
+
+    fragment_buffer_size -= ADTS_HEADER_SIZE;
+    memcpy(new_frag, fragment_buffer + ADTS_HEADER_SIZE, fragment_buffer_size);
 
     fmp4->fragments[frag].fragment_buffer = new_frag;
     fmp4->fragments[frag].fragment_buffer_size = fragment_buffer_size;
     fmp4->fragments[frag].fragment_duration = fragment_duration;
     fmp4->fragments[frag].fragment_timestamp = fragment_timestamp * fmp4->timescale;
-    fmp4->fragments[frag].fragment_composition_time = fragment_composition_time;
+    fmp4->fragments[frag].fragment_composition_time = 0;
 
     fmp4->fragment_count++;
 

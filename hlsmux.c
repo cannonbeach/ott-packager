@@ -986,8 +986,7 @@ static int end_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int 
     return 0;
 }
 
-
-static int update_video_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
+static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
 {
     FILE *video_manifest;
     char stream_name[MAX_STREAM_NAME];
@@ -1020,12 +1019,12 @@ static int update_video_manifest(fillet_app_struct *core, stream_struct *stream,
 	fprintf(video_manifest,"video_stream%d_%ld.ts\n", source, next_sequence_number);
     }
 
-    fclose(video_manifest);
+    fclose(video_manifest);    
     
     return 0;
 }
 
-static int update_audio_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
+static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
 {
     FILE *audio_manifest;
     char stream_name[MAX_STREAM_NAME];
@@ -1062,7 +1061,7 @@ static int update_audio_manifest(fillet_app_struct *core, stream_struct *stream,
     return 0;
 }
 
-static int write_master_manifest(fillet_app_struct *core, source_context_struct *sdata)
+static int write_ts_master_manifest(fillet_app_struct *core, source_context_struct *sdata)
 {
     struct stat sb;
     char master_manifest_filename[MAX_STREAM_NAME];
@@ -1111,6 +1110,140 @@ static int write_master_manifest(fillet_app_struct *core, source_context_struct 
     
     return 0;
 }
+
+static int update_mp4_video_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
+{
+    FILE *video_manifest;
+    char stream_name[MAX_STREAM_NAME];
+    int i;
+    int64_t starting_file_sequence_number;
+    int64_t starting_media_sequence_number;
+    
+    starting_file_sequence_number = stream->file_sequence_number - core->cd->window_size;
+    if (starting_file_sequence_number < 0) {
+	starting_file_sequence_number += core->cd->rollover_size;
+    }
+    starting_media_sequence_number = stream->media_sequence_number - core->cd->window_size;
+
+    snprintf(stream_name, MAX_STREAM_NAME-1, "%s/video%dfmp4.m3u8", core->cd->manifest_directory, source);
+    video_manifest = fopen(stream_name,"w");
+
+    fprintf(video_manifest,"#EXTM3U\n");
+    fprintf(video_manifest,"#EXT-X-VERSION:8\n");
+    fprintf(video_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
+    fprintf(video_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");    
+    fprintf(video_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
+    fprintf(video_manifest,"#EXT-X-MAP:URI=\"video%d/init.mp4\"\n", source);
+    
+    for (i = 0; i < core->cd->window_size; i++) {
+	int64_t next_sequence_number;
+
+	next_sequence_number = (starting_file_sequence_number + i) % core->cd->rollover_size;
+        if (sdata->discontinuity[next_sequence_number]) {
+	    fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
+	}
+        fprintf(video_manifest,"#EXTINF:%.2f,\n", (float)sdata->segment_lengths[next_sequence_number]);
+	fprintf(video_manifest,"video%d/segment%ld.mp4\n", source, next_sequence_number);
+    }
+
+    fclose(video_manifest);    
+    
+    return 0;
+}
+
+static int update_mp4_audio_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
+{
+    FILE *audio_manifest;
+    char stream_name[MAX_STREAM_NAME];
+    int i;
+    int64_t starting_file_sequence_number;
+    int64_t starting_media_sequence_number;
+
+    starting_file_sequence_number = stream->file_sequence_number - core->cd->window_size;
+    if (starting_file_sequence_number < 0) {
+	starting_file_sequence_number += core->cd->rollover_size;
+    }
+    starting_media_sequence_number = stream->media_sequence_number - core->cd->window_size;
+    
+    snprintf(stream_name, MAX_STREAM_NAME-1, "%s/audio%dfmp4.m3u8", core->cd->manifest_directory, source);    
+    audio_manifest = fopen(stream_name,"w");
+
+    fprintf(audio_manifest,"#EXTM3U\n");
+    fprintf(audio_manifest,"#EXT-X-VERSION:8\n");
+    fprintf(audio_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
+    fprintf(audio_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");    
+    fprintf(audio_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
+    fprintf(audio_manifest,"#EXT-X-MAP:URI=\"audio%d/init.mp4\"\n", source);
+
+    for (i = 0; i < core->cd->window_size; i++) {
+	int64_t next_sequence_number;	
+	next_sequence_number = (starting_file_sequence_number + i) % core->cd->rollover_size;
+        if (sdata->discontinuity[next_sequence_number]) {
+	    fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
+	}	
+        fprintf(audio_manifest,"#EXTINF:%.2f,\n", (float)sdata->segment_lengths[next_sequence_number]);
+	fprintf(audio_manifest,"audio%d/segment%ld.mp4\n", source, next_sequence_number);	
+    }
+
+    fclose(audio_manifest);
+    
+    return 0;
+}
+
+static int write_mp4_master_manifest(fillet_app_struct *core, source_context_struct *sdata)
+{
+    struct stat sb;
+    char master_manifest_filename[MAX_STREAM_NAME];
+    FILE *master_manifest;
+    int i;
+
+    if (stat(core->cd->manifest_directory, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+	fprintf(stderr,"STATUS: Manifest directory exists: %s\n", core->cd->manifest_directory);
+    } else {
+	fprintf(stderr,"STATUS: Manifest directory does not exist: %s (CREATING)\n", core->cd->manifest_directory);
+	mkdir(core->cd->manifest_directory, 0700);
+	fprintf(stderr,"STATUS: Done creating manifest directory\n");
+    }
+
+    snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/masterfmp4.m3u8",core->cd->manifest_directory);
+
+    master_manifest = fopen(master_manifest_filename,"w");
+    if (!master_manifest) {
+	fprintf(stderr,"ERROR: Unable to create master manifest file - please check system configuration: %s\n", master_manifest_filename);
+	return -1;
+    }
+   
+    fprintf(master_manifest,"#EXTM3U\n");
+    fprintf(master_manifest,"#EXT-X-VERSION:8\n");
+    fprintf(master_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");
+    if (strlen(sdata->lang_tag) > 0) {
+	fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"allaudio\",LANGUAGE=\"%s\",NAME=\"%s\",AUTOSELECT=YES,DEFAULT=YES,URI=\"audio%dfmp4.m3u8\"\n",
+		sdata->lang_tag,
+		sdata->lang_tag,
+		0);
+    } else {
+	fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"allaudio\",LANGUAGE=\"eng\",NAME=\"eng\",AUTOSELECT=YES,DEFAULT=YES,URI=\"audio%dfmp4.m3u8\"\n",
+		0);
+    }
+
+    for (i = 0; i < core->num_sources; i++) {
+	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;	
+	
+	fprintf(master_manifest,"#EXT-X-STREAM-INF:BANDWIDTH=%ld,CODECS=\"avc1.%2x%02x%2x\",RESOLUTION=%dx%d,AUDIO=\"allaudio\"\n",
+		vstream->video_bitrate,
+		sdata->h264_profile, //hex
+		sdata->midbyte,
+		sdata->h264_level,
+		sdata->width, sdata->height);	
+	fprintf(master_manifest,"video%dfmp4.m3u8\n", i);
+	sdata++;
+    }
+    
+    fclose(master_manifest);
+    
+    return 0;
+}
+
 
 static int end_ts_fragment(fillet_app_struct *core, stream_struct *stream, int source)
 {
@@ -1235,11 +1368,18 @@ void *mux_pump_thread(void *context)
 			fclose(hlsmux->video[i].output_fmp4_file);
 			hlsmux->video[i].output_fmp4_file = NULL;		    
 		    }		
-		    hlsmux->audio[i].packet_count = 0;
 		    if (hlsmux->audio[i].output_fmp4_file) {
 			fclose(hlsmux->audio[i].output_fmp4_file);
 			hlsmux->audio[i].output_fmp4_file = NULL;
 		    }
+		    if (hlsmux->video[i].fmp4) {
+			fmp4_file_finalize(hlsmux->video[i].fmp4);
+			hlsmux->video[i].fmp4 = NULL;
+		    }
+		    if (hlsmux->audio[i].fmp4) {
+			fmp4_file_finalize(hlsmux->audio[i].fmp4);
+			hlsmux->audio[i].fmp4 = NULL;
+		    }						    
 		}
 
 		hlsmux->video[i].file_sequence_number = first_video_file_sequence_number;
@@ -1280,11 +1420,20 @@ void *mux_pump_thread(void *context)
 	    if (manifest_ready == num_sources && manifest_written == 0 && sub_manifest_ready) {
 		manifest_written = 1;
 		fprintf(stderr,"HLSMUX: WRITING OUT MASTER MANIFEST FILE\n");
-		err = write_master_manifest(core, &source_data[0]);
+		err = write_ts_master_manifest(core, &source_data[0]);
 		if (err < 0) {
 		    // TODO
 		    continue;
 		}
+
+		if (core->cd->enable_fmp4_output) {
+		    err = write_mp4_master_manifest(core, &source_data[0]);
+		    if (err < 0) {
+			// TODO
+			continue;
+		    }
+		}
+		
 	    }
 
 	    if (frame->sync_frame) {
@@ -1305,6 +1454,7 @@ void *mux_pump_thread(void *context)
 								      0x15c7, // english language code
 								      fragment_length);  // fragment length in seconds
 
+			// logic needed for multiple sps/pps
 			fmp4_video_set_sps(hlsmux->video[source].fmp4,
 					   source_data[source].h264_sps,
 					   source_data[source].h264_sps_size);
@@ -1320,7 +1470,7 @@ void *mux_pump_thread(void *context)
 								
 			start_init_mp4_fragment(core, &hlsmux->video[source], source, 1);
 
-			fprintf(stderr,"HLSMUX: CREATED INITIAL MP4 FRAGMENT(%d): %p\n",
+			fprintf(stderr,"HLSMUX: CREATED INITIAL MP4 VIDEO FRAGMENT(%d): %p\n",
 				source,
 				hlsmux->video[source].fmp4->buffer);
 			
@@ -1358,8 +1508,6 @@ void *mux_pump_thread(void *context)
 				    hlsmux->video[source].fmp4->buffer_offset);			    
 			    fwrite(hlsmux->video[source].fmp4->buffer, 1, hlsmux->video[source].fmp4->buffer_offset, hlsmux->video[source].output_fmp4_file);
 			    end_mp4_fragment(core, &hlsmux->video[source], source);
-			    fmp4_file_finalize(hlsmux->video[source].fmp4);
-			    hlsmux->video[source].fmp4 = NULL;
 			}
 		    }
 		    
@@ -1368,9 +1516,14 @@ void *mux_pump_thread(void *context)
 		    source_data[source].segment_lengths[hlsmux->video[source].file_sequence_number] = frag_delta;
 		    source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;
 		    if (hlsmux->video[source].fragments_published > core->cd->window_size) {
-			update_video_manifest(core, &hlsmux->video[source], source,
-					      source_data[source].source_discontinuity,
-					      &source_data[source]);
+			update_ts_video_manifest(core, &hlsmux->video[source], source,
+						 source_data[source].source_discontinuity,
+						 &source_data[source]);
+			if (core->cd->enable_fmp4_output) {
+			    update_mp4_video_manifest(core, &hlsmux->video[source], source,
+						      source_data[source].source_discontinuity,
+						      &source_data[source]);
+			}
 			source_data[source].source_discontinuity = 0;
 			sub_manifest_ready = 1;
 		    }
@@ -1388,20 +1541,23 @@ void *mux_pump_thread(void *context)
 
 		    start_ts_fragment(core, &hlsmux->video[source], source, 1);  // start first video fragment
 		    if (core->cd->enable_fmp4_output) {
-			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;													
-			start_mp4_fragment(core, &hlsmux->video[source], source, 1);
-			hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
-								      90000, // timescale for H264 video
-								      0x157c, // english language code
-								      fragment_length);  // fragment length in seconds
-			fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
-				source,
-				hlsmux->video[source].fmp4);				
+			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 			
-			fmp4_video_track_create(hlsmux->video[source].fmp4,
-						source_data[source].width,
-						source_data[source].height,
-						vstream->video_bitrate);
+			start_mp4_fragment(core, &hlsmux->video[source], source, 1);
+			if (hlsmux->video[source].fmp4 == NULL) {			    
+			    hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
+									  90000, // timescale for H264 video
+									  0x157c, // english language code
+									  fragment_length);  // fragment length in seconds
+			    fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
+				    source,
+				    hlsmux->video[source].fmp4);				
+			    
+			    fmp4_video_track_create(hlsmux->video[source].fmp4,
+						    source_data[source].width,
+						    source_data[source].height,
+						    vstream->video_bitrate);
+			}
 		    }		    				     
 		}
 	    }
@@ -1413,18 +1569,26 @@ void *mux_pump_thread(void *context)
 			int fragment_duration;
 			int64_t fragment_composition_time;
 
-			fprintf(stderr,"ADDING FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d\n",
+			fprintf(stderr,"ADDING VIDEO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d\n",
 				source,
 				hlsmux->video[source].fmp4->fragment_count,
 				hlsmux->video[source].fmp4->buffer,
 				hlsmux->video[source].fmp4->buffer_offset);
+
+			if (frame->dts > 0) {
+			    fragment_composition_time = frame->dts - frame->pts;
+			} else {
+			    fragment_composition_time = 0;
+			}
+
+			//fragment_duration = 90000 / ();
 			
-			fmp4_fragment_add(hlsmux->video[source].fmp4,
-					  frame->buffer,
-					  frame->buffer_size,
-					  fragment_timestamp,
-					  fragment_duration,
-					  fragment_composition_time);		    
+			fmp4_video_fragment_add(hlsmux->video[source].fmp4,
+						frame->buffer,
+						frame->buffer_size,
+						fragment_timestamp,
+						fragment_duration,
+						fragment_composition_time);		    
 		    }
 		}
 	    }
@@ -1495,17 +1659,75 @@ void *mux_pump_thread(void *context)
 	    
 	    if (source_data[source].start_time_audio == -1) {
 		source_data[source].start_time_audio = frame->full_time;
+
+		if (core->cd->enable_fmp4_output) {
+		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream;
+		    hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
+								  48000, // timescale for AAC audio (48kHz)
+								  0x15c7, // english language code
+								  fragment_length);  // fragment length in seconds
+
+		    // frame->buffer -- decode audio sample information here
+
+		    fmp4_audio_track_create(hlsmux->audio[source].fmp4,
+					    2, // audio channels - todo
+					    48000, // audio samplerate - todo
+					    64000);  // audio bitrate - todo
+								
+		    start_init_mp4_fragment(core, &hlsmux->audio[source], source, 0);
+
+		    fprintf(stderr,"HLSMUX: CREATED INITIAL MP4 AUDIO FRAGMENT(%d): %p\n",
+			    source,
+			    hlsmux->audio[source].fmp4->buffer);
+		    
+		    fmp4_output_header(hlsmux->audio[source].fmp4);
+			
+		    fprintf(stderr,"HLSMUX: WRITING OUT AUDIO INIT FILE - FMP4(%d): %ld\n",
+			    source,
+			    hlsmux->audio[source].fmp4->buffer_offset);
+			
+		    fwrite(hlsmux->audio[source].fmp4->buffer, 1, hlsmux->audio[source].fmp4->buffer_offset, hlsmux->audio[source].output_fmp4_file);
+		    end_init_mp4_fragment(core, &hlsmux->audio[source], source);
+			
+		    fmp4_file_finalize(hlsmux->audio[source].fmp4);			
+		    hlsmux->audio[source].fmp4 = NULL;
+		}		
 	    }
 	    frag_delta = (frame->full_time - source_data[source].start_time_audio) / 90000.0;
 	    if (source_data[source].total_audio_duration+frag_delta >= source_data[source].total_video_duration && source_data[source].video_fragment_ready) {
 		end_ts_fragment(core, &hlsmux->audio[source], source);
+
+		fprintf(stderr,"fMP4:%p\n", hlsmux->audio[source].fmp4);
+		if (hlsmux->audio[source].fmp4) {
+		    fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): BUFFER:%p SIZE:%d TF:%d\n",
+			    source,
+			    hlsmux->audio[source].fmp4->buffer,
+			    hlsmux->audio[source].fmp4->buffer_offset,
+			    hlsmux->audio[source].fmp4->fragment_count);
+		}
+		    
+		if (core->cd->enable_fmp4_output) {
+		    if (hlsmux->audio[source].fmp4) {
+			fmp4_fragment_end(hlsmux->audio[source].fmp4);
+			fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): SIZE:%d\n",
+				source,
+				hlsmux->audio[source].fmp4->buffer_offset);			    
+			fwrite(hlsmux->audio[source].fmp4->buffer, 1, hlsmux->audio[source].fmp4->buffer_offset, hlsmux->audio[source].output_fmp4_file);
+			end_mp4_fragment(core, &hlsmux->audio[source], source);
+		    }
+		}		
 		
 		source_data[source].segment_lengths[hlsmux->audio[source].file_sequence_number] = frag_delta;
 		source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;		
 		if (hlsmux->audio[source].fragments_published > core->cd->window_size) {
-		    update_audio_manifest(core, &hlsmux->audio[source], source,
-					  source_data[source].source_discontinuity,
-					  &source_data[source]);
+		    update_ts_audio_manifest(core, &hlsmux->audio[source], source,
+					     source_data[source].source_discontinuity,
+					     &source_data[source]);
+		    if (core->cd->enable_fmp4_output) {
+			update_mp4_audio_manifest(core, &hlsmux->audio[source], source,
+						 source_data[source].source_discontinuity,
+						 &source_data[source]);			
+		    }
 		    source_data[source].source_discontinuity = 0;
 		    sub_manifest_ready = 1;
 		}
@@ -1523,8 +1745,50 @@ void *mux_pump_thread(void *context)
 		source_data[source].total_audio_duration += frag_delta;
 		source_data[source].expected_audio_duration += fragment_length;
 
-		start_ts_fragment(core, &hlsmux->audio[source], source, 0);  // start first video fragment
+		start_ts_fragment(core, &hlsmux->audio[source], source, 0);  // start first audio fragment
+		if (core->cd->enable_fmp4_output) {
+		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream;
+			
+		    start_mp4_fragment(core, &hlsmux->audio[source], source, 0);
+		    if (hlsmux->audio[source].fmp4 == NULL) {			    
+			hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
+								      48000, // timescale for H264 video
+								      0x157c, // english language code
+								      fragment_length);  // fragment length in seconds
+			fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
+				source,
+				hlsmux->audio[source].fmp4);
+
+			fmp4_audio_track_create(hlsmux->audio[source].fmp4,
+						2, // audio channels - todo
+						48000, // audio samplerate - todo
+						64000);  // audio bitrate - todo
+			
+		    }
+		}		    				     		
+		
 	    }
+
+	    if (core->cd->enable_fmp4_output) {	    
+		if (hlsmux->audio[source].output_fmp4_file != NULL) {
+		    if (hlsmux->audio[source].fmp4) {
+			double fragment_timestamp;
+			int fragment_duration;
+			
+			fprintf(stderr,"ADDING AUDIO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d\n",
+				source,
+				hlsmux->audio[source].fmp4->fragment_count,
+				hlsmux->audio[source].fmp4->buffer,
+				hlsmux->audio[source].fmp4->buffer_offset);
+			
+			fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
+						frame->buffer,
+						frame->buffer_size,
+						fragment_timestamp,
+						fragment_duration);
+		    }
+		}
+	    }	    
 
 	    if (hlsmux->audio[source].output_ts_file != NULL) {
 		int s;

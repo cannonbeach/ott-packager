@@ -97,12 +97,18 @@ typedef struct _fragment_file_struct_
     int64_t                fragment_start_timestamp;
 } fragment_file_struct;
 
-int fmp4_fragment_add(fragment_file_struct *fmp4,
-		      uint8_t *fragment_buffer,
-		      int fragment_buffer_size,
-		      double fragment_timestamp,
-		      int fragment_duration,
-		      int64_t fragment_composition_time);
+int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
+			    uint8_t *fragment_buffer,
+			    int fragment_buffer_size,
+			    double fragment_timestamp,
+			    int fragment_duration);
+
+int fmp4_video_fragment_add(fragment_file_struct *fmp4,
+			    uint8_t *fragment_buffer,
+			    int fragment_buffer_size,
+			    double fragment_timestamp,
+			    int fragment_duration,
+			    int64_t fragment_composition_time);
 
 fragment_file_struct *fmp4_file_create(int media_type, int timescale, int lang_code, int frag_duration);
 int fmp4_file_finalize(fragment_file_struct *fmp4);
