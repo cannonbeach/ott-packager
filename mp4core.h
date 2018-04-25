@@ -91,6 +91,7 @@ typedef struct _fragment_file_struct_
     int64_t                duration_buffer_offset;
 
     int64_t                buffer_offset;
+    int64_t                initial_offset;
     uint8_t                *buffer;
 
     fragment_struct        fragments[MAX_FRAGMENTS];

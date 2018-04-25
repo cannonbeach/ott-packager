@@ -159,9 +159,11 @@ static int output_fmp4_ftyp(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"isom");
 
     buffer_offset += output32(fmp4, 0);
+    buffer_offset += output_fmp4_4cc(fmp4,"iso8");    
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
     buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+    buffer_offset += output_fmp4_4cc(fmp4,"cmfc");    
 
     output32_raw(data, buffer_offset);
     
@@ -180,12 +182,64 @@ static int output_fmp4_styp(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"isom");
 
     buffer_offset += output32(fmp4, 0);
+    buffer_offset += output_fmp4_4cc(fmp4,"iso8");    
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
     buffer_offset += output_fmp4_4cc(fmp4,"avc1");
-
+    buffer_offset += output_fmp4_4cc(fmp4,"cmfc");
+    
     output32_raw(data, buffer_offset);
 
+    return buffer_offset;
+}
+
+static int output_fmp4_sidx(fragment_file_struct *fmp4)
+{
+    uint8_t *data;
+    int buffer_offset;
+    uint64_t fragment_duration;
+    uint32_t sidx_buffer_offset;
+    uint32_t total_duration;
+    int frag;
+    uint32_t SAP;
+    uint32_t fragment_sizes;
+
+    data = fmp4->buffer + fmp4->buffer_offset;
+
+    buffer_offset = output32(fmp4, 0);
+    buffer_offset += output_fmp4_4cc(fmp4,"sidx");
+    buffer_offset += output32(fmp4, 0); //0x1000000);
+    buffer_offset += output32(fmp4, fmp4->track_id);
+    buffer_offset += output32(fmp4, fmp4->timescale);
+
+    // take time from tfdt+sample_duration
+    fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)fmp4->frag_duration * (uint64_t)fmp4->sequence_number;
+    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+	fragment_duration += fmp4->fragments[0].fragment_composition_time;
+    }    
+    buffer_offset += output32(fmp4, fragment_duration);    
+    buffer_offset += output32(fmp4, 0);  // first_offset
+    buffer_offset += output16(fmp4, 0); // reserved = 0
+    buffer_offset += output16(fmp4, 1); // reference_count
+
+    sidx_buffer_offset = (uint32_t)fmp4->sidx_buffer_offset;
+    sidx_buffer_offset = sidx_buffer_offset & 0xefffffff;
+
+    total_duration = 0;
+    fragment_sizes = 0;    
+    for (frag = 0; frag < fmp4->fragment_count; frag++) {
+	total_duration += fmp4->fragments[frag].fragment_duration;
+	fragment_sizes += fmp4->fragments[frag].fragment_buffer_size;
+    }
+    fragment_sizes += sidx_buffer_offset;
+    buffer_offset += output32(fmp4, fragment_sizes);
+    buffer_offset += output32(fmp4, total_duration);      // the total duration of the fragment
+    
+    SAP = 0x90000000;  // SAP
+    buffer_offset += output32(fmp4, SAP);  
+    
+    output32_raw(data, buffer_offset);
+    
     return buffer_offset;
 }
 
@@ -872,8 +926,9 @@ static int output_fmp4_tfhd(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tfhd");
 
-    buffer_offset += output32(fmp4, 0x020000);
+    buffer_offset += output32(fmp4, 0x20000); //0x020002);
     buffer_offset += output32(fmp4, fmp4->track_id);
+    //buffer_offset += output32(fmp4, 1);
 
     output32_raw(data, buffer_offset);
 	
@@ -907,6 +962,7 @@ static int output_fmp4_trun(fragment_file_struct *fmp4)
     int total_duration;
 
     data = fmp4->buffer + fmp4->buffer_offset;
+    
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"trun");
     if (fmp4->track_type == TRACK_TYPE_VIDEO) {
@@ -936,7 +992,8 @@ static int output_fmp4_trun(fragment_file_struct *fmp4)
     fmp4->total_duration = total_duration;
 
     output32_raw(data, buffer_offset);
-    output32_raw(data_start, fmp4->buffer_offset + 8);
+    fmp4->sidx_buffer_offset = fmp4->buffer_offset + 8;
+    output32_raw(data_start, fmp4->buffer_offset + 8 - fmp4->initial_offset);
 
     return buffer_offset;
 }
@@ -997,7 +1054,7 @@ static int output_fmp4_mdat(fragment_file_struct *fmp4)
 	free(fmp4->fragments[frag].fragment_buffer);
     }
 
-    output32_raw(data, buffer_offset);    
+    output32_raw(data, buffer_offset);
 
     return buffer_offset;
 }
@@ -1055,9 +1112,12 @@ int fmp4_fragment_end(fragment_file_struct *fmp4)
 {
     fmp4->buffer_offset = 0;
 
-    output_fmp4_moof(fmp4);
+    fmp4->initial_offset = output_fmp4_styp(fmp4);
+    fmp4->initial_offset += output_fmp4_sidx(fmp4);
+    
+    output_fmp4_moof(fmp4);    
     output_fmp4_mdat(fmp4);
-
+    
     fmp4->sequence_number++;
     fmp4->fragment_count = 0;
     
@@ -1311,7 +1371,8 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
     int frag = fmp4->fragment_count;
     uint8_t *new_frag;
     int i;
-#define ADTS_HEADER_SIZE 7    
+    int header_size;
+#define ADTS_HEADER_SIZE 7
 
     if (frag >= MAX_FRAGMENTS) {
 	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF FRAGMENTS!\n");
@@ -1324,8 +1385,10 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
 
     new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
 
-    fragment_buffer_size -= ADTS_HEADER_SIZE;
-    memcpy(new_frag, fragment_buffer + ADTS_HEADER_SIZE, fragment_buffer_size);
+    header_size = ADTS_HEADER_SIZE + ((fragment_buffer[1] & 0x01) ? 0 : 2);  // check for crc
+
+    fragment_buffer_size -= header_size;
+    memcpy(new_frag, fragment_buffer + header_size, fragment_buffer_size);
 
     fmp4->fragments[frag].fragment_buffer = new_frag;
     fmp4->fragments[frag].fragment_buffer_size = fragment_buffer_size;

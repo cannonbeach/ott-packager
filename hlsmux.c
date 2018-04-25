@@ -1708,7 +1708,7 @@ void *mux_pump_thread(void *context)
 					    astream->audio_channels,
 					    astream->audio_samplerate,
 					    astream->audio_object_type,
-					    64000);  // audio bitrate - todo
+					    128000);  // audio bitrate - todo
 								
 		    start_init_mp4_fragment(core, &hlsmux->audio[source], source, 0);
 
@@ -1799,7 +1799,7 @@ void *mux_pump_thread(void *context)
 						astream->audio_channels,
 						astream->audio_samplerate,
 						astream->audio_object_type,
-						64000);  // audio bitrate - todo
+						128000);  // audio bitrate - todo
 			
 		    }
 		}		    				     		
