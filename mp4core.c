@@ -557,9 +557,10 @@ static int output_fmp4_esds(fragment_file_struct *fmp4)
     buffer_offset += output8(fmp4, 0x80);
     buffer_offset += output8(fmp4, 0x14);  // 20 bytes
 
-    buffer_offset += output8(fmp4, 0x40); // object_type
+    buffer_offset += output8(fmp4, 0x40); //fmp4->audio_object_type);
     buffer_offset += output8(fmp4, 0x15); // stream_type
     buffer_offset += output8(fmp4, 0x00); // buffer size
+    buffer_offset += output16(fmp4, 0x00);
     buffer_offset += output32(fmp4, fmp4->audio_bitrate); // max bitrate
     buffer_offset += output32(fmp4, fmp4->audio_bitrate); // avg bitrate
 
@@ -568,11 +569,11 @@ static int output_fmp4_esds(fragment_file_struct *fmp4)
     buffer_offset += output8(fmp4, 0x80);
     buffer_offset += output8(fmp4, 0x80);
     buffer_offset += output8(fmp4, 0x80);
-    buffer_offset += output8(fmp4, 0x80);
-    buffer_offset += output8(fmp4, 0x80);
     buffer_offset += output8(fmp4, fmp4->audio_config_size);
-    for (i = 0; i < fmp4->audio_config_size; i++) {
-	buffer_offset += output8(fmp4, fmp4->audio_config[i]);
+    if (fmp4->audio_config_size == 2) {
+	buffer_offset += output16(fmp4, fmp4->audio_config);
+    } else {
+	buffer_offset += output32(fmp4, fmp4->audio_config);
     }
 
     // SL descriptor
@@ -889,11 +890,7 @@ static int output_fmp4_tfdt(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tfdt");
     buffer_offset += output32(fmp4, 0x01000000);
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
-	fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)fmp4->frag_duration * (uint64_t)fmp4->sequence_number;
-    } else {
-	fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)fmp4->frag_duration * (uint64_t)fmp4->sequence_number;
-    }
+    fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)fmp4->frag_duration * (uint64_t)fmp4->sequence_number;
     buffer_offset += output64(fmp4, fragment_duration);
 
     output32_raw(data, buffer_offset);
@@ -1162,7 +1159,7 @@ uint8_t *fmp4_get_fragment(fragment_file_struct *fmp4, int *fragment_size)
     return fmp4->buffer;
 }    
 
-int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int audio_samplerate, int audio_bitrate)
+int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int audio_samplerate, int audio_object_type, int audio_bitrate)
 {
     if (!fmp4) {
 	return -1;
@@ -1177,8 +1174,20 @@ int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int 
     fmp4->audio_channels = audio_channels;
     fmp4->audio_samplerate = audio_samplerate;
     fmp4->audio_bitrate = audio_bitrate;
+    fmp4->audio_object_type = audio_object_type;
     fmp4->subtitle_bitrate = 0;
     fmp4->track_type = TRACK_TYPE_AUDIO;
+   
+    if (audio_channels == 2 && audio_samplerate == 48000) {
+	fmp4->audio_config = 0x1190;
+	fmp4->audio_config_size = 2;
+    } else if (audio_channels == 6 && audio_samplerate == 48000) {
+	fmp4->audio_config = 0x11b0;
+	fmp4->audio_config_size = 2;	
+    } else {	
+	fmp4->audio_config = 0x1190;
+	fmp4->audio_config_size = 2;
+    }
     
     return 0;
 }

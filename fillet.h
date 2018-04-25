@@ -140,6 +140,7 @@ typedef struct _sorted_frame_struct_
     int64_t                dts;
     int64_t                full_time;
     int64_t                first_timestamp;
+    int                    duration;
     int                    source;
     int                    sub_stream;
     int                    sync_frame;
@@ -153,10 +154,14 @@ typedef struct _audio_stream_struct_
     int64_t                current_receive_count;
     int64_t                first_timestamp;
     int64_t                last_timestamp_pts;
+    int64_t                last_full_time;
     int64_t                overflow_pts;
-    int64_t                audio_bitrate;
+    int64_t                audio_bitrate;    
     int64_t                total_audio_bytes;
     struct timespec        audio_clock_start;
+    int                    audio_channels;
+    int                    audio_object_type;
+    int                    audio_samplerate;
     void                   *audio_queue;    
 } audio_stream_struct;
 
@@ -168,6 +173,7 @@ typedef struct _video_stream_struct_
     int64_t                first_timestamp;
     int64_t                last_timestamp_pts;
     int64_t                last_timestamp_dts;
+    int                    last_full_time;
     int64_t                overflow_pts;
     int64_t                overflow_dts;
     int64_t                video_bitrate;

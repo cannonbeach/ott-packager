@@ -807,12 +807,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 		    restart_sync_thread = 1;
 		} 
 	    }
-	}
 
-	if (dts > 0) {
 	    vstream->last_timestamp_dts = dts + vstream->overflow_dts;
 	}
-	vstream->last_timestamp_pts = pts + vstream->overflow_dts;	    
+	vstream->last_timestamp_pts = pts + vstream->overflow_dts;
 	vstream->current_receive_count++;
 	if (sample_flags) {
 	    vstream->last_intra_count = vstream->current_receive_count;
@@ -833,8 +831,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	if (dts > 0) {
 	    new_frame->full_time = dts + vstream->overflow_dts;
 	} else {
-	    new_frame->full_time = pts + vstream->overflow_dts; 
+	    new_frame->full_time = pts + vstream->overflow_dts;
 	}
+	new_frame->duration = new_frame->full_time - vstream->last_full_time;	
+	vstream->last_full_time = new_frame->full_time;
 	new_frame->first_timestamp = vstream->first_timestamp;
 	new_frame->source = source;
 	new_frame->sync_frame = sample_flags;
@@ -906,6 +906,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	new_frame->pts = pts;
 	new_frame->dts = dts;
 	new_frame->full_time = pts + astream->overflow_pts;
+	new_frame->duration = new_frame->full_time - astream->last_full_time;
+	astream->last_full_time = new_frame->full_time;
 	new_frame->first_timestamp = 0;
 	new_frame->source = source;
 	new_frame->sync_frame = sample_flags;

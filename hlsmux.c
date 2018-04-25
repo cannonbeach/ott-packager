@@ -1564,7 +1564,6 @@ void *mux_pump_thread(void *context)
 	    if (core->cd->enable_fmp4_output) {	    
 		if (hlsmux->video[source].output_fmp4_file != NULL) {
 		    if (hlsmux->video[source].fmp4) {
-			//frame->buffer, frame->buffer_size
 			double fragment_timestamp;
 			int fragment_duration;
 			int64_t fragment_composition_time;
@@ -1576,12 +1575,17 @@ void *mux_pump_thread(void *context)
 				hlsmux->video[source].fmp4->buffer_offset);
 
 			if (frame->dts > 0) {
-			    fragment_composition_time = frame->dts - frame->pts;
+			    // CHECK FOR OVERFLOW ISSUE WHEN ONE GOES BACK TO ZERO
+			    fragment_composition_time = frame->pts - frame->dts;
+			    fragment_timestamp = frame->dts;
 			} else {
 			    fragment_composition_time = 0;
+			    fragment_timestamp = frame->pts;
 			}
 
-			//fragment_duration = 90000 / ();
+			fragment_duration = frame->duration;
+
+			fprintf(stderr,"FRAGMENT DURATION:%d  CTS:%ld\n", fragment_duration, fragment_composition_time);
 			
 			fmp4_video_fragment_add(hlsmux->video[source].fmp4,
 						frame->buffer,
@@ -1662,16 +1666,48 @@ void *mux_pump_thread(void *context)
 
 		if (core->cd->enable_fmp4_output) {
 		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream;
-		    hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
-								  48000, // timescale for AAC audio (48kHz)
-								  0x15c7, // english language code
-								  fragment_length);  // fragment length in seconds
 
-		    // frame->buffer -- decode audio sample information here
+		    // decode the initial parameters
+		    // 0xfff - 12-bits of sync code
+		    uint8_t *srcdata = frame->buffer;		    
+		    int audio_object_type = (*(srcdata+2) & 0xC0) >> 6;
+		    int sample_freq_index = (*(srcdata+2) & 0x3C) >> 2;
+		    int channel_config0 = (*(srcdata+2) & 0x01) << 2;
+		    int channel_config1 = (*(srcdata+3) & 0xC0) >> 6;
+		    int audio_channels = channel_config0 | channel_config1;
+		   
+		    audio_object_type++;    
+
+		    fprintf(stderr,"AUDIO(%d): AUDIO CHANNELS:%d\n", source, audio_channels);
+		    fprintf(stderr,"AUDIO(%d): AUDIO OBJECT TYPE:%d\n", source, audio_object_type);
+		    fprintf(stderr,"AUDIO(%d): SAMPLE FREQ INDEX:%d\n", source, sample_freq_index);
+
+		    astream->audio_object_type = audio_object_type;
+
+		    astream->audio_channels = audio_channels;
+		    if (sample_freq_index == 3) {			
+			astream->audio_samplerate = 48000;
+		    } else if (sample_freq_index == 4) {
+			astream->audio_samplerate = 44100;
+		    } else if (sample_freq_index == 5) {
+			astream->audio_samplerate = 32000;
+		    } else if (sample_freq_index == 6) {
+			astream->audio_samplerate = 24000;
+		    } else if (sample_freq_index == 7) {
+			astream->audio_samplerate = 22050;
+		    } else {
+			fprintf(stderr,"UNSUPPORTED SAMPLERATE\n");
+		    }					    
+		    
+		    hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
+								  astream->audio_samplerate, // timescale for AAC audio (48kHz)
+								  0x15c7,                    // english language code
+								  fragment_length);          // fragment length in seconds
 
 		    fmp4_audio_track_create(hlsmux->audio[source].fmp4,
-					    2, // audio channels - todo
-					    48000, // audio samplerate - todo
+					    astream->audio_channels,
+					    astream->audio_samplerate,
+					    astream->audio_object_type,
 					    64000);  // audio bitrate - todo
 								
 		    start_init_mp4_fragment(core, &hlsmux->audio[source], source, 0);
@@ -1752,7 +1788,7 @@ void *mux_pump_thread(void *context)
 		    start_mp4_fragment(core, &hlsmux->audio[source], source, 0);
 		    if (hlsmux->audio[source].fmp4 == NULL) {			    
 			hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
-								      48000, // timescale for H264 video
+								      astream->audio_samplerate,
 								      0x157c, // english language code
 								      fragment_length);  // fragment length in seconds
 			fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
@@ -1760,8 +1796,9 @@ void *mux_pump_thread(void *context)
 				hlsmux->audio[source].fmp4);
 
 			fmp4_audio_track_create(hlsmux->audio[source].fmp4,
-						2, // audio channels - todo
-						48000, // audio samplerate - todo
+						astream->audio_channels,
+						astream->audio_samplerate,
+						astream->audio_object_type,
 						64000);  // audio bitrate - todo
 			
 		    }
@@ -1772,14 +1809,16 @@ void *mux_pump_thread(void *context)
 	    if (core->cd->enable_fmp4_output) {	    
 		if (hlsmux->audio[source].output_fmp4_file != NULL) {
 		    if (hlsmux->audio[source].fmp4) {
-			double fragment_timestamp;
-			int fragment_duration;
+			audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream;			
+			double fragment_timestamp = frame->pts;
+			int fragment_duration = frame->duration * astream->audio_samplerate / 90000;
 			
-			fprintf(stderr,"ADDING AUDIO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d\n",
+			fprintf(stderr,"ADDING AUDIO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d   DURATION:%d\n",
 				source,
 				hlsmux->audio[source].fmp4->fragment_count,
 				hlsmux->audio[source].fmp4->buffer,
-				hlsmux->audio[source].fmp4->buffer_offset);
+				hlsmux->audio[source].fmp4->buffer_offset,
+				fragment_duration);
 			
 			fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
 						frame->buffer,

@@ -78,7 +78,8 @@ typedef struct _fragment_file_struct_
     int                    audio_channels;
     int                    audio_samplerate;
     int                    audio_bitrate;
-    uint8_t                audio_config[MAX_AUDIO_CONFIG_SIZE];
+    int                    audio_object_type;
+    uint32_t               audio_config;
     int                    audio_config_size;
     int                    subtitle_bitrate;
     int                    lang_code;
@@ -120,7 +121,7 @@ int fmp4_video_set_vps(fragment_file_struct *fmp4, uint8_t *vps, int vps_size);
 int fmp4_output_header(fragment_file_struct *fmp4);
 uint8_t *fmp4_get_fragment(fragment_file_struct *fmp4, int *fragment_size);
 int fmp4_video_track_create(fragment_file_struct *fmp4, int video_width, int video_height, int video_bitrate);
-int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int audio_samplerate, int audio_bitrate);
+int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int audio_samplerate, int audio_object_type, int audio_bitrate);
 
 
 #endif // _MP4CORE_H_
