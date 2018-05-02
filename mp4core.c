@@ -133,7 +133,6 @@ static int output_raw_data(fragment_file_struct *fmp4, uint8_t *raw_data, int ra
 static int output_fmp4_4cc(fragment_file_struct *fmp4, char *cc)
 {
     uint8_t *data;
-    int buffer_offset;
 
     data = fmp4->buffer + fmp4->buffer_offset;
     fmp4->buffer_offset += output8_raw(data, cc[0]);
@@ -587,7 +586,6 @@ static int output_fmp4_esds(fragment_file_struct *fmp4)
 {
     uint8_t *data;
     int buffer_offset;
-    int i;
 
     data = fmp4->buffer + fmp4->buffer_offset;
 
@@ -1023,8 +1021,6 @@ static int output_fmp4_moof(fragment_file_struct *fmp4)
 
     data = fmp4->buffer + fmp4->buffer_offset;
 
-    fprintf(stderr,"DATA:%p OFFSET:%d\n", data, fmp4->buffer_offset);
-    
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"moof");
     buffer_offset += output_fmp4_mfhd(fmp4);
@@ -1259,7 +1255,6 @@ static int replace_startcode_with_size(uint8_t *input_buffer, int input_buffer_s
     uint8_t *sample_buffer = output_buffer;
     int saved_position = 0;
     int sample_size;
-    int output_sample_size;
     int read_pos = 0;
     int write_pos = 0;
 
@@ -1331,7 +1326,6 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 {
     int frag = fmp4->fragment_count;
     uint8_t *new_frag;
-    int i;
     int updated_fragment_buffer_size;
 
     if (frag >= MAX_FRAGMENTS) {
@@ -1370,7 +1364,6 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
 {
     int frag = fmp4->fragment_count;
     uint8_t *new_frag;
-    int i;
     int header_size;
 #define ADTS_HEADER_SIZE 7
 

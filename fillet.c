@@ -47,6 +47,7 @@
 #include "tsreceive.h"
 #include "tsdecode.h"
 #include "hlsmux.h"
+#include "mp4core.h"
 
 #define SOURCE_NONE      -1
 #define SOURCE_IP        1
@@ -76,16 +77,6 @@ static struct option long_options[] = {
      {"background", no_argument, &cmd_background, 1},
      {0, 0, 0, 0}
 };
-
-static int cache_save_config(fillet_app_struct *core)
-{
-    return 0;
-}
-
-static int cache_read_config(fillet_app_struct *core)
-{
-    return 0;
-}
 
 static int destroy_fillet_core(fillet_app_struct *core)
 {
@@ -132,7 +123,7 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->num_sources = num_sources;
     core->cd = cd;
     core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
-    memset(core->source_stream, 0, sizeof(source_stream_struct));
+    memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
     
     for (current_source = 0; current_source < num_sources; current_source++) {
 	video_stream_struct *vstream;
@@ -169,16 +160,6 @@ _fillet_create_fail:
     destroy_fillet_core(core);
     
     return NULL;
-}
-
-static int start_fillet_core(fillet_app_struct *core)
-{
-    return 0;
-}
-
-static int stop_fillet_core(fillet_app_struct *core)
-{
-    return 0;
 }
 
 static int parse_input_options(int argc, char **argv)
@@ -372,7 +353,7 @@ const float framerate_lut[9] = {0.000f,
 
 static int message_dispatch(int p1, int64_t p2, int64_t p3, int64_t p4, int64_t p5, int source, void *context)
 {
-     fillet_app_struct *core = (fillet_app_struct*)context;
+    //fillet_app_struct *core = (fillet_app_struct*)context;
      int message_handled = 1;
 
      if (p1 == 2000) {
@@ -624,9 +605,6 @@ static void *frame_sync_thread(void *context)
     int source_discontinuity = 1;
 
     while (1) {
-	int audio = 0;
-	int video = 0;
-	
 	audio_sync = 0;
 	video_sync = 0;
 
@@ -650,15 +628,12 @@ static void *frame_sync_thread(void *context)
 	    peek_frame(core->video_frame_data, video_synchronizer_entries, 0, &current_video_time, &video_sync);	
 	    pthread_mutex_unlock(&sync_lock);
 
-	    audio = 0;
-
 	    if (current_audio_time <= current_video_time) {
 		no_grab = 0;
 		while (current_audio_time < current_video_time && audio_synchronizer_entries > config_data.active_sources) {
 		    pthread_mutex_lock(&sync_lock);
 		    audio_synchronizer_entries = use_frame(core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
 		    pthread_mutex_unlock(&sync_lock);
-		    audio = 1;
 		    if (output_frame) {
 			dataqueue_message_struct *msg;			
 			msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
@@ -691,7 +666,6 @@ static void *frame_sync_thread(void *context)
 		pthread_mutex_lock(&sync_lock);
 		video_synchronizer_entries = use_frame(core->video_frame_data, video_synchronizer_entries, 0, &current_video_time, first_grab, &output_frame);
 		pthread_mutex_unlock(&sync_lock);
-		video = 1;
 
 		if (output_frame) {
 		    dataqueue_message_struct *msg;
@@ -820,7 +794,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    return 0;
 	}
 
-	new_buffer = (uint8_t*)malloc(sample_size);
+	new_buffer = (uint8_t*)malloc(sample_size+1);
 	memcpy(new_buffer, sample, sample_size);
 	
 	new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
@@ -839,6 +813,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	new_frame->source = source;
 	new_frame->sync_frame = sample_flags;
 	new_frame->frame_type = FRAME_TYPE_VIDEO;
+	new_frame->media_type = MEDIA_TYPE_H264;
 	new_frame->time_received = 0;
 	if (lang_tag) {
 	    new_frame->lang_tag[0] = lang_tag[0];
@@ -860,6 +835,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	uint8_t *new_buffer;
 	sorted_frame_struct *new_frame;	
 	struct timespec current_time;
+	int64_t br;
+	int64_t diff;
 
 	if (!vstream->found_key_frame) {
 	    return 0;
@@ -869,9 +846,15 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    clock_gettime(CLOCK_REALTIME, &astream->audio_clock_start);
 	}
 	astream->total_audio_bytes += sample_size;
-	clock_gettime(CLOCK_REALTIME, &current_time);	
+	clock_gettime(CLOCK_REALTIME, &current_time);
 
-	new_buffer = (uint8_t*)malloc(sample_size);
+	diff = time_difference(&current_time, &astream->audio_clock_start) / 1000;
+	if (diff > 0) {
+	    br = (astream->total_audio_bytes * 8) / diff;
+	    astream->audio_bitrate = br * 1000;
+	}
+
+	new_buffer = (uint8_t*)malloc(sample_size+1);
 	memcpy(new_buffer, sample, sample_size);
 	
 	if (astream->last_timestamp_pts != -1) {
@@ -912,6 +895,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	new_frame->source = source;
 	new_frame->sync_frame = sample_flags;
 	new_frame->frame_type = FRAME_TYPE_AUDIO;
+	new_frame->media_type = MEDIA_TYPE_AAC;
 	new_frame->time_received = 0;
 	if (lang_tag) {
 	    new_frame->lang_tag[0] = lang_tag[0];
@@ -956,7 +940,7 @@ int main(int argc, char **argv)
      config_data.active_sources = 0;
      config_data.identity = 1000;
      config_data.enable_ts_output = 1;
-     config_data.enable_fmp4_output = 0;
+     config_data.enable_fmp4_output = 1;
      
      sprintf(config_data.manifest_directory,"/var/www/hls/");
      

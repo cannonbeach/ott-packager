@@ -144,7 +144,8 @@ typedef struct _sorted_frame_struct_
     int                    source;
     int                    sub_stream;
     int                    sync_frame;
-    int                    frame_type;    
+    int                    frame_type;
+    int                    media_type;
     int64_t                time_received;
     char                   lang_tag[4];
 } sorted_frame_struct;
@@ -158,6 +159,8 @@ typedef struct _audio_stream_struct_
     int64_t                overflow_pts;
     int64_t                audio_bitrate;    
     int64_t                total_audio_bytes;
+    int                    audio_samples_to_add;
+    int                    audio_samples_to_drop;
     struct timespec        audio_clock_start;
     int                    audio_channels;
     int                    audio_object_type;
