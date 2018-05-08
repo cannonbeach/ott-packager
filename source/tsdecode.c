@@ -487,9 +487,9 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 
                               received_pcr = (current_pcr * 300) + current_ext;
 
-                              if (tsdata->initial_pcr_low[current_pid] == -1) {
-				  tsdata->initial_pcr_low[current_pid] = received_pcr;
-				  tsdata->initial_pcr_high = 0;
+                              if (tsdata->initial_pcr_base[current_pid] == -1) {
+				  tsdata->initial_pcr_base[current_pid] = received_pcr;
+				  tsdata->initial_pcr_ext = 0;
 				  gettimeofday(&tsdata->pcr_start_time, NULL);
 				  gettimeofday(&tsdata->pcr_update_start_time, NULL);
                               } else {
@@ -497,7 +497,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 				  int check_mux_rate;
 				  
 				  gettimeofday(&tsdata->pcr_stop_time, NULL);
-				  offset_pcr = received_pcr - tsdata->initial_pcr_low[current_pid];
+				  offset_pcr = received_pcr - tsdata->initial_pcr_base[current_pid];
 				  pcr_update_delta_time = (int64_t)get_time_difference(&tsdata->pcr_stop_time, &tsdata->pcr_update_start_time);
 				  
 				  check_mux_rate = (27000000 * ((((double)tsdata->received_ts_packets*188.0)+10)*8.0))/(double)offset_pcr;

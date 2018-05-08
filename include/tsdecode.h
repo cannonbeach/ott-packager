@@ -203,8 +203,8 @@ typedef struct _transport_data_struct_ {
      int64_t received_ts_packets;
      struct timeval pid_start_time;
      struct timeval pid_stop_time;
-     int64_t initial_pcr_low[MAX_ACTUAL_PIDS];
-     int64_t initial_pcr_high;
+     int64_t initial_pcr_base[MAX_ACTUAL_PIDS];
+     int64_t initial_pcr_ext;
      struct timeval pcr_start_time;
      struct timeval pcr_stop_time;
      struct timeval pcr_update_start_time;

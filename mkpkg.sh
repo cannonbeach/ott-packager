@@ -30,4 +30,3 @@ cd ..
 deb_name=fillet-0.1.deb
 dpkg-deb --build build $deb_name
 
-make
