@@ -1,7 +1,7 @@
 CC=gcc
 CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -fomit-frame-pointer -funroll-loops
-SRC=.
-INC=.
+SRC=./source
+INC=-I./include
 OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o
 LIB=libfillet.a
 
