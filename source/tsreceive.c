@@ -69,7 +69,7 @@ void *udp_source_thread(void *context)
     memset(tsdata, 0, sizeof(transport_data_struct));
     
     for (i = 0; i< MAX_ACTUAL_PIDS; i++) {
-	 tsdata->initial_pcr_low[i] = -1;
+	 tsdata->initial_pcr_base[i] = -1;
     }
     tsdata->pat_program_count = -1;
     tsdata->pat_version_number = -1;
