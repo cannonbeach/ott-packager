@@ -48,6 +48,7 @@
 #include "tsdecode.h"
 #include "hlsmux.h"
 #include "mp4core.h"
+#include "background.h"
 
 #define SOURCE_NONE      -1
 #define SOURCE_IP        1
@@ -61,7 +62,7 @@ static int audio_synchronizer_entries = 0;
 static pthread_mutex_t sync_lock = PTHREAD_MUTEX_INITIALIZER;
 static int quit_sync_thread = 0;
 static pthread_t frame_sync_thread_id;
-static int cmd_background = 0;
+static int enable_background = 0;
 
 static config_options_struct config_data;
 
@@ -74,7 +75,7 @@ static struct option long_options[] = {
      {"manifest", required_argument, 0, 'm'},
      {"rollover", required_argument, 0, 'r'},
      {"identity", required_argument, 0, 'u'},
-     {"background", no_argument, &cmd_background, 1},
+     {"background", no_argument, &enable_background, 1},
      {0, 0, 0, 0}
 };
 
@@ -944,9 +945,8 @@ int main(int argc, char **argv)
      
      sprintf(config_data.manifest_directory,"/var/www/hls/");
      
-     ret = parse_input_options(argc, argv);     
-
-     if (ret < 0 || config_data.active_sources == 0) {
+     ret = parse_input_options(argc, argv);
+     if ((ret < 0 || config_data.active_sources == 0) && (enable_background == 0)) {
 	 fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
 	 fprintf(stderr,"\n");
 	 fprintf(stderr,"usage: fillet [options]\n");
@@ -964,45 +964,85 @@ int main(int argc, char **argv)
 	 return 1;
      }
 
-     core = create_fillet_core(&config_data, config_data.active_sources);     	  
+     core = create_fillet_core(&config_data, config_data.active_sources);
+     
+     if (enable_background) {
+	 int daemon_launched;
+	 FILE *pid_vartmp;
+	 int child_process;
+	 pid_t new_pid;
 
-     register_message_callback(message_dispatch, (void*)core);
-     register_frame_callback(receive_frame, (void*)core);
-
-     hlsmux_create(core);
-
-     for (i = 0; i < config_data.active_sources; i++) {
-	 struct in_addr addr;
-	 
-	 snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
-	 snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
-	 if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
-	     fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
-		     config_data.active_source[i].active_ip);
-	     goto cleanup_main_app;
+	 daemon_launched = daemon(0, 0);
+	 if (daemon_launched < 0) {
+	     fprintf(stderr,"FILLET: ERROR: Unable to launch application in background!\n\n");
 	     return -1;
 	 }
-	 core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
-     }
 
-     pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
-     core->source_running = 1;
-     for (i = 0; i < config_data.active_sources; i++) {	
-	 pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
-     }
-
-     while (core->source_running) {
-	 if (quit_sync_thread) {
-	     quit_sync_thread = 0;
-	     fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
-	     pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
+	 pid_vartmp = fopen("/var/tmp/fillet.background","w");
+	 if (!pid_vartmp) {
+	     fprintf(stderr,"FILLET: ERROR: Unable to open /var/tmp/fillet.background!\n\n");
+	     return -1;
 	 }
-	 sleep(1);
+	 fprintf(pid_vartmp,"%u\n", getpid());
+	 fclose(pid_vartmp);
+
+	 for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
+	     new_pid = launch_new_fillet(core, child_process);
+	     if (new_pid == -1) {
+		 fprintf(stderr,"FILLET: ERROR: Unable to launch new process in background!\n\n");
+		 exit(1);
+	     }
+	     if (new_pid == 0) {
+		 syslog(LOG_INFO,"FILLET: STATUS: CHILD: Launched new child process!\n\n");
+		 break;
+	     } else {
+		 syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launched new child process!\n\n");
+		 continue;
+	     }
+	 }
+
+	 if (new_pid != 0) {
+	     //server side
+	 }
+     } else {
+	 // basic command line mode for testing purposes
+	 core->session_id = 1;
+	 register_message_callback(message_dispatch, (void*)core);
+	 register_frame_callback(receive_frame, (void*)core);
+	 hlsmux_create(core);
+	 for (i = 0; i < config_data.active_sources; i++) {
+	     struct in_addr addr;	     
+	     snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
+	     snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
+	     if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
+		 fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
+			 config_data.active_source[i].active_ip);
+		 goto cleanup_main_app;
+		 return -1;
+	     }
+	     core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
+	 }
+
+	 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
+	 core->source_running = 1;
+	 for (i = 0; i < config_data.active_sources; i++) {	
+	     pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
+	 }
+
+	 while (core->source_running) {
+	     if (quit_sync_thread) {
+		 quit_sync_thread = 0;
+		 fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
+		 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
+	     }
+	     sleep(1);
+	 }
+	 
+cleanup_main_app:
+	 fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
+	 hlsmux_destroy(core->hlsmux);
+	 destroy_fillet_core(core);
      }
-
- cleanup_main_app:
-     hlsmux_destroy(core);
-     destroy_fillet_core(core);     
-
+	 
      return 0;
 }

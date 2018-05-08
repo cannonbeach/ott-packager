@@ -66,6 +66,7 @@
 #define MAX_ROLLOVER_SIZE          128
 #define MIN_ROLLOVER_SIZE          32
 #define OVERFLOW_DTS               8589100000
+#define MAX_SESSIONS               25
 
 #define FRAME_TYPE_VIDEO     0x01
 #define FRAME_TYPE_AUDIO     0x02
@@ -203,6 +204,8 @@ typedef struct _input_struct_ {
 
 typedef struct _fillet_app_struct_
 {
+    int                    session_id;
+    
     int                    num_sources;
     source_stream_struct   *source_stream;
     int                    source_running;

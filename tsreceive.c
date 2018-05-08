@@ -83,8 +83,13 @@ void *udp_source_thread(void *context)
     
     source_count++;
     memset(tsdata->pmt_version, -1, sizeof(tsdata->pmt_version));
-    
-    pthread_mutex_unlock(&start_lock); 
+
+    pthread_mutex_unlock(&start_lock);
+
+    if (udp_socket < 0) {
+	core->source_running = 0;
+	goto _cleanup_udp_source_thread;
+    }    
 
     while (1) {
 	int is_thread_running;

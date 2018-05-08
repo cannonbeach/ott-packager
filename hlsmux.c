@@ -934,6 +934,16 @@ static int start_init_mp4_fragment(fillet_app_struct *core, stream_struct *strea
     if (!stream->output_fmp4_file) {
 	char stream_name[MAX_STREAM_NAME];
 	char local_dir[MAX_STREAM_NAME];
+
+	snprintf(local_dir, MAX_STREAM_NAME-1, "%s", core->cd->manifest_directory);
+	if (stat(local_dir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory exists: %s\n", local_dir);
+	} else {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory does not exist: %s (CREATING)\n", local_dir);
+	    mkdir(local_dir, 0700);
+	    fprintf(stderr,"STATUS: Done creating fMP4 manifest directory\n");
+	}	
+	
 	if (video) {
 	    snprintf(local_dir, MAX_STREAM_NAME-1, "%s/video%d", core->cd->manifest_directory, source);	    
 	} else {

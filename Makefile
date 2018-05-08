@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -fomit-frame-pointer -funroll-loops
 SRC=.
 INC=.
-OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o
+OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o
 LIB=libfillet.a
 
 all: $(LIB) fillet
@@ -16,6 +16,9 @@ $(LIB): $(OBJS)
 
 fillet.o: $(SRC)/fillet.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/fillet.c
+
+background.o: $(SRC)/background.c
+	$(CC) $(CFLAGS) $(INC) $(SRC)/background.c
 
 tsreceive.o: $(SRC)/tsreceive.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/tsreceive.c
