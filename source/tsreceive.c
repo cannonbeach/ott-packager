@@ -58,6 +58,7 @@ void *udp_source_thread(void *context)
     uint8_t *udp_buffer;
     int udp_buffer_size;
     int i;
+    int active_source_index;
 
 #define MAX_UDP_BUFFER_READ 2048
     pthread_mutex_lock(&start_lock);
@@ -80,6 +81,7 @@ void *udp_source_thread(void *context)
 				 core->fillet_input[source_count].udp_source_ipaddr,
 				 core->fillet_input[source_count].udp_source_port,
 				 0, UDP_FLAG_INPUT, 1);
+    active_source_index = source_count;
     
     source_count++;
     memset(tsdata->pmt_version, -1, sizeof(tsdata->pmt_version));
@@ -103,7 +105,12 @@ void *udp_source_thread(void *context)
 
 	anysignal = socket_udp_ready(udp_socket, timeout_ms, &sockset);
 	if (anysignal == 0) {
-	    fprintf(stderr,"no source signal\n");
+	    syslog(LOG_WARNING,"SESSION:%d (TSRECIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s\n",
+		   core->session_id,
+		   udp_socket,
+		   core->fillet_input[active_source_index].udp_source_ipaddr,
+		   core->fillet_input[active_source_index].udp_source_port,
+		   core->fillet_input[active_source_index].interface);
 	    continue;
 	}
 

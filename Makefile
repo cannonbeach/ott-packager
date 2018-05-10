@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -fomit-frame-pointer -funroll-loops
 SRC=./source
 INC=-I./include
-OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o
+OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o
 LIB=libfillet.a
 
 all: $(LIB) fillet
@@ -46,6 +46,12 @@ tsdecode.o: $(SRC)/tsdecode.c
 
 crc.o: $(SRC)/crc.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/crc.c
+
+cJSON.o: $(SRC)/cJSON.c
+	$(CC) $(CFLAGS) $(INC) $(SRC)/cJSON.c
+
+cJSON_Utils.o: $(SRC)/cJSON_Utils.c
+	$(CC) $(CFLAGS) $(INC) $(SRC)/cJSON_Utils.c
 
 clean:
 	rm -rf *o fillet
