@@ -30,6 +30,7 @@
 #include <time.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/poll.h>
@@ -39,6 +40,8 @@
 #include <math.h>
 #include <syslog.h>
 #include <arpa/inet.h>
+#include <execinfo.h>
+#include <signal.h>
 #include "fillet.h"
 #include "fgetopt.h"
 #include "dataqueue.h"
@@ -79,6 +82,19 @@ static struct option long_options[] = {
      {0, 0, 0, 0}
 };
 
+void crash_handler(int sig)
+{
+#define MAX_TRACE 10    
+    void *array[MAX_TRACE];
+    size_t size;
+
+    size = backtrace(array, MAX_TRACE);
+
+    fprintf(stderr, "Error: signal %d:\n", sig);
+    backtrace_symbols_fd(array, size, STDERR_FILENO);
+    exit(1);
+}
+
 static int destroy_fillet_core(fillet_app_struct *core)
 {
     int num_sources;
@@ -106,6 +122,11 @@ static int destroy_fillet_core(fillet_app_struct *core)
 	free(core->source_stream[current_source].video_stream);
 	core->source_stream[current_source].video_stream = NULL;		 
     }
+    dataqueue_destroy(core->event_queue);
+    core->event_queue = NULL;
+    sem_destroy(core->event_wait);
+    core->event_wait = NULL;
+    free(core->event_wait);
     free(core);
 
     return 0;
@@ -124,6 +145,10 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->num_sources = num_sources;
     core->cd = cd;
     core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
+    core->event_queue = (void*)dataqueue_create();
+    core->event_wait = (sem_t*)malloc(sizeof(sem_t));
+    sem_init(core->event_wait, 0, 0);
+    
     memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
     
     for (current_source = 0; current_source < num_sources; current_source++) {
@@ -929,11 +954,92 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     return 0;
 }
 
+static void disable_child_signal()
+{
+    struct sigaction dowhat;
+    
+    dowhat.sa_handler = SIG_IGN;
+    dowhat.sa_flags = 0;
+    sigemptyset(&dowhat.sa_mask);
+    sigaction(SIGCHLD, &dowhat, NULL);    
+}
+
+static void *runtime_thread(void *context)
+{
+    fillet_app_struct *core = (fillet_app_struct*)context;
+    int i;
+    
+    register_message_callback(message_dispatch, (void*)core);
+    register_frame_callback(receive_frame, (void*)core);
+
+    hlsmux_create(core);
+    for (i = 0; i < config_data.active_sources; i++) {
+        struct in_addr addr;	     
+        snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
+        snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
+        if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
+            syslog(LOG_INFO,"SESSION:%d (MAIN) ERROR: INVALID IP ADDRESS: %s\n",
+                   core->session_id,
+                   config_data.active_source[i].active_ip);
+            hlsmux_destroy(core->hlsmux);
+            core->hlsmux = NULL;
+            return NULL;
+        }
+        core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
+    }
+
+    core->source_running = 1;    
+    pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
+    for (i = 0; i < config_data.active_sources; i++) {
+        syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
+               core->session_id,
+               i,
+               core->fillet_input[i].udp_source_ipaddr,
+               core->fillet_input[i].udp_source_port,
+               core->fillet_input[i].interface);
+        pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
+    }
+             
+    while (core->source_running) {
+        if (quit_sync_thread && core->source_running) {
+            quit_sync_thread = 0;
+            fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
+            pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
+        }
+        sleep(1);
+    }
+
+    quit_sync_thread = 1;
+    syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING FRAME SYNC THREAD\n", core->session_id);
+    pthread_join(frame_sync_thread_id, NULL);
+
+    for (i = 0; i < config_data.active_sources; i++) {
+        syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
+               core->session_id,
+               i,
+               core->fillet_input[i].udp_source_ipaddr,
+               core->fillet_input[i].udp_source_port,
+               core->fillet_input[i].interface);              
+        pthread_join(core->source_stream[i].udp_source_thread_id, NULL);
+    }
+    
+    hlsmux_destroy(core->hlsmux);
+    core->hlsmux = NULL;
+    quit_sync_thread = 0;
+
+    return NULL;
+}
+
 int main(int argc, char **argv)
 {
      int ret;
      int i;
      fillet_app_struct *core;
+     pthread_t server_thread_id;
+     pthread_t client_thread_id;
+     pthread_t runtime_thread_id;
+
+     signal(SIGSEGV, crash_handler);
 
      config_data.window_size = DEFAULT_WINDOW_SIZE;
      config_data.segment_length = DEFAULT_SEGMENT_LENGTH;
@@ -947,6 +1053,7 @@ int main(int argc, char **argv)
      
      ret = parse_input_options(argc, argv);
      if ((ret < 0 || config_data.active_sources == 0) && (enable_background == 0)) {
+         fprintf(stderr,"\n");
 	 fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
 	 fprintf(stderr,"\n");
 	 fprintf(stderr,"usage: fillet [options]\n");
@@ -959,7 +1066,7 @@ int main(int argc, char **argv)
 	 fprintf(stderr,"       --segment    [SEGMENT LENGTH IN SECONDS]\n");
 	 fprintf(stderr,"       --manifest   [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
 	 fprintf(stderr,"       --identity   [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]\n");
-	 fprintf(stderr,"       --background [RUN IN BACKGROUND - NOT YET SUPPORTED]\n");
+	 fprintf(stderr,"       --background [RUN IN BACKGROUND]\n");
 	 fprintf(stderr,"\n");
 	 return 1;
      }
@@ -972,12 +1079,18 @@ int main(int argc, char **argv)
 	 int child_process;
 	 pid_t new_pid;
 
-	 daemon_launched = daemon(0, 0);
+         fprintf(stderr,"\n");
+         fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
+         fprintf(stderr,"launching in background mode\n");
+         fprintf(stderr,"\n");
+
+	 daemon_launched = daemon(0, 1);  // need to see some of the stderr messages
 	 if (daemon_launched < 0) {
 	     fprintf(stderr,"FILLET: ERROR: Unable to launch application in background!\n\n");
 	     return -1;
 	 }
 
+         fprintf(stderr,"saving process pid information in /var/tmp/fillet.background\n");
 	 pid_vartmp = fopen("/var/tmp/fillet.background","w");
 	 if (!pid_vartmp) {
 	     fprintf(stderr,"FILLET: ERROR: Unable to open /var/tmp/fillet.background!\n\n");
@@ -986,23 +1099,48 @@ int main(int argc, char **argv)
 	 fprintf(pid_vartmp,"%u\n", getpid());
 	 fclose(pid_vartmp);
 
+         fprintf(stderr,"launching %d background processes\n", MAX_SESSIONS);
 	 for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
 	     new_pid = launch_new_fillet(core, child_process);
 	     if (new_pid == -1) {
-		 fprintf(stderr,"FILLET: ERROR: Unable to launch new process in background!\n\n");
+		 fprintf(stderr,"ERROR: Unable to launch new process in background!\n\n");
+                 syslog(LOG_INFO,"FILLET: ERROR: Unable to launch new process in background!\n");
 		 exit(1);
 	     }
 	     if (new_pid == 0) {
+                 // new child
 		 syslog(LOG_INFO,"FILLET: STATUS: CHILD: Launched new child process!\n\n");
 		 break;
 	     } else {
-		 syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launched new child process!\n\n");
+                 fprintf(stderr,"STATUS: Launching background worker process: %d\n", child_process);
+		 syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launching background worker process!\n\n");
 		 continue;
 	     }
 	 }
 
-	 if (new_pid != 0) {
+	 if (new_pid > 0) {
 	     //server side
+
+	     disable_child_signal();
+
+	     syslog(LOG_INFO,"FILLET: STATUS: STARTING SERVER THREAD\n");
+	     //pthread_create(&server_thread_id, NULL, server_thread, (void*)core);
+	     
+	     while (1) {
+		 //just ping each client asking for health
+		 //also check that the process is still alive otherwise refork
+                 //fprintf(stderr,"Parent is sleeping\n");
+		 sleep(1);
+	     }
+	     // wait for the kill signal
+
+	     // kill the children
+	     for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
+		 //kill(process_id, SIGKILL);
+	     }
+	     // kill the server
+	     //pthread_join(server_thread_id, NULL);
+	     exit(0);
 	 }
      } else {
 	 // basic command line mode for testing purposes
@@ -1035,14 +1173,77 @@ int main(int argc, char **argv)
 		 fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
 		 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
 	     }
-	     sleep(1);
+             usleep(100000);
 	 }
 	 
 cleanup_main_app:
 	 fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
 	 hlsmux_destroy(core->hlsmux);
+         core->hlsmux = NULL;
 	 destroy_fillet_core(core);
+
+	 return 0;
      }
-	 
+
+     // this is the main child background thread
+     syslog(LOG_INFO,"FILLET: STATUS: STARTING CHILD SERVER THREAD\n");
+
+     pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
+     while (1) {	 
+	 int msgid;
+
+         syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: WAITING FOR EVENT: ACTIVE:%d\n",
+                core->session_id,
+                core->source_running);
+         
+	 msgid = wait_for_event(core);
+         if (msgid == -1) {
+             //placeholder - this is the kill
+             break;
+         }
+         syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE WAITING FOR EVENT - DISPATCH:0x%x\n",
+                core->session_id,
+                msgid);
+         if (msgid == MSG_START) {
+             int err;
+             
+             if (core->source_running) {
+                 syslog(LOG_INFO,"SESSION: %d (MAIN) WARNING: CORE SESSION ALREADY RUNNING\n", core->session_id);
+                 // nope!
+                 continue;
+             }
+             //reload configuration file when starting
+             err = load_kvp_config(core);
+             if (err < 0) {
+                 syslog(LOG_INFO,"SESSION:%d (MAIN) ERROR: UNABLE TO PROCESS CONFIGURATION\n", core->session_id);
+                 continue;
+             }
+             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING CORE SESSION\n", core->session_id);
+             pthread_create(&runtime_thread_id, NULL, runtime_thread, (void*)core);
+         } else if (msgid == MSG_STOP) {
+             if (!core->source_running) {
+                 syslog(LOG_INFO,"SESSION: %d (MAIN) WARNING: CORE SESSION NOT RUNNING\n", core->session_id);
+                 // nope!
+                 continue;
+             }
+             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING CORE SESSION\n", core->session_id);
+             core->source_running = 0;
+             pthread_join(runtime_thread_id, NULL);
+             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: CORE SESSION STOPPED\n", core->session_id);             
+         } else if (msgid == MSG_RESTART) {
+             if (!core->source_running) {
+                 // nope!
+                 continue;
+             }
+             core->source_running = 0;
+             pthread_join(runtime_thread_id, NULL);
+             pthread_create(&runtime_thread_id, NULL, runtime_thread, (void*)core);
+         } else if (msgid == MSG_RESPAWN) {
+             exit(0);  // force respawn
+         } 
+     }
+     pthread_join(client_thread_id, NULL);
+     destroy_fillet_core(core);     
+     
      return 0;
 }

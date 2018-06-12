@@ -125,11 +125,14 @@ int dataqueue_destroy(void *queue)
 int dataqueue_put_back(void *queue, dataqueue_message_struct *message)
 {
     queue_struct *message_queue = (queue_struct *)queue;
-    dataqueue_node_struct *new_node = (dataqueue_node_struct *)memory_take(message_queue->pool, 0xdeadface); 
+    dataqueue_node_struct *new_node;
+    //dataqueue_node_struct *new_node = (dataqueue_node_struct *)memory_take(message_queue->pool, 0xdeadface);   
 
     if (!message_queue) {
         return -1;
     }
+
+    new_node = (dataqueue_node_struct*)malloc(sizeof(dataqueue_node_struct));
 
     if (!new_node) {
         return -1;
@@ -163,23 +166,20 @@ int dataqueue_put_front(void *queue, dataqueue_message_struct *message)
         return -1;
     }
 
-    new_node = (dataqueue_node_struct *)memory_take(message_queue->pool, 0xdeadface);
-
+    new_node = (dataqueue_node_struct*)malloc(sizeof(dataqueue_node_struct));
+    //new_node = (dataqueue_node_struct *)memory_take(message_queue->pool, 0xdeadface);
     if (!new_node) {
         return -1;
     }
 
     pthread_mutex_lock(message_queue->reflock);
-    if (message_queue->head)
-    {
+    if (message_queue->head) {
         message_queue->head->prev = new_node;
         new_node->next = message_queue->head;
         new_node->prev = NULL;
         new_node->message = message;
         message_queue->head = new_node;
-    }
-    else
-    {
+    } else {
         new_node->prev = NULL;
         new_node->next = NULL;
         new_node->message = message;
@@ -213,7 +213,8 @@ dataqueue_message_struct *dataqueue_take_back(void *queue)
         current_node->prev = NULL;
         message_queue->count--;
         return_message = current_node->message;
-        memory_return(message_queue->pool, current_node);
+        //memory_return(message_queue->pool, current_node);
+        free(current_node);
         pthread_mutex_unlock(message_queue->reflock);
         return return_message;
     }
@@ -244,7 +245,8 @@ dataqueue_message_struct *dataqueue_take_front(void *queue)
         current_node->next = NULL;
         message_queue->count--;
         return_message = current_node->message; 
-        memory_return(message_queue->pool, current_node);
+        //memory_return(message_queue->pool, current_node);
+        free(current_node);
         pthread_mutex_unlock(message_queue->reflock);
         return return_message;
     }

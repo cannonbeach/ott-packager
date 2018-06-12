@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 #include "fillet.h"
 #include "dataqueue.h"
 #include "mempool.h"
@@ -61,6 +62,7 @@ typedef struct _source_context_struct_ {
     int           video_fragment_ready;
     double        segment_lengths[MAX_ROLLOVER_SIZE];
     int           discontinuity[MAX_ROLLOVER_SIZE];
+    int64_t       full_time[MAX_ROLLOVER_SIZE];
     int           source_discontinuity;
     
     int           h264_sps_decoded;
@@ -102,6 +104,7 @@ typedef struct _decode_struct_ {
     int            cb;
 } decode_struct;
 
+static int quit_mux_pump_thread = 0;
 static void *mux_pump_thread(void *context);
 
 uint32_t getbit(decode_struct *d)
@@ -359,6 +362,9 @@ void hlsmux_destroy(void *hlsmux)
 {
     hlsmux_struct *hlsmux1 = (hlsmux_struct*)hlsmux;
     if (hlsmux1) {
+        quit_mux_pump_thread = 1;
+        pthread_join(hlsmux1->hlsmux_thread_id, NULL);
+        
 	dataqueue_destroy(hlsmux1->input_queue);
 	hlsmux1->input_queue = NULL;
 	free(hlsmux1);
@@ -993,7 +999,7 @@ static int start_mp4_fragment(fillet_app_struct *core, stream_struct *stream, in
 	    fprintf(stderr,"STATUS: Done creating fMP4 manifest directory\n");
 	}
 
-	snprintf(stream_name, MAX_STREAM_NAME-1, "%s/segment%d.mp4", local_dir, stream->file_sequence_number);
+	snprintf(stream_name, MAX_STREAM_NAME-1, "%s/segment%ld.mp4", local_dir, stream->file_sequence_number);
 	stream->output_fmp4_file = fopen(stream_name,"w");
     }
     return 0;
@@ -1213,14 +1219,28 @@ static int update_mp4_audio_manifest(fillet_app_struct *core, stream_struct *str
     return 0;
 }
 
-/*
+
 static int write_dash_master_manifest(fillet_app_struct *core, source_context_struct *sdata)
 {
     struct stat sb;
     char master_manifest_filename[MAX_STREAM_NAME];
     FILE *master_manifest;
     int i;
+    time_t t = time(NULL);
+    struct tm tm = *localtime(&t);
+    int max_width = 0;
+    int max_height = 0;
+    source_context_struct *lsdata;
+    stream_struct *stream = (stream_struct*)&core->hlsmux->video[0];
+    int64_t starting_file_sequence_number;
+    int64_t starting_media_sequence_number;
 
+    starting_file_sequence_number = stream->file_sequence_number - core->cd->window_size;
+    if (starting_file_sequence_number < 0) {
+	starting_file_sequence_number += core->cd->rollover_size;
+    }
+    starting_media_sequence_number = stream->media_sequence_number - core->cd->window_size;       
+    
     if (stat(core->cd->manifest_directory, &sb) == 0 && S_ISDIR(sb.st_mode)) {
 	fprintf(stderr,"STATUS: Manifest directory exists: %s\n", core->cd->manifest_directory);
     } else {
@@ -1237,47 +1257,107 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
 	return -1;
     }
 
-    fprintf(master_manifest,"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
-
-    fprintf(master_manifest,"<MPD availabilityStartTime=\"1970-01-01T00:00:00Z\" minBufferTime=\"PT2S\" minimumUpdatePeriod=\"PT0S\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011\" publishTime=\"2018-04-25T22:38:43Z\" timeShiftBufferDepth=\"PT5M\" type=\"dynamic\" ns1:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:ns1=\"http://www.w3.org/2001/XMLSchema-instance\">\n");
-    fprintf(master_manifest,"<ProgramInformation>\n");
-    fprintf(master_manifest,"<Title>Live Stream</Title>\n");
-    fprintf(master_manifest,"</ProgramInformation>\n");
-    
-    fprintf(master_manifest,"<Period id=\"p0\" start=\"PT0S\">\n");
-    fprintf(master_manifest,"<AdaptationSet id=\"1\" group=\"1\" contentType=\"video\" mimeType=\"video/mp4\" segmentAlignment=\"true\" maxWidth=\"1920\" maxHeight=\"1080\" startWithSAP=\"1\">\n");
-    fprintf(master_manifest,"<Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"main\" />\n");
-    fprintf(master_manifest,"<ContentComponent id=\"1\" contentType=\"video\" />\n");
-    fprintf(master_manifest,"<SegmentTemplate timescale=\"90000\" media=\"$RepresentationID$/segment$Time$.mp4\" initialization=\"$RepresentationID$/init.mp4\">\n");
-    fprintf(master_manifest,"<SegmentTimeline>\n");
-    
-    fprintf(master_manifest,"<S t=\"0\" d=\"450000\" r=\"10\" />\n");
-
-    fprintf(master_manifest,"</SegmentTimeline>\n");
-    fprintf(master_manifest,"</SegmentTemplate>\n");
-
+    lsdata = sdata;
     for (i = 0; i < core->num_sources; i++) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
 
-	fprintf(master_manifest,"<Representation id=\"video%d\" codecs=\"avc1.%2x%02x%2x\" width=\"%d\" height=\"%d\" frameRate=\"30000/1001\" bandwidth=\"%d\" />\n",
+	if (lsdata->width > max_width && lsdata->height > max_height) {
+	    max_width = lsdata->width;
+	    max_height = lsdata->height;
+	}
+	lsdata++;	
+    }
+
+    fprintf(master_manifest,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" xmlns:cenc=\"urn:mpeg:cenc:2013\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011\" minBufferTime=\"PT2S\" type=\"dynamic\" publishTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minimumUpdatePeriod=\"PT5S\" timeShiftBufferDepth=\"PT60S\">\n",
+	    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+	    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);    
+    fprintf(master_manifest,"<Period id=\"0\" start=\"PT0S\">\n");
+    fprintf(master_manifest,"<AdaptationSet id=\"0\" contentType=\"video\" maxWidth=\"%d\" maxHeight=\"%d\" maxFrameRate=\"90000/3003\" par=\"16:9\">\n",
+	    max_width, max_height);
+
+    lsdata = sdata;
+    for (i = 0; i < core->num_sources; i++) {
+	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
+	int segment;
+
+	fprintf(master_manifest,"<Representation id=\"%d\" mimeType=\"video/mp4\" codecs=\"avc1.%2x%02x%2x\" width=\"%d\" height=\"%d\" frameRate=\"90000/3003\" bandwidth=\"%ld\">\n",
 		i,
-		sdata->h264_profile, //hex
-		sdata->midbyte,
-		sdata->h264_level,
-		sdata->width, sdata->height,
-		vstream->video_bitrate);	
-	sdata++;
-    }    
+		lsdata->h264_profile, //hex
+		lsdata->midbyte,
+		lsdata->h264_level,
+		lsdata->width, lsdata->height,
+		vstream->video_bitrate);
 
+	fprintf(master_manifest,"<SegmentTemplate timescale=\"90000\" initialization=\"video%ld/init.mp4\" media=\"video%d/segment$Number$.mp4\" startNumber=\"%ld\">\n",
+		i, i, starting_media_sequence_number);
+	fprintf(master_manifest,"<SegmentTimeline>\n");
+
+	for (segment = 0; segment < core->cd->window_size; segment++) {
+	    int64_t next_sequence_number;
+	    int64_t next_next_sequence_number;
+	    int64_t delta;
+	    int64_t sfsn = starting_file_sequence_number - 1;
+	    if ((starting_file_sequence_number-1) < 0) {
+		sfsn = core->cd->rollover_size-1;
+	    }
+
+	    next_sequence_number = (sfsn + segment) % core->cd->rollover_size;
+	    if (lsdata->discontinuity[next_sequence_number]) {
+		// add discontinuity to file?
+	    }
+	    next_next_sequence_number = (starting_file_sequence_number + segment) % core->cd->rollover_size;
+	    
+	    fprintf(master_manifest,"<S t=\"%ld\" d=\"%ld\"/>\n",
+		    lsdata->full_time[next_sequence_number],
+		    lsdata->full_time[next_next_sequence_number] - lsdata->full_time[next_sequence_number]);
+	}
+
+	fprintf(master_manifest,"</SegmentTimeline>\n");
+        fprintf(master_manifest,"</SegmentTemplate>\n");
+	fprintf(master_manifest,"</Representation>\n");
+	lsdata++;
+    }       
     fprintf(master_manifest,"</AdaptationSet>\n");
+    fprintf(master_manifest,"<AdaptationSet id=\"1\" contentType=\"audio\" segmentAlignment=\"true\">\n");
+    fprintf(master_manifest,"<Representation id=\"2\" bandwidth=\"128000\" codecs=\"mp4a.40.2\" mimeType=\"audio/mp4\" audioSamplingRate=\"48000\">\n");
+    fprintf(master_manifest,"<AudioChannelConfiguration schemeIdUri=\"urn:mpeg:dash:23003:3:audio_channel_configuration:2011\" value=\"2\"/>\n");
+    fprintf(master_manifest,"<SegmentTemplate timescale=\"48000\" initialization=\"audio0/init.mp4\" media=\"audio0/segment$Number$.mp4\" startNumber=\"%ld\">\n",
+	    starting_media_sequence_number);
+    fprintf(master_manifest,"<SegmentTimeline>\n");
 
+    int segment;
+    lsdata = sdata;    
+    for (segment = 0; segment < core->cd->window_size; segment++) {
+	int64_t next_sequence_number;
+	int64_t next_next_sequence_number;
+	int64_t delta;
+	int64_t sfsn = starting_file_sequence_number - 1;
+	if ((starting_file_sequence_number-1) < 0) {
+	    sfsn = core->cd->rollover_size-1;
+	}
+	
+	next_sequence_number = (sfsn + segment) % core->cd->rollover_size;
+	if (lsdata->discontinuity[next_sequence_number]) {
+	    // add discontinuity to file?
+	}
+	next_next_sequence_number = (starting_file_sequence_number + segment) % core->cd->rollover_size;
+	
+	fprintf(master_manifest,"<S t=\"%ld\" d=\"%ld\"/>\n",
+		lsdata->full_time[next_sequence_number],
+		lsdata->full_time[next_next_sequence_number] - lsdata->full_time[next_sequence_number]);
+    }
+    
+    fprintf(master_manifest,"</SegmentTimeline>\n");
+    fprintf(master_manifest,"</SegmentTemplate>\n");
+    fprintf(master_manifest,"</Representation>\n");
+    fprintf(master_manifest,"</AdaptationSet>\n");
     fprintf(master_manifest,"</Period>\n");
     fprintf(master_manifest,"</MPD>\n");    
 
     fclose(master_manifest);
     return 0;
 }
-*/
 
 static int write_mp4_master_manifest(fillet_app_struct *core, source_context_struct *sdata)
 {
@@ -1411,9 +1491,23 @@ void *mux_pump_thread(void *context)
     while (1) {
 	msg = dataqueue_take_back(hlsmux->input_queue);
 	if (!msg) {
+            if (quit_mux_pump_thread) {
+                goto cleanup_mux_pump_thread;
+            }
 	    usleep(1000);
 	    continue;
 	}
+
+        if (quit_mux_pump_thread) {
+            frame = (sorted_frame_struct*)msg->buffer;
+            if (frame) {
+                free(frame->buffer);
+                frame->buffer = NULL;
+                free(frame);
+            }
+            free(msg);            
+            goto cleanup_mux_pump_thread;
+        }        
 
 	source_discontinuity = msg->source_discontinuity;
 	if (source_discontinuity) {
@@ -1538,7 +1632,6 @@ void *mux_pump_thread(void *context)
 		}
 
 		if (core->cd->enable_fmp4_output) {
-		    //err = write_dash_master_manifest(core, &source_data[0]);
 		    err = write_mp4_master_manifest(core, &source_data[0]);
 		    if (err < 0) {
 			//placeholder for error handling
@@ -1635,6 +1728,7 @@ void *mux_pump_thread(void *context)
 
 		    source_data[source].segment_lengths[hlsmux->video[source].file_sequence_number] = frag_delta;
 		    source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;
+		    source_data[source].full_time[hlsmux->video[source].file_sequence_number] = frame->full_time;
 		    if (hlsmux->video[source].fragments_published > core->cd->window_size) {
 			if (core->cd->enable_ts_output) {				    			
 			    update_ts_video_manifest(core, &hlsmux->video[source], source,
@@ -1645,6 +1739,9 @@ void *mux_pump_thread(void *context)
 			    update_mp4_video_manifest(core, &hlsmux->video[source], source,
 						      source_data[source].source_discontinuity,
 						      &source_data[source]);
+			    if (source == 0 && hlsmux->video[source].fragments_published > (core->cd->window_size+1)) {
+				write_dash_master_manifest(core, &source_data[0]);
+			    }
 			}
 			source_data[source].source_discontinuity = 0;
 			sub_manifest_ready = 1;
@@ -1913,7 +2010,8 @@ void *mux_pump_thread(void *context)
 		}		
 		
 		source_data[source].segment_lengths[hlsmux->audio[source].file_sequence_number] = frag_delta;
-		source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;		
+		source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;
+		source_data[source].full_time[hlsmux->audio[source].file_sequence_number] = frame->full_time;		
 		if (hlsmux->audio[source].fragments_published > core->cd->window_size) {
 		    update_ts_audio_manifest(core, &hlsmux->audio[source], source,
 					     source_data[source].source_discontinuity,
@@ -2071,6 +2169,53 @@ skip_sample:
 	free(msg);
     }
 
+cleanup_mux_pump_thread:
+    // free all buffers in the queue
+    msg = dataqueue_take_back(hlsmux->input_queue);
+    while (msg) {
+        frame = (sorted_frame_struct*)msg->buffer;
+        if (frame) {
+            free(frame->buffer);
+            frame->buffer = NULL;
+            free(frame);
+        }
+        free(msg);
+        msg = dataqueue_take_back(hlsmux->input_queue);
+    }
+
+    for (i = 0; i < num_sources; i++) {
+        if (core->cd->enable_ts_output) {
+            hlsmux->video[i].packet_count = 0;
+            if (hlsmux->video[i].output_ts_file) {
+                fclose(hlsmux->video[i].output_ts_file);
+                hlsmux->video[i].output_ts_file = NULL;		    
+            }		
+            hlsmux->audio[i].packet_count = 0;
+            if (hlsmux->audio[i].output_ts_file) {
+                fclose(hlsmux->audio[i].output_ts_file);
+                hlsmux->audio[i].output_ts_file = NULL;
+            }
+        }
+        if (core->cd->enable_fmp4_output) {
+            if (hlsmux->video[i].output_fmp4_file) {
+                fclose(hlsmux->video[i].output_fmp4_file);
+                hlsmux->video[i].output_fmp4_file = NULL;		    
+            }		
+            if (hlsmux->audio[i].output_fmp4_file) {
+                fclose(hlsmux->audio[i].output_fmp4_file);
+                hlsmux->audio[i].output_fmp4_file = NULL;
+            }
+            if (hlsmux->video[i].fmp4) {
+                fmp4_file_finalize(hlsmux->video[i].fmp4);
+                hlsmux->video[i].fmp4 = NULL;
+            }
+            if (hlsmux->audio[i].fmp4) {
+                fmp4_file_finalize(hlsmux->audio[i].fmp4);
+                hlsmux->audio[i].fmp4 = NULL;
+            }						    
+        }        
+    }    
+
     for (i = 0; i < num_sources; i++) {
 	free(hlsmux->video[i].pesbuffer);
 	free(hlsmux->video[i].muxbuffer);
@@ -2080,6 +2225,8 @@ skip_sample:
 	free(hlsmux->audio[i].muxbuffer);
 	free(hlsmux->audio[i].packettable);
     }
+
+    quit_mux_pump_thread = 0;
     
     return NULL;
 }

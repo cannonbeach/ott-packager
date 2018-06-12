@@ -26,6 +26,9 @@
 
 #include "fillet.h"
 
+int load_kvp_config(fillet_app_struct *core);
 int launch_new_fillet(fillet_app_struct *core, int new_session);
+void *client_thread(void *context);
+int wait_for_event(fillet_app_struct *core);
 
 #endif 

@@ -34,13 +34,14 @@
 #include <unistd.h>
 #include <stdint.h>
 #include "fillet.h"
+#include "dataqueue.h"
 #include "background.h"
 
 #define MAX_CONNECTIONS    8
 #define MAX_REQUEST_SIZE   65535
 #define MAX_RESPONSE_SIZE  MAX_REQUEST_SIZE
 
-static int load_kvp_config(fillet_app_struct *core)
+int load_kvp_config(fillet_app_struct *core)
 {
     struct stat sb;
     FILE *kvp;
@@ -55,7 +56,8 @@ static int load_kvp_config(fillet_app_struct *core)
     char interface[MAX_STR_SIZE];
     int segment_length = DEFAULT_SEGMENT_LENGTH;
     int window_size = DEFAULT_WINDOW_SIZE;
-    int rollover_size = MAX_ROLLOVER_SIZE;    
+    int rollover_size = MAX_ROLLOVER_SIZE;
+    int current_source = 0;
 
     if (!core) {
 	return -1;
@@ -65,15 +67,17 @@ static int load_kvp_config(fillet_app_struct *core)
     if (stat(local_dir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
 	// placeholder
     } else {
+        fprintf(stderr,"ERROR: Session:%d Unable to find %s directory\n", core->session_id, local_dir);
 	syslog(LOG_ERR,"SESSION:%d (CONFIG) ERROR: UNABLE TO FIND /opt/fillet CONFIGURATION DIRECTORY\n", core->session_id);
 	return -1;
     }
-    snprintf(kvp_filename,MAX_STR_SIZE-1,"/opt/fillet/session%d.config", core->session_id);
+    snprintf(kvp_filename,MAX_STR_SIZE-1,"%s/session%d.config", local_dir, core->session_id);
 
     syslog(LOG_INFO,"SESSION:%d (CONFIG) STATUS: LOADING CONFIGURATION: %s\n", core->session_id, kvp_filename);    
 
     kvp = fopen(kvp_filename,"r");
     if (!kvp) {
+        fprintf(stderr,"ERROR: Session:%d Unable to open configuration /opt/fillet/%s\n", core->session_id, kvp_filename);
 	syslog(LOG_ERR,"SESSION:%d (CONFIG) ERROR: UNABLE TO OPEN /opt/fillet/%s\n", core->session_id, kvp_filename);
 	return -1;
     }
@@ -111,7 +115,11 @@ static int load_kvp_config(fillet_app_struct *core)
 			      &ip0,&ip1,&ip2,&ip3,
 			      &port,
 			      (char*)&interface);
-		// format - ip:port:interface
+		//source format - ip:port:interface
+                snprintf(core->cd->active_source[current_source].active_ip,UDP_MAX_IFNAME-1,"%d.%d.%d.%d",ip0,ip1,ip2,ip3);
+                core->cd->active_source[current_source].active_port = port;
+                snprintf(core->cd->active_interface,UDP_MAX_IFNAME-1,"%s",interface);
+                current_source++;
 	    }
 	    if (strncmp(pkvpdata,"hls_ts=yes",10) == 0) {
 		enable_hls_ts = 1;
@@ -166,11 +174,32 @@ static int load_kvp_config(fillet_app_struct *core)
     return 0;
 }
 
-void *server_thread(void *context)
+int wait_for_event(fillet_app_struct *core)
+{
+    dataqueue_message_struct *msg;
+    int msgid = -1;
+
+    syslog(LOG_INFO,"WAITING ON THE SEMAPHORE:%p\n", core->event_wait);
+    
+    sem_wait(core->event_wait);
+    
+    syslog(LOG_INFO,"GRABBING MSG FROM QUEUE:%p\n", core->event_queue);
+    
+    msg = (dataqueue_message_struct*)dataqueue_take_back(core->event_queue);
+    if (msg) {
+        msgid = msg->flags;
+        free(msg);
+    }   
+
+    syslog(LOG_INFO,"RETURNING MSGID:%d (0x%x)\n", msgid, msgid);
+    return msgid;
+}
+
+void *client_thread(void *context)
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
     int server = -1;
-    int port = 50000+(core->session_id*10);
+    int port = 51321+(core->session_id*10);
     fd_set commset;
     int err;
     char *request_buffer = NULL;
@@ -243,9 +272,12 @@ void *server_thread(void *context)
 	    continue;
 	}
 	//incoming connection
+
+	//spawn off to new thread if needed
 	if (FD_ISSET(server, &commset)) {
 	    struct sockaddr_in newclientaddr;
 	    unsigned int newclientsize = sizeof(newclientaddr);
+	    
 	    client = accept(server, (struct sockaddr *)&newclientaddr, &newclientsize);
 	    syslog(LOG_INFO,"SESSION:%d (RESTFUL) STATUS: RECEIVED CONNECTION ON PORT %d FROM %s:%d\n",
 		   core->session_id, port, inet_ntoa(newclientaddr.sin_addr), ntohs(newclientaddr.sin_port));
@@ -272,53 +304,193 @@ void *server_thread(void *context)
 		syslog(LOG_INFO,"SESSION:%d (RESTFUL) STATUS: RECEIVED HTTP REQUEST (METHOD:%s,URL:%s,VER:%s)\n",
 		       core->session_id, method, url, httpver);
 
-		if (strncmp(method,"GET",3)) {		    
+		if (strncmp(method,"GET",3) == 0) {
+                    int ping_event = 0;
+                    int status_event = 0;
 		    // "GET" methods
-		    char *status_response = "{\"warning\":[\"inactive\"]}";
-		    int content_length = strlen(status_response)+4;
-		    memset(response_buffer, 0, MAX_RESPONSE_SIZE);
-		    snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
-			     "HTTP/1.1 200 OK\r\n"
-			     "Server: FILLET\r\n"
-			     "Access-Control-Allow-Methods: GET, POST\r\n"
-			     "Content-Length: %d\r\n"
-			     "\r\n"
-			     "%s\r\n\r\n",
-			     content_length,
-			     status_response);
-		    send(client, response_buffer, strlen(response_buffer), 0);
-		    close(client);
-		    client = 0;
-		    continue;
-		} else if (strncmp(method,"POST",4)) {
+                    if (strncmp(url,"/ping",5) == 0) { // ping event - no action
+                        ping_event = 1;
+                    }
+                    if (strncmp(url,"/status",7) == 0) { // status event
+                        status_event = 1;
+                    }
+
+                    if (ping_event) {
+                        char *status_response = "{\"status\":[\"pong\"]}";
+                        int content_length = strlen(status_response)+4;
+                        memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                        snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                 "HTTP/1.1 200 OK\r\n"
+                                 "Server: fillet\r\n"
+                                 "Access-Control-Allow-Methods: GET, POST\r\n"
+                                 "Content-Length: %d\r\n"
+                                 "\r\n"
+                                 "%s\r\n\r\n",
+                                 content_length,
+                                 status_response);
+                        send(client, response_buffer, strlen(response_buffer), 0);
+                        close(client);
+                        client = -1;
+                        syslog(LOG_WARNING,"SESSION:%d (RESTFUL) STATUS: RECEIVED PING REQUEST\n",
+                               core->session_id);                        
+                    } else if (status_event) {
+                        if (!core->source_running) {                            
+                            char *status_response = "{\"status\":[\"inactive session\"]}";
+                            int content_length = strlen(status_response)+4;
+                            memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                            snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                     "HTTP/1.1 200 OK\r\n"
+                                     "Server: FILLET\r\n"
+                                     "Access-Control-Allow-Methods: GET, POST\r\n"
+                                     "Content-Length: %d\r\n"
+                                     "\r\n"
+                                     "%s\r\n\r\n",
+                                     content_length,
+                                     status_response);                            
+                        } else {
+                            char *status_response = "{\"status\":[\"inactive\"]}";
+                            
+                            int content_length = strlen(status_response)+4;
+                            memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                            snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                     "HTTP/1.1 200 OK\r\n"
+                                     "Server: FILLET\r\n"
+                                     "Access-Control-Allow-Methods: GET, POST\r\n"
+                                     "Content-Length: %d\r\n"
+                                     "\r\n"
+                                     "%s\r\n\r\n",
+                                     content_length,
+                                     status_response);                            
+                        }
+                        send(client, response_buffer, strlen(response_buffer), 0);
+                        close(client);
+                        client = -1;
+                        syslog(LOG_WARNING,"SESSION:%d (RESTFUL) STATUS: RECEIVED STATUS REQUEST\n",
+                               core->session_id);                                                
+                    } else {
+                        char *status_response = "{\"warning\":[\"invalid request\"]}";
+                        int content_length = strlen(status_response)+4;
+                        memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                        snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                 "HTTP/1.1 200 OK\r\n"
+                                 "Server: FILLET\r\n"
+                                 "Access-Control-Allow-Methods: GET, POST\r\n"
+                                 "Content-Length: %d\r\n"
+                                 "\r\n"
+                                 "%s\r\n\r\n",
+                                 content_length,
+                                 status_response);
+                        send(client, response_buffer, strlen(response_buffer), 0);
+                        close(client);
+                        client = -1;
+                        syslog(LOG_WARNING,"SESSION:%d (RESTFUL) STATUS: RECEIVED INVALID REQUEST\n",
+                               core->session_id);                                                                        
+                    }
+                    continue;
+		} else if (strncmp(method,"POST",4) == 0) {
+                    int start_event = 0;
+                    int stop_event = 0;
+                    int restart_event = 0;
+                    int respawn_event = 0;
+                    dataqueue_message_struct *msg;
+                    
 		    // "POST" methods
-		    if (strncmp(url,"/start",6)) {  // puts into run state
+		    if (strncmp(url,"/start",6) == 0) {  // puts into run state
+                        start_event = 1;
 		    }
-		    if (strncmp(url,"/stop",5)) {
+		    if (strncmp(url,"/stop",5) == 0) {  // puts into stop state
+                        stop_event = 1;
+		    } 
+		    if (strncmp(url,"/restart",8) == 0) {  // restarts the stack
+                        restart_event = 1;
 		    }
-		    if (strncmp(url,"/restart",8)) {
+		    if (strncmp(url,"/respawn",8) == 0) {  // kills the process and respawns it                        
+			// identify the pid
+			// kill the pid
+                        respawn_event = 1;
 		    }
-		    if (strncmp(url,"/respawn",8)) {
-		    }
-		    //placeholder
-		    char *status_response = "{\"error\":[\"invalid request\"]}";
-		    int content_length = strlen(status_response)+4;
-		    memset(response_buffer, 0, MAX_RESPONSE_SIZE);
-		    snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
-			     "HTTP/1.1 200 OK\r\n"
-			     "Server: fillet\r\n"
-			     "Access-Control-Allow-Methods: GET, POST\r\n"
-			     "Content-Length: %d\r\n"
-			     "\r\n"
-			     "%s\r\n\r\n",
-			     content_length,
-			     status_response);
-		    send(client, response_buffer, strlen(response_buffer), 0);
-		    close(client);
-		    client = 0;
-		    syslog(LOG_WARNING,"SESSION:%d (RESTFUL) WARNING: RECEIVED INVALID REQUEST\n",
-			   core->session_id);		    
-		    continue;		    		    
+
+                    if (respawn_event || restart_event || start_event || stop_event) {
+                        //post to main thread something is ready
+                        msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                        if (msg) {
+                            memset(msg, 0, sizeof(dataqueue_message_struct));
+                            if (start_event) {
+                                msg->flags = MSG_START;
+                            } else if (stop_event) {
+                                msg->flags = MSG_STOP;
+                            } else if (restart_event) {
+                                msg->flags = MSG_RESTART;
+                            } else if (respawn_event) {
+                                msg->flags = MSG_RESPAWN;                                
+                            }
+                            syslog(LOG_INFO,"SESSION:%d (RESTFUL) STATUS: PROCESSING REQUEST (0x%x)\n",
+                                   core->session_id,
+                                   msg->flags);                                                                                    
+                            syslog(LOG_INFO,"PUSHING MSG INTO EVENT QUEUE: %p MSG:%p\n",
+                                   core->event_queue, msg);
+                            dataqueue_put_front(core->event_queue, msg);
+                            syslog(LOG_INFO,"POSTING SEMAPHORE: %p\n", core->event_wait);
+                            sem_post(core->event_wait);
+                            syslog(LOG_INFO,"DONE POSTING SEMAPHORE: %p\n", core->event_wait);
+                        } else {
+                            //placeholder
+                            //unhandled message - we have bigger problems - maybe just quit?
+                            char *status_response = "{\"error\":[\"internal error\"]}";
+                            int content_length = strlen(status_response)+4;
+                            memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                            snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                     "HTTP/1.1 200 OK\r\n"
+                                     "Server: fillet\r\n"
+                                     "Access-Control-Allow-Methods: GET, POST\r\n"
+                                     "Content-Length: %d\r\n"
+                                     "\r\n"
+                                     "%s\r\n\r\n",
+                                     content_length,
+                                     status_response);
+                            send(client, response_buffer, strlen(response_buffer), 0);
+                            close(client);
+                            client = -1;                        
+                            syslog(LOG_WARNING,"SESSION:%d (RESTFUL) WARNING: RECEIVED UNHANDLED REQUEST\n",
+                                   core->session_id);                            
+                            continue;
+                        }
+                        char *status_response = "{\"status\":[\"processing request\"]}";
+                        int content_length = strlen(status_response)+4;
+                        memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                        snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                 "HTTP/1.1 200 OK\r\n"
+                                 "Server: fillet\r\n"
+                                 "Access-Control-Allow-Methods: GET, POST\r\n"
+                                 "Content-Length: %d\r\n"
+                                 "\r\n"
+                                 "%s\r\n\r\n",
+                                 content_length,
+                                 status_response);
+                        send(client, response_buffer, strlen(response_buffer), 0);
+                        close(client);
+                        client = -1;                        
+                        continue;                        
+                    } else {
+                        char *status_response = "{\"error\":[\"invalid request\"]}";
+                        int content_length = strlen(status_response)+4;
+                        memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+                        snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                                 "HTTP/1.1 200 OK\r\n"
+                                 "Server: fillet\r\n"
+                                 "Access-Control-Allow-Methods: GET, POST\r\n"
+                                 "Content-Length: %d\r\n"
+                                 "\r\n"
+                                 "%s\r\n\r\n",
+                                 content_length,
+                                 status_response);
+                        send(client, response_buffer, strlen(response_buffer), 0);
+                        close(client);
+                        client = -1;                        
+                        syslog(LOG_WARNING,"SESSION:%d (RESTFUL) WARNING: RECEIVED INVALID REQUEST\n",
+                               core->session_id);
+                    }
+		    continue;
 		} else {
 		    char *status_response = "{\"error\":[\"invalid request\"]}";
 		    int content_length = strlen(status_response)+4;		    
@@ -334,7 +506,7 @@ void *server_thread(void *context)
 			     status_response);
 		    send(client, response_buffer, strlen(response_buffer), 0);
 		    close(client);
-		    client = 0;
+		    client = -1;
 		    syslog(LOG_WARNING,"SESSION:%d (RESTFUL) WARNING: RECEIVED INVALID REQUEST\n",
 			   core->session_id);		    
 		    continue;		    
@@ -347,7 +519,6 @@ void *server_thread(void *context)
     free(response_buffer);
     return NULL;	
 }
-
 
 int launch_new_fillet(fillet_app_struct *core, int new_session)
 {
@@ -365,9 +536,12 @@ int launch_new_fillet(fillet_app_struct *core, int new_session)
 	core->session_id = (new_session+1);
 	err = load_kvp_config(core);
 	if (err < 0) {
-	    syslog(LOG_ERR,"FATAL ERROR: FILLET FAILED TO CREATE CHILD PROCESS!\n");
-	    // placeholder	    
-	}
+            fprintf(stderr,"ERROR: Session:%d Unable to read configuration (see /var/log/syslog for more details)\n",
+                    core->session_id);
+	} else {
+            fprintf(stderr,"STATUS: Session:%d Loaded configuration file successfully\n",
+                    core->session_id);
+        }
     } else {
 	// parent
 	// save the process identifier

@@ -59,7 +59,8 @@ void *udp_source_thread(void *context)
     int udp_buffer_size;
     int i;
     int active_source_index;
-
+    int64_t no_signal_counter = 0;
+    
 #define MAX_UDP_BUFFER_READ 2048
     pthread_mutex_lock(&start_lock);
     
@@ -100,23 +101,30 @@ void *udp_source_thread(void *context)
 	is_thread_running = core->source_running;
 	if (!is_thread_running || udp_socket < 0) {
 	    core->source_running = 0;
+            syslog(LOG_INFO,"SESSION:%d (TSRECEIVE) STATUS: NETWORK THREAD IS EXITING: FLAG=%d SOCKET=%d\n",
+                   core->session_id,
+                   is_thread_running,
+                   udp_socket);                   
 	    goto _cleanup_udp_source_thread;
 	}
 
 	anysignal = socket_udp_ready(udp_socket, timeout_ms, &sockset);
 	if (anysignal == 0) {
-	    syslog(LOG_WARNING,"SESSION:%d (TSRECIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s\n",
+	    syslog(LOG_WARNING,"SESSION:%d (TSRECIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
 		   core->session_id,
 		   udp_socket,
 		   core->fillet_input[active_source_index].udp_source_ipaddr,
 		   core->fillet_input[active_source_index].udp_source_port,
-		   core->fillet_input[active_source_index].interface);
+		   core->fillet_input[active_source_index].interface,
+                   no_signal_counter);
+            no_signal_counter++;
 	    continue;
 	}
 
 	if (FD_ISSET(udp_socket, &sockset)) {
 	    int bytes = socket_udp_read(udp_socket, udp_buffer, udp_buffer_size);
 	    if (bytes > 0) {
+                no_signal_counter = 0;
 		int total_packets = bytes / 188;
 		if (total_packets > 0) {
 		    decode_packets(udp_buffer, total_packets, tsdata);

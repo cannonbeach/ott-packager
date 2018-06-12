@@ -68,10 +68,17 @@
 #define OVERFLOW_DTS               8589100000
 #define MAX_SESSIONS               25
 
-#define FRAME_TYPE_VIDEO     0x01
-#define FRAME_TYPE_AUDIO     0x02
+#define FRAME_TYPE_VIDEO           0x01
+#define FRAME_TYPE_AUDIO           0x02
 
-#define FRAME_TYPE_SYNC      0x01
+#define FRAME_TYPE_SYNC            0x01
+
+#define MSG_START                  0xa1
+#define MSG_STOP                   0xa2
+#define MSG_RESTART                0xa3
+#define MSG_RESPAWN                0xa4
+#define MSG_PING                   0xb1
+#define MSG_STATUS                 0xb2
 
 typedef struct _ip_config_struct_ {
     char             active_ip[UDP_MAX_IFNAME];
@@ -215,6 +222,9 @@ typedef struct _fillet_app_struct_
 
     sorted_frame_struct    *video_frame_data[MAX_FRAME_DATA_SYNC_VIDEO];
     sorted_frame_struct    *audio_frame_data[MAX_FRAME_DATA_SYNC_AUDIO];
+
+    void                   *event_queue;
+    sem_t                  *event_wait;
 
     hlsmux_struct          *hlsmux;
 
