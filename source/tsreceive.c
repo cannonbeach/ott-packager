@@ -94,6 +94,10 @@ void *udp_source_thread(void *context)
 	goto _cleanup_udp_source_thread;
     }    
 
+    syslog(LOG_INFO,"SESSION:%d (TSRECIVE) STATUS: NETWORK THREAD IS STARTING - SOCKET:%d\n",
+           core->session_id,
+           udp_socket);
+    
     while (1) {
 	int is_thread_running;
 	int anysignal;

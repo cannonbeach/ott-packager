@@ -67,6 +67,7 @@ static int quit_sync_thread = 0;
 static pthread_t frame_sync_thread_id;
 static int enable_background = 0;
 
+static volatile int child_pids[MAX_SESSIONS];
 static config_options_struct config_data;
 
 static struct option long_options[] = {
@@ -92,6 +93,7 @@ void crash_handler(int sig)
 
     fprintf(stderr, "Error: signal %d:\n", sig);
     backtrace_symbols_fd(array, size, STDERR_FILENO);
+
     exit(1);
 }
 
@@ -612,8 +614,11 @@ int dump_frames(sorted_frame_struct **frame_data, int max)
 		frame_data[i] = NULL;
 	    }
 	} else {
-	    fprintf(stderr,"[I:%4d] NO FRAME DATA\n", i);
+	    //fprintf(stderr,"[I:%4d] NO FRAME DATA\n", i);
 	}
+    }
+    if (enable_background) {
+        exit(0);
     }
     return 0;
 }
@@ -705,7 +710,7 @@ static void *frame_sync_thread(void *context)
 		}
 	    }
 	} else {
-	    usleep(2500);
+	    usleep(5000);
 	}
     }
 
@@ -805,7 +810,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 			   dts);
 		    fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
 		    restart_sync_thread = 1;
-		} 
+		}
 	    }
 
 	    vstream->last_timestamp_dts = dts + vstream->overflow_dts;
@@ -864,7 +869,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	int64_t br;
 	int64_t diff;
 
-	if (!vstream->found_key_frame) {
+        if (!vstream->found_key_frame) {
 	    return 0;
 	}
 
@@ -988,8 +993,11 @@ static void *runtime_thread(void *context)
         core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
     }
 
+    syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING CORE FRAME SYNC THREAD: ACTIVE SOURCES:%d\n",
+           core->session_id,
+           config_data.active_sources);
+    pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
     core->source_running = 1;    
-    pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
     for (i = 0; i < config_data.active_sources; i++) {
         syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
                core->session_id,
@@ -998,8 +1006,17 @@ static void *runtime_thread(void *context)
                core->fillet_input[i].udp_source_port,
                core->fillet_input[i].interface);
         pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
+        syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE STARTING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
+               core->session_id,
+               i,
+               core->fillet_input[i].udp_source_ipaddr,
+               core->fillet_input[i].udp_source_port,
+               core->fillet_input[i].interface);               
     }
-             
+
+    syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: ENTERING CORE FRAME SYNC THREAD\n",
+           core->session_id);
+    
     while (core->source_running) {
         if (quit_sync_thread && core->source_running) {
             quit_sync_thread = 0;
@@ -1071,7 +1088,11 @@ int main(int argc, char **argv)
 	 return 1;
      }
 
-     core = create_fillet_core(&config_data, config_data.active_sources);
+     if (enable_background) {
+         core = create_fillet_core(&config_data, MAX_SOURCES); // need to reserve ahead of time
+     } else {
+         core = create_fillet_core(&config_data, config_data.active_sources);
+     }
      
      if (enable_background) {
 	 int daemon_launched;
@@ -1102,20 +1123,23 @@ int main(int argc, char **argv)
          fprintf(stderr,"launching %d background processes\n", MAX_SESSIONS);
 	 for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
 	     new_pid = launch_new_fillet(core, child_process);
-	     if (new_pid == -1) {
+	     if (new_pid < 0) {
 		 fprintf(stderr,"ERROR: Unable to launch new process in background!\n\n");
                  syslog(LOG_INFO,"FILLET: ERROR: Unable to launch new process in background!\n");
 		 exit(1);
-	     }
-	     if (new_pid == 0) {
+	     } else if (new_pid != 0) {
+                 // parent
+                 fprintf(stderr,"STATUS: Launching background worker process: %d (PID:%d)\n", child_process, new_pid);
+                 syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launching background worker process: %d (PID:%d)\n",
+                        child_process,
+                        new_pid);                 
+                 child_pids[child_process] = new_pid;
+		 continue;
+	     } else {
                  // new child
 		 syslog(LOG_INFO,"FILLET: STATUS: CHILD: Launched new child process!\n\n");
 		 break;
-	     } else {
-                 fprintf(stderr,"STATUS: Launching background worker process: %d\n", child_process);
-		 syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launching background worker process!\n\n");
-		 continue;
-	     }
+             }
 	 }
 
 	 if (new_pid > 0) {
@@ -1124,23 +1148,56 @@ int main(int argc, char **argv)
 	     disable_child_signal();
 
 	     syslog(LOG_INFO,"FILLET: STATUS: STARTING SERVER THREAD\n");
-	     //pthread_create(&server_thread_id, NULL, server_thread, (void*)core);
 	     
 	     while (1) {
+                 int err;
 		 //just ping each client asking for health
 		 //also check that the process is still alive otherwise refork
                  //fprintf(stderr,"Parent is sleeping\n");
+                 for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
+                     //fprintf(stderr,"PID:%d CHECKING IF PROCESS EXISTS: (%d) PID:%d\n", new_pid, child_process, child_pids[child_process]);
+                     // checking to see if process exists - setting kill to 0 is simply a check that it exists and can receive signals
+                     err = kill(child_pids[child_process], 0);
+                     if (err == 0) {
+                         // process exists - we are fine
+                         continue;
+                     }
+                     if (err == -1) {
+                         syslog(LOG_INFO,"ERROR: PROCESS %d HAS EXITED - STARTING A NEW ONE\n", child_pids[child_process]);
+                         fprintf(stderr,"STATUS: PROCESS %d HAS EXITED - STARTING A NEW ONE\n", child_pids[child_process]);
+
+                         new_pid = launch_new_fillet(core, child_process);
+                         if (new_pid < 0) {
+                             fprintf(stderr,"ERROR: Unable to launch new process in background!\n\n");
+                             syslog(LOG_INFO,"FILLET: ERROR: Unable to launch new process in background!\n");
+                             exit(1);
+                         } else if (new_pid != 0) {
+                             fprintf(stderr,"STATUS: Launching background worker process: %d (PID:%d)\n", child_process, new_pid);
+                             syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launching background worker process: %d (PID:%d)\n",
+                                    child_process,
+                                    new_pid);                 
+                             child_pids[child_process] = new_pid;
+                             continue;
+                         } else {
+                             // new child
+                             syslog(LOG_INFO,"FILLET: STATUS: CHILD: Launched new child process!\n\n");
+                             goto _start_child_process;
+                         }             
+                     }
+                 }
 		 sleep(1);
 	     }
-	     // wait for the kill signal
 
+             // this will fall through and the channel will start again
+             
+	     // wait for the kill signal
+             // we should probably put in a master kill switch that gets us here
 	     // kill the children
-	     for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
-		 //kill(process_id, SIGKILL);
-	     }
+	     //for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
+             // kill(child_pids[child_process], SIGKILL);
+	     //}
 	     // kill the server
-	     //pthread_join(server_thread_id, NULL);
-	     exit(0);
+	     //exit(0);
 	 }
      } else {
 	 // basic command line mode for testing purposes
@@ -1165,7 +1222,7 @@ int main(int argc, char **argv)
 	 core->source_running = 1;
 	 for (i = 0; i < config_data.active_sources; i++) {	
 	     pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
-	 }
+         }
 
 	 while (core->source_running) {
 	     if (quit_sync_thread) {
@@ -1185,8 +1242,9 @@ cleanup_main_app:
 	 return 0;
      }
 
+_start_child_process:     
      // this is the main child background thread
-     syslog(LOG_INFO,"FILLET: STATUS: STARTING CHILD SERVER THREAD\n");
+     syslog(LOG_INFO,"FILLET: STATUS: STARTING CHILD SERVER THREAD: %d\n", core->session_id);
 
      pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
      while (1) {	 

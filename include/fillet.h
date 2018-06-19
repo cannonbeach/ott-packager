@@ -66,7 +66,8 @@
 #define MAX_ROLLOVER_SIZE          128
 #define MIN_ROLLOVER_SIZE          32
 #define OVERFLOW_DTS               8589100000
-#define MAX_SESSIONS               25
+#define MAX_SESSIONS               5
+#define MAX_SOURCES                8
 
 #define FRAME_TYPE_VIDEO           0x01
 #define FRAME_TYPE_AUDIO           0x02

@@ -154,6 +154,7 @@ int load_kvp_config(fillet_app_struct *core)
 	}
     }
 
+    core->num_sources = source_streams;
     core->cd->window_size = window_size;
     core->cd->segment_length = segment_length;
     core->cd->rollover_size = rollover_size;
