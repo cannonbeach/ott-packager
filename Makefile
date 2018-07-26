@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -fomit-frame-pointer -funroll-loops
+CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -funroll-loops
 SRC=./source
 INC=-I./include
 OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o

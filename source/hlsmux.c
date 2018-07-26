@@ -1515,7 +1515,7 @@ void *mux_pump_thread(void *context)
 	    int64_t first_video_media_sequence_number;
 	    int available = 0;
 	    
-	    fprintf(stderr,"SOURCE DISCONTINUITY ENCOUNTERED\n");
+	    syslog(LOG_INFO,"HLSMUX: SOURCE DISCONTINUITY ENCOUNTERED\n");
 	    available = hlsmux_load_state(core, &source_data[0]);		
     
 	    for (i = 0; i < MAX_SOURCE_STREAMS; i++) {
@@ -1601,11 +1601,11 @@ void *mux_pump_thread(void *context)
 
 		if (source_data[source].h264_sps_size == 0) {
 		    get_h264_sps(&source_data[source], frame->buffer, frame->buffer_size);
-		    fprintf(stderr,"HLSMUX: SAVING SPS: SIZE:%d\n", source_data[source].h264_sps_size);
+		    syslog(LOG_INFO,"HLSMUX: SAVING SPS: SIZE:%d\n", source_data[source].h264_sps_size);
 		}
 		if (source_data[source].h264_pps_size == 0) {
 		    get_h264_pps(&source_data[source], frame->buffer, frame->buffer_size);
-		    fprintf(stderr,"HLSMUX: SAVING PPS: SIZE:%d\n", source_data[source].h264_pps_size);		
+		    syslog(LOG_INFO,"HLSMUX: SAVING PPS: SIZE:%d\n", source_data[source].h264_pps_size);		
 		}
 		
 		for (n = 0; n < num_sources; n++) {
@@ -1621,7 +1621,7 @@ void *mux_pump_thread(void *context)
 	    
 	    if (manifest_ready == num_sources && manifest_written == 0 && sub_manifest_ready) {
 		manifest_written = 1;
-		fprintf(stderr,"HLSMUX: WRITING OUT MASTER MANIFEST FILE\n");
+		syslog(LOG_INFO,"HLSMUX: WRITING OUT MASTER MANIFEST FILE\n");
 		if (core->cd->enable_ts_output) {		
 		    err = write_ts_master_manifest(core, &source_data[0]);
 		    if (err < 0) {
@@ -1645,8 +1645,9 @@ void *mux_pump_thread(void *context)
 	    if (frame->sync_frame) {
 		double frag_delta;
 		
-		fprintf(stderr,"HLSMUX: SYNC FRAME FOUND: PTS: %ld DTS:%ld\n",
-			frame->pts, frame->dts);
+		syslog(LOG_INFO,"HLSMUX: SYNC FRAME FOUND: PTS: %ld DTS:%ld\n",
+                       frame->pts, frame->dts);
+                
 		if (source_data[source].start_time_video == -1) {
 		    source_data[source].start_time_video = frame->full_time;
 		    
@@ -1680,15 +1681,11 @@ void *mux_pump_thread(void *context)
 								
 			start_init_mp4_fragment(core, &hlsmux->video[source], source, 1);
 
-			fprintf(stderr,"HLSMUX: CREATED INITIAL MP4 VIDEO FRAGMENT(%d): %p\n",
-				source,
-				hlsmux->video[source].fmp4->buffer);
-			
 			fmp4_output_header(hlsmux->video[source].fmp4);
 			
-			fprintf(stderr,"HLSMUX: WRITING OUT VIDEO INIT FILE - FMP4(%d): %ld\n",
-				source,
-				hlsmux->video[source].fmp4->buffer_offset);
+			syslog(LOG_INFO,"HLSMUX: WRITING OUT VIDEO INIT FILE - FMP4(%d): %ld\n",
+                               source,
+                               hlsmux->video[source].fmp4->buffer_offset);
 			
 			fwrite(hlsmux->video[source].fmp4->buffer, 1, hlsmux->video[source].fmp4->buffer_offset, hlsmux->video[source].output_fmp4_file);
 			end_init_mp4_fragment(core, &hlsmux->video[source], source);
@@ -1698,27 +1695,29 @@ void *mux_pump_thread(void *context)
 		    }
 		}
 		frag_delta = (frame->full_time - source_data[source].start_time_video) / 90000.0;
+
+                syslog(LOG_INFO,"HLSMUX: VIDEO(%d): TIME:%ld FRAG_DELTA:%f  TVD:%f  EVD:%f FRAGLENGTH:%ld \n",                       
+                       source,
+                       frame->full_time,
+                       frag_delta,
+                       source_data[source].total_video_duration,
+                       source_data[source].expected_video_duration,
+                       fragment_length);
+                
 		if (source_data[source].total_video_duration+frag_delta >= source_data[source].expected_video_duration+fragment_length) {
 		    if (core->cd->enable_ts_output) {
 			end_ts_fragment(core, &hlsmux->video[source], source);
 		    }
 
-		    if (core->cd->enable_fmp4_output) {				    
-			if (hlsmux->video[source].fmp4) {
-			    fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): BUFFER:%p SIZE:%d TF:%d\n",
-				    source,
-				    hlsmux->video[source].fmp4->buffer,
-				    hlsmux->video[source].fmp4->buffer_offset,
-				    hlsmux->video[source].fmp4->fragment_count);
-			}
-		    }
-		    
 		    if (core->cd->enable_fmp4_output) {
 			if (hlsmux->video[source].fmp4) {
 			    fmp4_fragment_end(hlsmux->video[source].fmp4);
-			    fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): SIZE:%d\n",
-				    source,
-				    hlsmux->video[source].fmp4->buffer_offset);			    
+                            
+			    syslog(LOG_INFO,"HLSMUX: ENDING PREVIOUS fMP4 VIDEO FRAGMENT(%d): SIZE:%d TF:%d\n",
+                                   source,
+                                   hlsmux->video[source].fmp4->buffer_offset,
+                                   hlsmux->video[source].fmp4->fragment_count);                           
+
 			    fwrite(hlsmux->video[source].fmp4->buffer, 1, hlsmux->video[source].fmp4->buffer_offset, hlsmux->video[source].output_fmp4_file);
 			    end_mp4_fragment(core, &hlsmux->video[source], source);
 			}
@@ -1751,8 +1750,15 @@ void *mux_pump_thread(void *context)
 		    hlsmux->video[source].media_sequence_number = (hlsmux->video[source].media_sequence_number + 1);
 		    
 		    source_data[source].start_time_video = frame->full_time;
-		    fprintf(stderr,"HLSMUX: STARTING NEW VIDEO FRAGMENT: LENGTH:%.2f  TOTAL:%.2f (NEW START:%ld)\n",
-			    frag_delta, source_data[source].total_video_duration, source_data[source].start_time_video);
+
+		    syslog(LOG_INFO,"HLSMUX: STARTING NEW VIDEO FRAGMENT(%d): LENGTH:%.2f  TOTAL:%.2f (NEW START:%ld)  FILESEQ:%ld MEDIASEQ:%ld PUBLISHED:%ld\n",
+                           source,
+                           frag_delta,
+                           source_data[source].total_video_duration,
+                           source_data[source].start_time_video,
+                           hlsmux->video[source].file_sequence_number,
+                           hlsmux->video[source].media_sequence_number,
+                           hlsmux->video[source].fragments_published);
 		    
 		    source_data[source].total_video_duration += frag_delta;
 		    source_data[source].expected_video_duration += fragment_length;
@@ -1771,10 +1777,7 @@ void *mux_pump_thread(void *context)
 									      90000, // timescale for H264 video
 									      0x157c, // english language code
 									      fragment_length);  // fragment length in seconds
-				fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
-					source,
-					hlsmux->video[source].fmp4);				
-				
+
 				fmp4_video_track_create(hlsmux->video[source].fmp4,
 							source_data[source].width,
 							source_data[source].height,
@@ -1795,12 +1798,6 @@ void *mux_pump_thread(void *context)
 			int fragment_duration;
 			int64_t fragment_composition_time;
 
-			fprintf(stderr,"ADDING VIDEO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d\n",
-				source,
-				hlsmux->video[source].fmp4->fragment_count,
-				hlsmux->video[source].fmp4->buffer,
-				hlsmux->video[source].fmp4->buffer_offset);
-
 			if (frame->dts > 0) {
 			    //placeholder: check for overflow issue when one goes back to zero
 			    fragment_composition_time = frame->pts - frame->dts;
@@ -1811,9 +1808,14 @@ void *mux_pump_thread(void *context)
 			}
 
 			fragment_duration = frame->duration;
-
-			fprintf(stderr,"FRAGMENT DURATION:%d  CTS:%ld\n", fragment_duration, fragment_composition_time);
-			
+                        
+                        syslog(LOG_INFO,"HLSMUX: ADDING VIDEO FRAGMENT(%d):%d OFFSET:%d  DURATION:%ld CTS:%ld\n",
+                               source,
+                               hlsmux->video[source].fmp4->fragment_count,
+                               hlsmux->video[source].fmp4->buffer_offset,
+                               fragment_duration,
+                               fragment_composition_time);
+                        
 			fmp4_video_fragment_add(hlsmux->video[source].fmp4,
 						frame->buffer,
 						frame->buffer_size,
@@ -1949,15 +1951,11 @@ void *mux_pump_thread(void *context)
 								
 		    start_init_mp4_fragment(core, &hlsmux->audio[source], source, 0);
 
-		    fprintf(stderr,"HLSMUX: CREATED INITIAL MP4 AUDIO FRAGMENT(%d): %p\n",
-			    source,
-			    hlsmux->audio[source].fmp4->buffer);
-		    
 		    fmp4_output_header(hlsmux->audio[source].fmp4);
 			
-		    fprintf(stderr,"HLSMUX: WRITING OUT AUDIO INIT FILE - FMP4(%d): %ld\n",
-			    source,
-			    hlsmux->audio[source].fmp4->buffer_offset);
+		    syslog(LOG_INFO,"HLSMUX: WRITING OUT AUDIO INIT FILE - FMP4(%d): %ld\n",
+                           source,
+                           hlsmux->audio[source].fmp4->buffer_offset);
 			
 		    fwrite(hlsmux->audio[source].fmp4->buffer, 1, hlsmux->audio[source].fmp4->buffer_offset, hlsmux->audio[source].output_fmp4_file);
 		    end_init_mp4_fragment(core, &hlsmux->audio[source], source);
@@ -1970,40 +1968,42 @@ void *mux_pump_thread(void *context)
 		    if (astream->audio_object_type == 5) { // sbr
 			fragment_duration = fragment_duration << 1;
 		    }
-		    fprintf(stderr,"HLSMUX: START DELTA: %ld\n", start_delta);
+		    syslog(LOG_INFO,"HLSMUX: START DELTA: %ld\n", start_delta);
 		    if (start_delta < 0) {			
 			// add silence audio to align samples for fmp4
 			//aac_quiet_6
 			//aac_quiet_2
 			astream->audio_samples_to_add = (int)(((abs(start_delta) * astream->audio_samplerate / 90000.0) / fragment_duration)+0.5);
-			fprintf(stderr,"HLSMUX: ADDING %d SILENT SAMPLES TO MAINTAIN A/V SYNC\n", astream->audio_samples_to_add);		    			
+			syslog(LOG_INFO,"HLSMUX: ADDING %d SILENT SAMPLES TO MAINTAIN A/V SYNC\n", astream->audio_samples_to_add);		    			
 		    } else {
 			astream->audio_samples_to_drop = (int)(((abs(start_delta) * astream->audio_samplerate / 90000.0) / fragment_duration)+0.5);
-			fprintf(stderr,"HLSMUX: REMOVING %d SAMPLES TO MAINTAIN A/V SYNC\n", astream->audio_samples_to_drop);
+			syslog(LOG_INFO,"HLSMUX: REMOVING %d SAMPLES TO MAINTAIN A/V SYNC\n", astream->audio_samples_to_drop);
 		    }
 		}		
 	    }
 	    frag_delta = (frame->full_time - source_data[source].start_time_audio) / 90000.0;
+
+            syslog(LOG_INFO,"HLSMUX: AUDIO(%d): TIME:%ld FRAG_DELTA:%f  TVD:%f  EVD:%f FRAGLENGTH:%ld \n",                       
+                   source,
+                   frame->full_time,
+                   frag_delta,
+                   source_data[source].total_audio_duration,
+                   source_data[source].expected_audio_duration,
+                   fragment_length);
+            
 	    if (source_data[source].total_audio_duration+frag_delta >= source_data[source].total_video_duration && source_data[source].video_fragment_ready) {
 		if (core->cd->enable_ts_output) {				    		
 		    end_ts_fragment(core, &hlsmux->audio[source], source);
 		}
 
-		fprintf(stderr,"fMP4:%p\n", hlsmux->audio[source].fmp4);
-		if (hlsmux->audio[source].fmp4) {
-		    fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): BUFFER:%p SIZE:%d TF:%d\n",
-			    source,
-			    hlsmux->audio[source].fmp4->buffer,
-			    hlsmux->audio[source].fmp4->buffer_offset,
-			    hlsmux->audio[source].fmp4->fragment_count);
-		}
-		    
 		if (core->cd->enable_fmp4_output) {
 		    if (hlsmux->audio[source].fmp4) {
 			fmp4_fragment_end(hlsmux->audio[source].fmp4);
-			fprintf(stderr,"ENDING PREVIOUS fMP4 FRAGMENT(%d): SIZE:%d\n",
+
+			syslog(LOG_INFO,"HLSMUX: ENDING PREVIOUS fMP4 AUDIO FRAGMENT(%d): SIZE:%d\n",
 				source,
-				hlsmux->audio[source].fmp4->buffer_offset);			    
+				hlsmux->audio[source].fmp4->buffer_offset);
+                        
 			fwrite(hlsmux->audio[source].fmp4->buffer, 1, hlsmux->audio[source].fmp4->buffer_offset, hlsmux->audio[source].output_fmp4_file);
 			end_mp4_fragment(core, &hlsmux->audio[source], source);
 		    }
@@ -2030,11 +2030,16 @@ void *mux_pump_thread(void *context)
 
 		source_data[source].video_fragment_ready = 0;
 		source_data[source].start_time_audio = frame->full_time;
-		fprintf(stderr,"HLSMUX: STARTING NEW AUDIO FRAGMENT: LENGTH:%.2f  TOTAL:%.2f EXPECTED:%.2f (NEW START:%ld)\n",
-			frag_delta,
-			source_data[source].total_audio_duration,
-			source_data[source].expected_audio_duration,
-			source_data[source].start_time_audio);
+                
+		syslog(LOG_INFO,"HLSMUX: STARTING NEW AUDIO FRAGMENT: LENGTH:%.2f  TOTAL:%.2f EXPECTED:%.2f (NEW START:%ld) FILESEQ:%ld MEDIASEQ:%ld PUBLISHED:%ld\n",
+                       frag_delta,
+                       source_data[source].total_audio_duration,
+                       source_data[source].expected_audio_duration,
+                       source_data[source].start_time_audio,
+                       hlsmux->audio[source].file_sequence_number,
+                       hlsmux->audio[source].media_sequence_number,
+                       hlsmux->audio[source].fragments_published);
+                
 		source_data[source].total_audio_duration += frag_delta;
 		source_data[source].expected_audio_duration += fragment_length;
 
@@ -2050,10 +2055,7 @@ void *mux_pump_thread(void *context)
 								      astream->audio_samplerate,
 								      0x157c, // english language code
 								      fragment_length);  // fragment length in seconds
-			fprintf(stderr,"HLSMUX: CREATING fMP4(%d): %p\n",
-				source,
-				hlsmux->audio[source].fmp4);
-
+                        
 			fmp4_audio_track_create(hlsmux->audio[source].fmp4,
 						astream->audio_channels,
 						astream->audio_samplerate,
@@ -2076,13 +2078,13 @@ void *mux_pump_thread(void *context)
 			    fragment_duration = fragment_duration << 1;
 			}
 			
-			fprintf(stderr,"ADDING AUDIO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d   DURATION:%d\n",
-				source,
-				hlsmux->audio[source].fmp4->fragment_count,
-				hlsmux->audio[source].fmp4->buffer,
-				hlsmux->audio[source].fmp4->buffer_offset,
-				fragment_duration);
-
+			syslog(LOG_INFO,"HLSMUX: ADDING AUDIO FRAGMENT(%d): %d  BUFFER:%p  OFFSET:%d   DURATION:%d\n",
+                               source,
+                               hlsmux->audio[source].fmp4->fragment_count,
+                               hlsmux->audio[source].fmp4->buffer,
+                               hlsmux->audio[source].fmp4->buffer_offset,
+                               fragment_duration);
+                        
 			if (astream->audio_samples_to_add > 0) {
 			    astream->audio_samples_to_add--;
 
