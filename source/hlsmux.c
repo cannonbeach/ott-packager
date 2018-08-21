@@ -42,6 +42,7 @@
 
 #define CODEC_H264            0x1b
 #define CODEC_AAC             0x0f
+#define CODEC_AC3             0x81
 
 #define MAX_SOURCE_STREAMS    16
 
@@ -1884,6 +1885,7 @@ void *mux_pump_thread(void *context)
 	} else if (frame->frame_type == FRAME_TYPE_AUDIO) {
 	    double frag_delta;
 	    int source = frame->source;
+            int sub_stream = frame->sub_stream;
 
 	    if (strlen(frame->lang_tag) == 3) {
 		source_data[0].lang_tag[0] = frame->lang_tag[0];
@@ -1903,46 +1905,74 @@ void *mux_pump_thread(void *context)
 		source_data[source].start_time_audio = frame->full_time;		
 
 		if (core->cd->enable_fmp4_output) {
-		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
+                    int fragment_duration;                    
 
-		    // decode the initial parameters
-		    // 0xfff - 12-bits of sync code
-		    uint8_t *srcdata = frame->buffer;		    
-		    int audio_object_type = (*(srcdata+2) & 0xC0) >> 6;
-		    int sample_freq_index = (*(srcdata+2) & 0x3C) >> 2;
-		    int channel_config0 = (*(srcdata+2) & 0x01) << 2;
-		    int channel_config1 = (*(srcdata+3) & 0xC0) >> 6;
-		    int audio_channels = channel_config0 | channel_config1;
-		    int fragment_duration;
-		   
-		    audio_object_type++;    
-
-		    fprintf(stderr,"AUDIO(%d): AUDIO CHANNELS:%d\n", source, audio_channels);
-		    fprintf(stderr,"AUDIO(%d): AUDIO OBJECT TYPE:%d\n", source, audio_object_type);
-		    fprintf(stderr,"AUDIO(%d): SAMPLE FREQ INDEX:%d\n", source, sample_freq_index);
-
-		    astream->audio_object_type = audio_object_type;		  
-
-		    astream->audio_channels = audio_channels;
-		    if (sample_freq_index == 3) {			
-			astream->audio_samplerate = 48000;
-		    } else if (sample_freq_index == 4) {
-			astream->audio_samplerate = 44100;
-		    } else if (sample_freq_index == 5) {
-			astream->audio_samplerate = 32000;
-		    } else if (sample_freq_index == 6) {
-			astream->audio_samplerate = 24000;
-		    } else if (sample_freq_index == 7) {
-			astream->audio_samplerate = 22050;
-		    } else {
-			fprintf(stderr,"UNSUPPORTED SAMPLERATE\n");
-		    }					    
+                    if (frame->media_type == MEDIA_TYPE_AAC) {
+                        // decode the initial parameters
+                        // 0xfff - 12-bits of sync code
+                        uint8_t *srcdata = frame->buffer;		    
+                        int audio_object_type = (*(srcdata+2) & 0xC0) >> 6;
+                        int sample_freq_index = (*(srcdata+2) & 0x3C) >> 2;
+                        int channel_config0 = (*(srcdata+2) & 0x01) << 2;
+                        int channel_config1 = (*(srcdata+3) & 0xC0) >> 6;
+                        int audio_channels = channel_config0 | channel_config1;
+                        
+                        audio_object_type++;    
+                        
+                        fprintf(stderr,"AUDIO(%d): AUDIO CHANNELS:%d\n", source, audio_channels);
+                        fprintf(stderr,"AUDIO(%d): AUDIO OBJECT TYPE:%d\n", source, audio_object_type);
+                        fprintf(stderr,"AUDIO(%d): SAMPLE FREQ INDEX:%d\n", source, sample_freq_index);
+                        
+                        astream->audio_object_type = audio_object_type;		  
+                        
+                        astream->audio_channels = audio_channels;
+                        if (sample_freq_index == 3) {			
+                            astream->audio_samplerate = 48000;
+                        } else if (sample_freq_index == 4) {
+                            astream->audio_samplerate = 44100;
+                        } else if (sample_freq_index == 5) {
+                            astream->audio_samplerate = 32000;
+                        } else if (sample_freq_index == 6) {
+                            astream->audio_samplerate = 24000;
+                        } else if (sample_freq_index == 7) {
+                            astream->audio_samplerate = 22050;
+                        } else {
+                            fprintf(stderr,"UNSUPPORTED SAMPLERATE\n");
+                        }
+                    } else if (frame->media_type == MEDIA_TYPE_AC3) {
+                        int pos;
+                        // still needs to be finished
+                        for (pos = 0; pos < frame->buffer_size; pos++) {
+                            uint8_t *curaudio = frame->buffer;
+                            if (curaudio[pos] == 0x0b && curaudio[pos+1] == 0x77) {  // ac3 sync code
+                                uint8_t *syncdata;
+                                int acmod;
+                                int audiovalid = curaudio[pos+4] & 0x3f;   // todo-check out of bounds
+                                if (audiovalid > 37) {
+                                    continue;
+                                }
+                                syncdata = (uint8_t*)&curaudio[pos+5];
+                                syncdata++;
+                                
+                                acmod = *syncdata >> 5;
+                                if (acmod == 7) {
+                                    astream->audio_channels = 6;
+                                } else {
+                                    astream->audio_channels = 2;
+                                }
+                                break;
+                            }
+                        }
+                        astream->audio_samplerate = 48000;  // todo-fixme
+                    }
 		    
-		    hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
+		    hlsmux->audio[source].fmp4 = fmp4_file_create(frame->media_type,
 								  astream->audio_samplerate, // timescale for AAC audio (48kHz)
 								  0x15c7,                    // english language code
 								  fragment_length);          // fragment length in seconds
 
+                    // todo-ac3 version of this is not finished
 		    fmp4_audio_track_create(hlsmux->audio[source].fmp4,
 					    astream->audio_channels,
 					    astream->audio_samplerate,
@@ -2047,11 +2077,11 @@ void *mux_pump_thread(void *context)
 		    start_ts_fragment(core, &hlsmux->audio[source], source, 0);  // start first audio fragment
 		}
 		if (core->cd->enable_fmp4_output) {
-		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+		    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
 			
 		    start_mp4_fragment(core, &hlsmux->audio[source], source, 0);
 		    if (hlsmux->audio[source].fmp4 == NULL) {			    
-			hlsmux->audio[source].fmp4 = fmp4_file_create(MEDIA_TYPE_AAC,
+			hlsmux->audio[source].fmp4 = fmp4_file_create(frame->media_type,
 								      astream->audio_samplerate,
 								      0x157c, // english language code
 								      fragment_length);  // fragment length in seconds
@@ -2070,7 +2100,7 @@ void *mux_pump_thread(void *context)
 	    if (core->cd->enable_fmp4_output) {	    
 		if (hlsmux->audio[source].output_fmp4_file != NULL) {
 		    if (hlsmux->audio[source].fmp4) {
-			audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+			audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
 			double fragment_timestamp = frame->pts;
 			int fragment_duration = frame->duration * astream->audio_samplerate / 90000;
 
@@ -2085,23 +2115,27 @@ void *mux_pump_thread(void *context)
                                hlsmux->audio[source].fmp4->buffer_offset,
                                fragment_duration);
                         
-			if (astream->audio_samples_to_add > 0) {
-			    astream->audio_samples_to_add--;
+                        if (frame->media_type == MEDIA_TYPE_AAC) {
+                            if (astream->audio_samples_to_add > 0) {
+                                astream->audio_samples_to_add--;
 
-			    if (astream->audio_channels == 2) {
-				fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
-							aac_quiet_2,
-							sizeof(aac_quiet_2),
-							fragment_timestamp,
-							fragment_duration);
-			    } else if (astream->audio_channels == 6) {
-				fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
-							aac_quiet_6,
-							sizeof(aac_quiet_6),
-							fragment_timestamp,
-							fragment_duration);				
-			    }
-			}
+                                if (astream->audio_channels == 2) {
+                                    fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
+                                                            aac_quiet_2,
+                                                            sizeof(aac_quiet_2),
+                                                            fragment_timestamp,
+                                                            fragment_duration);
+                                } else if (astream->audio_channels == 6) {
+                                    fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
+                                                            aac_quiet_6,
+                                                            sizeof(aac_quiet_6),
+                                                            fragment_timestamp,
+                                                            fragment_duration);				
+                                }
+                            }
+                        } else {
+                            //placeholder for adding ac3 audio silence samples 2/6 channel
+                        }
 			
 			fmp4_audio_fragment_add(hlsmux->audio[source].fmp4,
 						frame->buffer,
@@ -2121,7 +2155,11 @@ void *mux_pump_thread(void *context)
 		    
 		    muxpatsample(core, &hlsmux->audio[source], &pat[0]);
 		    fwrite(pat, 1, 188, hlsmux->audio[source].output_ts_file);
-		    muxpmtsample(core, &hlsmux->audio[source], &pmt[0], AUDIO_BASE_PID, CODEC_AAC);
+                    if (frame->media_type == MEDIA_TYPE_AAC) {
+                        muxpmtsample(core, &hlsmux->audio[source], &pmt[0], AUDIO_BASE_PID, CODEC_AAC);
+                    } else if (frame->media_type == MEDIA_TYPE_AC3) {
+                        muxpmtsample(core, &hlsmux->audio[source], &pmt[0], AUDIO_BASE_PID, CODEC_AC3);                        
+                    }
 		    fwrite(pmt, 1, 188, hlsmux->audio[source].output_ts_file);
 		    
 		    pc = muxaudiosample(core, &hlsmux->audio[source], frame, 0);

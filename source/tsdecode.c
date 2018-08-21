@@ -50,7 +50,7 @@
 static uint64_t total_input_packets = 0;
 
 typedef int (*MYCALLBACK)(int p1, int64_t p2, int64_t p3, int64_t p4, int64_t p5, int source, void *context);
-typedef int (*SAMPLE_CALLBACK)(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, char *lang_tag, void *context);
+typedef int (*SAMPLE_CALLBACK)(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, int sub_source, char *lang_tag, void *context);
 
 static MYCALLBACK backup_caller = NULL;
 static void *backup_context = NULL;
@@ -58,7 +58,9 @@ static void *backup_context = NULL;
 static SAMPLE_CALLBACK send_frame_func = NULL;
 static void *send_frame_context = NULL;
 
-void register_frame_callback(int (*cbfn)(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, char *lang_tag, void *context), void *context)
+static pthread_mutex_t pmt_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void register_frame_callback(int (*cbfn)(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, int sub_source, char *lang_tag, void *context), void *context)
 {
     send_frame_func = cbfn;
     send_frame_context = context;
@@ -115,6 +117,7 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
      int pmt_found = 0;
      pmt_table_struct *current_pmt_table = NULL;
 
+     pthread_mutex_lock(&pmt_lock);
      for (pmt_count = 0; pmt_count < MAX_PMT_PIDS; pmt_count++) {
 	 if (master_pmt_table[pmt_count].pmt_pid == current_pid) {
 	     current_pmt_index = pmt_count;
@@ -140,7 +143,8 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
      current_pmt_table->previous_pmt_section = previous_pmt_section;
      current_pmt_table->pcr_pid = pcr_pid;
      current_pmt_table->program_info_length = program_info_length;
-     current_pmt_table->pmt_version = pmt_version;
+     current_pmt_table->pmt_version = pmt_version;     
+     current_pmt_table->audio_stream_count = 0;
 
      if (pmt_data_size <= MAX_TABLE_SIZE) {
 	 memcpy(current_pmt_table->pmt_data, pmt_data, pmt_data_size);
@@ -152,9 +156,12 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
      if (program_info_length > pmt_remaining ||
 	 program_info_length < 0 ||
 	 program_info_length > MAX_TABLE_SIZE) {
+
+         syslog(LOG_ERR,"PMT TABLE ERROR: TABLE SIZE INVALID: %d\n", pmt_remaining);
 	 
 	 //backup_caller(2000, 503, 0, 0, 0, 0, backup_context);
-	 
+
+         pthread_mutex_unlock(&pmt_lock);
 	 return -1;
      }
 
@@ -169,6 +176,8 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           if (descriptor_size < 0 ||
 	      descriptor_size > program_info_length) {
 	      backup_caller(2000, 504, 0, 0, 0, 0, backup_context);
+
+              pthread_mutex_unlock(&pmt_lock);              
 	      return -1;
           }
 
@@ -199,6 +208,7 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
 
      if (pmt_remaining < 0 || program_info_length < 0) {
 	 backup_caller(2000, 504, 0, 0, 0, 0, backup_context);
+         pthread_mutex_unlock(&pmt_lock);         
 	 return -1;
      }
 
@@ -217,8 +227,10 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           current_stream_pid = current_stream_pid & 0x1fff;
           pmt_info_length = (((int)*(pdata+3) << 8) | (int)*(pdata+4)) & 0x0fff;
 
+
           current_pmt_table->stream_pid[stream_count] = current_stream_pid;
           current_pmt_table->stream_type[stream_count] = current_stream_type;
+          current_pmt_table->audio_stream_index[stream_count] = -1;
           current_pmt_table->first_pts[stream_count] = -1;
           current_pmt_table->first_dts[stream_count] = -1;
           current_pmt_table->last_pts[stream_count] = -1;
@@ -244,9 +256,13 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           } else if (current_stream_type == 0x0f) {
 	      backup_caller(2000, 805, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_AAC;
+              current_pmt_table->audio_stream_index[stream_count] = current_pmt_table->audio_stream_count;
+              current_pmt_table->audio_stream_count++;
           } else if (current_stream_type == 0x81) {
 	      backup_caller(2000, 806, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_AC3;
+              current_pmt_table->audio_stream_index[stream_count] = current_pmt_table->audio_stream_count;
+              current_pmt_table->audio_stream_count++;
           } else if (current_stream_type == 0x27) {
 	      backup_caller(2000, 807, current_stream_pid, current_pid, 0, 0, backup_context);
           } else if (current_stream_type == 0x06) {
@@ -393,6 +409,7 @@ _redo_decode:
           pmt_remaining -= (pmt_info_length + 5);
           pdata += (pmt_info_length + 5);
      }
+     pthread_mutex_unlock(&pmt_lock);     
      return 0;
 }
 
@@ -785,6 +802,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
 							     0, // PCR
 							     tsdata->source,
+                                                             0, // sub-source is 0 for video
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);						  
 					 } else if (stream_type == 0x0f) {
@@ -794,6 +812,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
 							     0, // PCR
 							     tsdata->source,
+                                                             tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count],  //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);
 					 } else if (stream_type == 0x81) {
@@ -803,6 +822,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
 							     0, // PCR
 							     tsdata->source,
+                                                             tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);				 						 
 					 } else if (stream_type == 0x1b) {
@@ -815,7 +835,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 						     video_frame[vf+1] == 0x00 &&
 						     video_frame[vf+2] == 0x01) {
 						     nal_type = video_frame[vf+3] & 0x1f;
-						     if (nal_type == 0x05) {
+                                                     //fprintf(stderr,"nal_type:0x%x\n", nal_type);
+						     if (nal_type == 0x07) {  // 0x05
 							 is_intra = 1;
 							 if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
 							     tsdata->first_frame_intra = 1;
@@ -832,6 +853,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
 							     0, // PCR
 							     tsdata->source,
+                                                             0, // sub-source is 0 for video                                                             
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);
 					 }

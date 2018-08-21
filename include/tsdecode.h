@@ -149,6 +149,7 @@ typedef struct _pmt_table_struct_ {
      int previous_pmt_section;
      int pcr_pid;
      int program_info_length;
+     int audio_stream_count;
 
      int descriptor_id[MAX_STREAMS];
      int descriptor_size[MAX_STREAMS];
@@ -166,6 +167,8 @@ typedef struct _pmt_table_struct_ {
      int64_t first_dts[MAX_STREAMS];
      int64_t last_pts[MAX_STREAMS];
      int64_t last_dts[MAX_STREAMS];
+
+     int audio_stream_index[MAX_STREAMS];
 
      int64_t max_pmt_time;
      int64_t min_pmt_time;
@@ -241,7 +244,7 @@ typedef struct _transport_data_struct_ {
 extern "C" {
 #endif // cplusplus
 
-    void register_frame_callback(int (*cbfn)(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, char *lang_tag, void *context), void *context);
+    void register_frame_callback(int (*cbfn)(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, int sub_source, char *lang_tag, void *context), void *context);
     void register_message_callback(int (*cbfn)(int p1,int64_t p2,int64_t p3,int64_t p4, int64_t p5, int source, void* context), void*context);
     int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_data_struct *tsdata);
 

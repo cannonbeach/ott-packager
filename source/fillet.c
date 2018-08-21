@@ -66,6 +66,7 @@ static pthread_mutex_t sync_lock = PTHREAD_MUTEX_INITIALIZER;
 static int quit_sync_thread = 0;
 static pthread_t frame_sync_thread_id;
 static int enable_background = 0;
+static int enable_verbose = 0;
 
 static volatile int child_pids[MAX_SESSIONS];
 static config_options_struct config_data;
@@ -73,6 +74,7 @@ static config_options_struct config_data;
 static struct option long_options[] = {
      {"sources", required_argument, 0, 'S'},
      {"ip", required_argument, 0, 'i'},
+     {"verbose", no_argument, &enable_verbose, 1},
      {"interface", required_argument, 0, 'f'},
      {"window", required_argument, 0, 'w'},
      {"segment", required_argument, 0, 's'},
@@ -634,6 +636,8 @@ static void *frame_sync_thread(void *context)
     int first_grab = 1;
     int no_grab = 0;
     int source_discontinuity = 1;
+    int print_entries = 0;
+    int print_current_time = 0;
 
     while (1) {
 	audio_sync = 0;
@@ -646,11 +650,22 @@ static void *frame_sync_thread(void *context)
 	    pthread_mutex_unlock(&sync_lock);		    	    
 	    video_synchronizer_entries = 0;
 	    audio_synchronizer_entries = 0;	    
-	    fprintf(stderr,"LEAVING SYNC THREAD - DISCONTINUITY\n");
+	    fprintf(stderr,"STATUS: LEAVING SYNC THREAD - DISCONTINUITY\n");
 	    return NULL;
 	}
 
 	// if audio > video, then not yet ready...
+        if (enable_verbose) {
+            if (print_entries > 200) {
+                fprintf(stderr,"SESSION:%d (MAIN) STATUS: audio_synchronizer_entries:%d  video_synchronizer_entries:%d\n",
+                        core->session_id,
+                        audio_synchronizer_entries,
+                        video_synchronizer_entries);
+                print_entries = 0;
+            }
+            print_entries++;
+        }
+            
 	if (audio_synchronizer_entries > config_data.active_sources && video_synchronizer_entries > config_data.active_sources) {
 	    output_frame = NULL;
 	    
@@ -659,6 +674,17 @@ static void *frame_sync_thread(void *context)
 	    peek_frame(core->video_frame_data, video_synchronizer_entries, 0, &current_video_time, &video_sync);	
 	    pthread_mutex_unlock(&sync_lock);
 
+            if (enable_verbose) {
+                if (print_current_time > 200) {
+                    fprintf(stderr,"SESSION:%d (MAIN) STATUS: current_audio_time:%ld current_video_time:%ld\n",
+                            core->session_id,
+                            current_audio_time,
+                            current_video_time);
+                    print_current_time = 0;
+                }
+                print_current_time++;
+            }
+            
 	    if (current_audio_time <= current_video_time) {
 		no_grab = 0;
 		while (current_audio_time < current_video_time && audio_synchronizer_entries > config_data.active_sources) {
@@ -735,11 +761,11 @@ int64_t time_difference(struct timespec *now, struct timespec *start)
     return ((tnsec / 1000) + (tsec * 1000000));
 }
 
-static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, char *lang_tag, void *context)
+static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, int sub_source, char *lang_tag, void *context)
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
     int restart_sync_thread = 0;
-    
+
     if (sample_type == STREAM_TYPE_MPEG2) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 	
@@ -765,6 +791,15 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	struct timespec current_time;
 	int64_t br;
 	int64_t diff;
+
+        if (enable_verbose) {
+            fprintf(stderr,"STATUS: RECEIVE_FRAME (H264 :%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d\n",
+                    source,
+                    sample_type,
+                    pts,
+                    dts,
+                    vstream->found_key_frame);
+        }   
 
 	if (vstream->total_video_bytes == 0) {
 	    clock_gettime(CLOCK_REALTIME, &vstream->video_clock_start);
@@ -808,6 +843,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 			   vstream->overflow_dts,
 			   vstream->last_timestamp_dts,
 			   dts);
+                    fprintf(stderr,"(%d) VIDEO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW DTS:%ld  LAST:%ld  DTS:%ld (SIGNAL DISCONTINUITY)\n",
+                            source,
+                            delta_dts,
+                            vstream->overflow_dts,
+                            vstream->last_timestamp_dts,
+                            dts);
 		    fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
 		    restart_sync_thread = 1;
 		}
@@ -842,6 +883,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	vstream->last_full_time = new_frame->full_time;
 	new_frame->first_timestamp = vstream->first_timestamp;
 	new_frame->source = source;
+        new_frame->sub_stream = 0;
 	new_frame->sync_frame = sample_flags;
 	new_frame->frame_type = FRAME_TYPE_VIDEO;
 	new_frame->media_type = MEDIA_TYPE_H264;
@@ -860,14 +902,39 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    restart_sync_thread = 1;	    	   
 	}
 	pthread_mutex_unlock(&sync_lock);	
-    } else if (sample_type == STREAM_TYPE_AAC) {
-	audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+    } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3) {
+	audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 	uint8_t *new_buffer;
 	sorted_frame_struct *new_frame;	
 	struct timespec current_time;
 	int64_t br;
 	int64_t diff;
+
+        /*
+        if (sample_type == STREAM_TYPE_AC3) {
+            syslog(LOG_INFO,"SESSION:%d (MAIN) ERROR: UNSUPPORTED MEDIA TYPE (AC3) - PLEASE SUBMIT FEATURE REQUEST\n",
+                   core->session_id);
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: UNSUPPORTED MEDIA TYPE (AC3) - PLEASE SUBMIT FEATURE REQUEST\n",
+                    core->session_id);
+            exit(0);
+        }
+        */
+
+        if (enable_verbose) {
+            fprintf(stderr,"STATUS: RECEIVE_FRAME (AUDIO:%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d (AUDIO STREAM:%d)\n",
+                    source,
+                    sample_type,
+                    pts,
+                    dts,
+                    vstream->found_key_frame,
+                    sub_source);
+        }
+
+        if (sub_source != 0) {
+            return 0;
+        }
+
 
         if (!vstream->found_key_frame) {
 	    return 0;
@@ -901,11 +968,19 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 		       pts);
 	    } else if (delta_pts < 0 || delta_pts > 60000) {
 		fprintf(stderr,"FILLET: DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
-		syslog(LOG_INFO,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld\n",
+		syslog(LOG_INFO,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld  LAST PTS:%ld\n",
 		       source,
 		       delta_pts,
 		       astream->overflow_pts,
-		       pts);		
+		       pts,
+                       astream->last_timestamp_pts);
+		fprintf(stderr,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld  LAST PTS:%ld\n",
+                        source,
+                        delta_pts,
+                        astream->overflow_pts,
+                        pts,
+                        astream->last_timestamp_pts);
+
 		fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
 		restart_sync_thread = 1;
 	    } 	    
@@ -924,9 +999,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	astream->last_full_time = new_frame->full_time;
 	new_frame->first_timestamp = 0;
 	new_frame->source = source;
+        new_frame->sub_stream = sub_source;
 	new_frame->sync_frame = sample_flags;
 	new_frame->frame_type = FRAME_TYPE_AUDIO;
-	new_frame->media_type = MEDIA_TYPE_AAC;
+        if (sample_type == STREAM_TYPE_AAC) {
+            new_frame->media_type = MEDIA_TYPE_AAC;
+        } else {
+            new_frame->media_type = MEDIA_TYPE_AC3;
+        }
 	new_frame->time_received = 0;
 	if (lang_tag) {
 	    new_frame->lang_tag[0] = lang_tag[0];
