@@ -792,13 +792,13 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	int64_t br;
 	int64_t diff;
 
-        if (enable_verbose) {
+        if (enable_verbose || sample_flags) {
             fprintf(stderr,"STATUS: RECEIVE_FRAME (H264 :%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d\n",
                     source,
                     sample_type,
                     pts,
                     dts,
-                    vstream->found_key_frame);
+                    sample_flags);
         }   
 
 	if (vstream->total_video_bytes == 0) {
@@ -930,11 +930,6 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     vstream->found_key_frame,
                     sub_source);
         }
-
-        if (sub_source != 0) {
-            return 0;
-        }
-
 
         if (!vstream->found_key_frame) {
 	    return 0;

@@ -50,6 +50,7 @@
 
 #define MAX_STR_SIZE               512
 #define MAX_AUDIO_SOURCES          5
+#define MAX_AUDIO_STREAMS          5
 #define MAX_VIDEO_SOURCES          5
 #define MAX_FRAME_DATA_SYNC_AUDIO  512
 #define MAX_FRAME_DATA_SYNC_VIDEO  256
@@ -135,7 +136,7 @@ typedef struct _stream_struct_ {
 typedef struct _hlsmux_struct_ {
     void                     *input_queue;
     
-    stream_struct            audio[MAX_AUDIO_SOURCES];
+    stream_struct            audio[MAX_AUDIO_SOURCES][MAX_AUDIO_STREAMS];
     stream_struct            video[MAX_VIDEO_SOURCES];
     
     pthread_t                hlsmux_thread_id;
@@ -197,7 +198,7 @@ typedef struct _video_stream_struct_
 typedef struct _source_stream_struct_
 {    
     video_stream_struct    *video_stream;
-    audio_stream_struct    *audio_stream[MAX_AUDIO_SOURCES];
+    audio_stream_struct    *audio_stream[MAX_AUDIO_STREAMS];
 
     int                    udp_source_socket;
     char                   udp_source_ipaddr[UDP_MAX_IFNAME];

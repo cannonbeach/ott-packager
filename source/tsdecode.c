@@ -836,12 +836,13 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 						     video_frame[vf+2] == 0x01) {
 						     nal_type = video_frame[vf+3] & 0x1f;
                                                      //fprintf(stderr,"nal_type:0x%x\n", nal_type);
-						     if (nal_type == 0x07) {  // 0x05
+						     if (nal_type == 0x05) { 
 							 is_intra = 1;
 							 if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
 							     tsdata->first_frame_intra = 1;
-							     is_intra = 1;
+							     is_intra = 1;                                                             
 							 }
+                                                         break;
 						     }
 						 }
 					     }
