@@ -115,7 +115,7 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 fragment_file_struct *fmp4_file_create(int media_type, int timescale, int lang_code, int frag_duration);
 int fmp4_file_finalize(fragment_file_struct *fmp4);
 int fmp4_fragment_start(fragment_file_struct *fmp4);
-int fmp4_fragment_end(fragment_file_struct *fmp4);
+int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, uint32_t sequence_number);
 int fmp4_video_set_pps(fragment_file_struct *fmp4, uint8_t *pps, int pps_size);
 int fmp4_video_set_sps(fragment_file_struct *fmp4, uint8_t *sps, int sps_size);
 int fmp4_video_set_vps(fragment_file_struct *fmp4, uint8_t *vps, int vps_size);

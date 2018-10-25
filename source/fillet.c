@@ -41,7 +41,6 @@
 #include <syslog.h>
 #include <arpa/inet.h>
 #include <execinfo.h>
-#include <signal.h>
 #include "fillet.h"
 #include "fgetopt.h"
 #include "dataqueue.h"
@@ -64,6 +63,7 @@ static int video_synchronizer_entries = 0;
 static int audio_synchronizer_entries = 0;
 static pthread_mutex_t sync_lock = PTHREAD_MUTEX_INITIALIZER;
 static int quit_sync_thread = 0;
+static int sync_thread_running = 0;
 static pthread_t frame_sync_thread_id;
 static int enable_background = 0;
 static int enable_verbose = 0;
@@ -639,6 +639,7 @@ static void *frame_sync_thread(void *context)
     int print_entries = 0;
     int print_current_time = 0;
 
+    fprintf(stderr,"SESSION:%d (MAIN) STATUS: STARTING NEW SYNC THREAD\n", core->session_id);
     while (1) {
 	audio_sync = 0;
 	video_sync = 0;
@@ -647,10 +648,11 @@ static void *frame_sync_thread(void *context)
 	    pthread_mutex_lock(&sync_lock);		    	    
 	    dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
 	    dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
-	    pthread_mutex_unlock(&sync_lock);		    	    
+	    pthread_mutex_unlock(&sync_lock);
 	    video_synchronizer_entries = 0;
 	    audio_synchronizer_entries = 0;	    
-	    fprintf(stderr,"STATUS: LEAVING SYNC THREAD - DISCONTINUITY\n");
+	    fprintf(stderr,"SESSION:%d (MAIN) STATUS: LEAVING SYNC THREAD - DISCONTINUITY\n", core->session_id);
+            sync_thread_running = 0;            
 	    return NULL;
 	}
 
@@ -740,6 +742,7 @@ static void *frame_sync_thread(void *context)
 	}
     }
 
+    //never gets here
     return NULL;
 }
 
@@ -1022,14 +1025,18 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     }
 
     if (restart_sync_thread) {
-	pthread_mutex_lock(&sync_lock);		
+        fprintf(stderr,"GETTING SYNC LOCK\n");
+	pthread_mutex_lock(&sync_lock);
 	dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
-	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
-	pthread_mutex_unlock(&sync_lock);	
+	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
+	pthread_mutex_unlock(&sync_lock);
+        fprintf(stderr,"DONE WITH SYNC LOCK\n");
 	video_synchronizer_entries = 0;
 	audio_synchronizer_entries = 0;
 	quit_sync_thread = 1;
+        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
 	pthread_join(frame_sync_thread_id, NULL);
+        fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
     }
     return 0;
 }
@@ -1071,6 +1078,8 @@ static void *runtime_thread(void *context)
     syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING CORE FRAME SYNC THREAD: ACTIVE SOURCES:%d\n",
            core->session_id,
            config_data.active_sources);
+
+    sync_thread_running = 1;
     pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
     core->source_running = 1;    
     for (i = 0; i < config_data.active_sources; i++) {
@@ -1096,6 +1105,12 @@ static void *runtime_thread(void *context)
         if (quit_sync_thread && core->source_running) {
             quit_sync_thread = 0;
             fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
+            while (sync_thread_running) {
+                usleep(10000);
+                // bail out and respawn if it never comes back
+                // waiting to trigger to 0
+            }
+            sync_thread_running = 1;
             pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
         }
         sleep(1);
@@ -1104,6 +1119,7 @@ static void *runtime_thread(void *context)
     quit_sync_thread = 1;
     syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING FRAME SYNC THREAD\n", core->session_id);
     pthread_join(frame_sync_thread_id, NULL);
+    sync_thread_running = 0;
 
     for (i = 0; i < config_data.active_sources; i++) {
         syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
@@ -1293,6 +1309,7 @@ int main(int argc, char **argv)
 	     core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
 	 }
 
+         sync_thread_running = 1;
 	 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
 	 core->source_running = 1;
 	 for (i = 0; i < config_data.active_sources; i++) {	
@@ -1302,7 +1319,11 @@ int main(int argc, char **argv)
 	 while (core->source_running) {
 	     if (quit_sync_thread) {
 		 quit_sync_thread = 0;
+                 while (sync_thread_running) {
+                     usleep(10000);
+                 }
 		 fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
+                 sync_thread_running = 1;
 		 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
 	     }
              usleep(100000);
