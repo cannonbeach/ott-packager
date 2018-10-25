@@ -94,7 +94,7 @@ void *udp_source_thread(void *context)
 	goto _cleanup_udp_source_thread;
     }    
 
-    syslog(LOG_INFO,"SESSION:%d (TSRECIVE) STATUS: NETWORK THREAD IS STARTING - SOCKET:%d\n",
+    syslog(LOG_INFO,"SESSION:%d (TSRECEIVE) STATUS: NETWORK THREAD IS STARTING - SOCKET:%d\n",
            core->session_id,
            udp_socket);
     
@@ -114,13 +114,22 @@ void *udp_source_thread(void *context)
 
 	anysignal = socket_udp_ready(udp_socket, timeout_ms, &sockset);
 	if (anysignal == 0) {
-	    syslog(LOG_WARNING,"SESSION:%d (TSRECIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
+	    syslog(LOG_WARNING,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
 		   core->session_id,
 		   udp_socket,
 		   core->fillet_input[active_source_index].udp_source_ipaddr,
 		   core->fillet_input[active_source_index].udp_source_port,
 		   core->fillet_input[active_source_index].interface,
                    no_signal_counter);
+
+	    fprintf(stderr,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
+                    core->session_id,
+                    udp_socket,
+                    core->fillet_input[active_source_index].udp_source_ipaddr,
+                    core->fillet_input[active_source_index].udp_source_port,
+                    core->fillet_input[active_source_index].interface,
+                    no_signal_counter);
+            
             no_signal_counter++;
 	    continue;
 	}
