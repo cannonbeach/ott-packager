@@ -53,6 +53,9 @@
 #define AUDIO_OFFSET          20000
 #define OVERFLOW_PTS          8589934592   // 2^33
 
+#define AUDIO_CLOCK           90000
+#define VIDEO_CLOCK           90000
+
 typedef struct _source_context_struct_ {
     int64_t       start_time_video;
     double        total_video_duration;
@@ -1380,8 +1383,8 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
             }
             lsdata->pto_video = 0; // normalizing our time to 0            
             if (segment == 0) {
-                fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"90000\" initialization=\"video%ld/init.mp4\" media=\"video%d/segment$Time$.mp4\" startNumber=\"%ld\">\n",
-                        lsdata->pto_video, i, i, starting_media_sequence_number-1);
+                fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"video%ld/init.mp4\" media=\"video%d/segment$Time$.mp4\" startNumber=\"%ld\">\n",
+                        lsdata->pto_video, VIDEO_CLOCK, i, i, starting_media_sequence_number-1);
                 fprintf(master_manifest,"<SegmentTimeline>\n");
             }            
             
@@ -1427,8 +1430,9 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
             }*/
             // we're actually normalizing our time to 0...
             lsdata->pto_audio = 0;
-            fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"90000\" initialization=\"audio0/init.mp4\" media=\"audio0/segment$Time$.mp4\" startNumber=\"%ld\">\n",
+            fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"audio0/init.mp4\" media=\"audio0/segment$Time$.mp4\" startNumber=\"%ld\">\n",
                     lsdata->pto_audio,
+                    AUDIO_CLOCK,
                     starting_media_sequence_number-1);
             fprintf(master_manifest,"<SegmentTimeline>\n");
         }
@@ -1774,7 +1778,7 @@ void *mux_pump_thread(void *context)
 
 			if (frame->media_type == MEDIA_TYPE_H264) {
 			    hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
-									  90000, // timescale for H264 video
+									  VIDEO_CLOCK, // timescale for H264 video
 									  0x15c7, // english language code
 									  fragment_length);  // fragment length in seconds
 
@@ -1812,8 +1816,8 @@ void *mux_pump_thread(void *context)
 			hlsmux->video[source].fmp4 = NULL;
 		    }
 		}
-		frag_delta = (frame->full_time - source_data[source].start_time_video) / 90000.0;
-
+		frag_delta = (frame->full_time - source_data[source].start_time_video) / (double)VIDEO_CLOCK;
+                
                 syslog(LOG_INFO,"HLSMUX: VIDEO(%d): TIME:%ld FRAG_DELTA:%f  TVD:%f  EVD:%f FRAGLENGTH:%ld \n",                       
                        source,
                        frame->full_time,
@@ -1834,12 +1838,12 @@ void *mux_pump_thread(void *context)
 			end_ts_fragment(core, &hlsmux->video[source], source, 0); // substream is 0 for video
 		    }
 
-                    segment_time = (int64_t)((double)source_data[source].total_video_duration * (double)90000);
-                    duration_time = (int64_t)((double)frag_delta * (double)90000);
+                    segment_time = (int64_t)((double)source_data[source].total_video_duration * (double)VIDEO_CLOCK);
+                    duration_time = (int64_t)((double)frag_delta * (double)VIDEO_CLOCK);
 		    if (core->cd->enable_fmp4_output) {
 			if (hlsmux->video[source].fmp4) {
 			    fmp4_fragment_end(hlsmux->video[source].fmp4, &sidx_time, &sidx_duration,
-                                              source_data[source].total_video_duration * 90000.0, frag_delta * 90000.0,
+                                              source_data[source].total_video_duration * (double)VIDEO_CLOCK, frag_delta * (double)VIDEO_CLOCK,
                                               hlsmux->video[source].media_sequence_number);
                             
 			    syslog(LOG_INFO,"HLSMUX: ENDING PREVIOUS fMP4 VIDEO FRAGMENT(%d): SIZE:%d TF:%d\n",
@@ -1908,7 +1912,7 @@ void *mux_pump_thread(void *context)
 			if (hlsmux->video[source].fmp4 == NULL) {
 			    if (frame->media_type == MEDIA_TYPE_H264) {			    
 				hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
-									      90000, // timescale for H264 video
+									      VIDEO_CLOCK, // timescale for H264 video
 									      0x157c, // english language code
 									      fragment_length);  // fragment length in seconds
 
@@ -2101,7 +2105,7 @@ void *mux_pump_thread(void *context)
                     }
 		    
 		    hlsmux->audio[source][sub_stream].fmp4 = fmp4_file_create(frame->media_type,
-                                                                              90000, //astream->audio_samplerate, // timescale for AAC audio (48kHz)
+                                                                              AUDIO_CLOCK, //astream->audio_samplerate, // timescale for AAC audio (48kHz)
                                                                               0x15c7,                    // english language code
                                                                               fragment_length);          // fragment length in seconds
 
@@ -2127,7 +2131,7 @@ void *mux_pump_thread(void *context)
 		    hlsmux->audio[source][sub_stream].fmp4 = NULL;
 
 		    start_delta = source_data[source].start_time_video - source_data[source].start_time_audio[sub_stream];
-		    fragment_duration = frame->duration * astream->audio_samplerate / 90000;
+		    fragment_duration = frame->duration * astream->audio_samplerate / AUDIO_CLOCK;
 		    if (astream->audio_object_type == 5) { // sbr
 			fragment_duration = fragment_duration << 1;
 		    }
@@ -2136,15 +2140,15 @@ void *mux_pump_thread(void *context)
 			// add silence audio to align samples for fmp4
 			//aac_quiet_6
 			//aac_quiet_2
-			astream->audio_samples_to_add = (int)(((abs(start_delta) * astream->audio_samplerate / 90000.0) / fragment_duration)+0.5);
+			astream->audio_samples_to_add = (int)(((abs(start_delta) * astream->audio_samplerate / (double)VIDEO_CLOCK) / fragment_duration)+0.5);
 			syslog(LOG_INFO,"HLSMUX: ADDING %d SILENT SAMPLES TO MAINTAIN A/V SYNC\n", astream->audio_samples_to_add);		    			
 		    } else {
-			astream->audio_samples_to_drop = (int)(((abs(start_delta) * astream->audio_samplerate / 90000.0) / fragment_duration)+0.5);
+			astream->audio_samples_to_drop = (int)(((abs(start_delta) * astream->audio_samplerate / (double)VIDEO_CLOCK) / fragment_duration)+0.5);
 			syslog(LOG_INFO,"HLSMUX: REMOVING %d SAMPLES TO MAINTAIN A/V SYNC\n", astream->audio_samples_to_drop);
 		    }
 		}		
 	    }
-	    frag_delta = (frame->full_time - source_data[source].start_time_audio[sub_stream]) / 90000.0;
+	    frag_delta = (frame->full_time - source_data[source].start_time_audio[sub_stream]) / (double)AUDIO_CLOCK;
 
             syslog(LOG_INFO,"HLSMUX: AUDIO(%d): TIME:%ld FRAG_DELTA:%f  TVD:%f  EVD:%f FRAGLENGTH:%ld \n",                       
                    source,
@@ -2164,12 +2168,12 @@ void *mux_pump_thread(void *context)
 		    end_ts_fragment(core, &hlsmux->audio[source][sub_stream], source, sub_stream);
 		}
 
-                segment_time = (int64_t)((double)source_data[source].total_audio_duration[sub_stream] * (double)90000);
-                duration_time = (int64_t)((double)frag_delta * (double)90000);
+                segment_time = (int64_t)((double)source_data[source].total_audio_duration[sub_stream] * (double)AUDIO_CLOCK);
+                duration_time = (int64_t)((double)frag_delta * (double)AUDIO_CLOCK);
 		if (core->cd->enable_fmp4_output) {
 		    if (hlsmux->audio[source][sub_stream].fmp4) {
 			fmp4_fragment_end(hlsmux->audio[source][sub_stream].fmp4, &sidx_time, &sidx_duration,
-                                          source_data[source].total_audio_duration[sub_stream] * 90000.0, frag_delta * 90000.0,
+                                          source_data[source].total_audio_duration[sub_stream] * (double)AUDIO_CLOCK, frag_delta * (double)AUDIO_CLOCK,
                                           hlsmux->audio[source][sub_stream].media_sequence_number);
 
 			syslog(LOG_INFO,"HLSMUX: ENDING PREVIOUS fMP4 AUDIO FRAGMENT(%d): SIZE:%d\n",
@@ -2232,7 +2236,7 @@ void *mux_pump_thread(void *context)
 		    start_mp4_fragment(core, &hlsmux->audio[source][sub_stream], source, 0);
 		    if (hlsmux->audio[source][sub_stream].fmp4 == NULL) {			    
 			hlsmux->audio[source][sub_stream].fmp4 = fmp4_file_create(frame->media_type,
-                                                                                  90000, //astream->audio_samplerate,
+                                                                                  AUDIO_CLOCK, //astream->audio_samplerate,
                                                                                   0x157c, // english language code
                                                                                   fragment_length);  // fragment length in seconds
                         
@@ -2252,7 +2256,7 @@ void *mux_pump_thread(void *context)
 		    if (hlsmux->audio[source][sub_stream].fmp4) {
 			audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
 			double fragment_timestamp = frame->pts;
-			int fragment_duration = frame->duration * astream->audio_samplerate / 90000;
+			int fragment_duration = frame->duration * astream->audio_samplerate / (double)AUDIO_CLOCK;
 
 			if (astream->audio_object_type == 5) { // sbr
 			    fragment_duration = fragment_duration << 1;
