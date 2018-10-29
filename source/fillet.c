@@ -689,10 +689,7 @@ static void *frame_sync_thread(void *context)
             
 	    if (current_audio_time <= current_video_time) {
 		no_grab = 0;
-		while (current_audio_time < current_video_time && audio_synchronizer_entries > config_data.active_sources) {
-                    if (quit_sync_thread) {
-                        continue;
-                    }
+		while (current_audio_time < current_video_time && audio_synchronizer_entries > config_data.active_sources && !quit_sync_thread) {
 		    pthread_mutex_lock(&sync_lock);
 		    audio_synchronizer_entries = use_frame(core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
 		    pthread_mutex_unlock(&sync_lock);
@@ -723,6 +720,10 @@ static void *frame_sync_thread(void *context)
 		    continue;
 		}		
 	    }
+
+            if (quit_sync_thread) {
+                continue;
+            }
 			
 	    if (!first_grab) {
 		pthread_mutex_lock(&sync_lock);
