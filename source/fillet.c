@@ -1107,13 +1107,13 @@ static void *runtime_thread(void *context)
     
     while (core->source_running) {
         if (quit_sync_thread && core->source_running) {
-            quit_sync_thread = 0;
             fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
             while (sync_thread_running) {
                 usleep(10000);
                 // bail out and respawn if it never comes back
                 // waiting to trigger to 0
             }
+            //quit_sync_thread = 0;            
             sync_thread_running = 1;
             pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
         }
@@ -1322,10 +1322,10 @@ int main(int argc, char **argv)
 
 	 while (core->source_running) {
 	     if (quit_sync_thread) {
-		 quit_sync_thread = 0;
                  while (sync_thread_running) {
                      usleep(10000);
                  }
+		 quit_sync_thread = 0;                 
 		 fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
                  sync_thread_running = 1;
 		 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
