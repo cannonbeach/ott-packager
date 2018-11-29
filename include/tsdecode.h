@@ -42,6 +42,7 @@
 #define STREAM_TYPE_EAC3     0x05
 #define STREAM_TYPE_AAC      0x06
 #define STREAM_TYPE_MPEG     0x07
+#define STREAM_TYPE_SCTE35   0x08
 
 #define TABLE_ID_TVCT        200
 #define TABLE_ID_CVCT        201
@@ -150,6 +151,7 @@ typedef struct _pmt_table_struct_ {
      int pcr_pid;
      int program_info_length;
      int audio_stream_count;
+     int scte35_stream_count;
 
      int descriptor_id[MAX_STREAMS];
      int descriptor_size[MAX_STREAMS];

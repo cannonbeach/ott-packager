@@ -165,7 +165,6 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
 	 return -1;
      }
 
-     fprintf(stderr,"DECODING PMT TABLE: program_info_length: %d\n", program_info_length);
      while (program_info_length > 0) {
           int descriptor;
           int descriptor_size;
@@ -227,7 +226,6 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           current_stream_pid = current_stream_pid & 0x1fff;
           pmt_info_length = (((int)*(pdata+3) << 8) | (int)*(pdata+4)) & 0x0fff;
 
-
           current_pmt_table->stream_pid[stream_count] = current_stream_pid;
           current_pmt_table->stream_type[stream_count] = current_stream_type;
           current_pmt_table->audio_stream_index[stream_count] = -1;
@@ -237,7 +235,7 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           current_pmt_table->last_dts[stream_count] = -1;
           waiting_for_descriptor = 0;
 
-          current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_UNKNOWN;
+          current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_UNKNOWN; // default to unknown
           if (current_stream_type == 0x02) {
 	      backup_caller(2000, 800, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_MPEG2;
@@ -273,8 +271,9 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
 	      backup_caller(2000, 810, current_stream_pid, current_pid, 0, 0, backup_context);
           } else if (current_stream_type == 0x82) {
 	      backup_caller(2000, 811, current_stream_pid, current_pid, 0, 0, backup_context);
-          } else if (current_stream_type == 0x86) {
+          } else if (current_stream_type == 0x86) { // scte35
 	      backup_caller(2000, 812, current_stream_pid, current_pid, 0, 0, backup_context);
+              current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_SCTE35;
           } else if (current_stream_type == 0xC0) {
 	      backup_caller(2000, 813, current_stream_pid, current_pid, 0, 0, backup_context);
           }
@@ -824,7 +823,17 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     tsdata->source,
                                                              tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-							     send_frame_context);				 						 
+							     send_frame_context);
+                                         } else if (stream_type == 0x86) {
+					     /*uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+					     send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_SCTE35, 1,
+							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+							     0, // PCR
+							     tsdata->source,
+                                                             tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
+							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+							     send_frame_context);*/
 					 } else if (stream_type == 0x1b) {
 					     int vf;
 					     int nal_type;

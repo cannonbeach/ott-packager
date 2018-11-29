@@ -35,6 +35,14 @@ typedef struct _dataqueue_message_struct_ {
 	int64_t         dts;
         uint32_t        flags;
         int             source_discontinuity;
+        uint8_t         tff;
+        uint8_t         interlaced;
+        int             fps_num;
+        int             fps_den;
+        int             aspect_num;
+        int             aspect_den;
+        int             width;
+        int             height;
     	void            *buffer;
 } dataqueue_message_struct;
 

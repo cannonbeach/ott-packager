@@ -55,6 +55,7 @@
 #define MAX_FRAME_DATA_SYNC_AUDIO  512
 #define MAX_FRAME_DATA_SYNC_VIDEO  256
 #define MAX_MUX_SOURCES            10
+#define MAX_TRANS_OUTPUTS          8
 #define MAX_VIDEO_MUX_BUFFER       1024*1024*4
 #define MAX_AUDIO_MUX_BUFFER       1024*64
 #define MAX_VIDEO_PES_BUFFER       1024*1024*4
@@ -82,6 +83,29 @@
 #define MSG_PING                   0xb1
 #define MSG_STATUS                 0xb2
 
+#if defined(ENABLE_TRANSCODE)
+typedef struct _trans_video_output_struct_ {
+    int                    video_codec;
+    int                    width;
+    int                    height;
+    int                    video_bitrate;    
+} trans_video_output_struct;
+
+typedef struct _trans_audio_output_struct_ {
+    int                    audio_codec;
+    int                    audio_bitrate;
+} trans_audio_output_struct;
+
+typedef struct _preparevideo_internal_struct_ {
+    void                   *input_queue;
+} preparevideo_internal_struct;
+
+typedef struct _transvideo_internal_struct_ {
+    void                   *input_queue;
+} transvideo_internal_struct;    
+    
+#endif // ENABLE_TRANSCODE
+
 typedef struct _ip_config_struct_ {
     char             active_ip[UDP_MAX_IFNAME];
     int              active_port;
@@ -93,6 +117,7 @@ typedef struct _config_options_struct_ {
     ip_config_struct active_source[MAX_MUX_SOURCES];
 
     char             manifest_directory[MAX_STR_SIZE];
+    char             youtube_cid[MAX_STR_SIZE];
 
     int              window_size;
     int              segment_length;
@@ -101,6 +126,12 @@ typedef struct _config_options_struct_ {
 
     int              enable_ts_output;
     int              enable_fmp4_output;
+    int              enable_youtube_output;
+
+#if defined(ENABLE_TRANSCODE)    
+    trans_video_output_struct     transvideo_info[MAX_TRANS_OUTPUTS];
+    trans_audio_output_struct     transaudio_info[MAX_AUDIO_SOURCES];
+#endif // ENABLE_TRANSCODE    
 } config_options_struct;
 
 typedef struct _packet_struct_ {
@@ -213,26 +244,35 @@ typedef struct _input_struct_ {
 
 typedef struct _fillet_app_struct_
 {
-    int                    session_id;
+    int                           session_id;
     
-    int                    num_sources;
-    source_stream_struct   *source_stream;
-    int                    source_running;
+    int                           num_sources;
+    source_stream_struct          *source_stream;
+    int                           source_running;
     
-    void                   *video_frame_pool;
-    void                   *audio_frame_pool;    
+    void                          *video_frame_pool;
+    void                          *audio_frame_pool;    
 
-    sorted_frame_struct    *video_frame_data[MAX_FRAME_DATA_SYNC_VIDEO];
-    sorted_frame_struct    *audio_frame_data[MAX_FRAME_DATA_SYNC_AUDIO];
+    sorted_frame_struct           *video_frame_data[MAX_FRAME_DATA_SYNC_VIDEO];
+    sorted_frame_struct           *audio_frame_data[MAX_FRAME_DATA_SYNC_AUDIO];
 
-    void                   *event_queue;
-    sem_t                  *event_wait;
+    void                          *event_queue;
+    sem_t                         *event_wait;
 
-    hlsmux_struct          *hlsmux;
+    hlsmux_struct                 *hlsmux;
 
-    config_options_struct  *cd;
+    config_options_struct         *cd;
 
-    input_struct           fillet_input[MAX_MUX_SOURCES];
+    input_struct                  fillet_input[MAX_MUX_SOURCES];
+
+    int                           transcode_enabled;
+
+#if defined(ENABLE_TRANSCODE)    
+    int                           num_outputs;
+    preparevideo_internal_struct  *preparevideo;
+    transvideo_internal_struct    *transvideo;
+#endif // ENABLE_TRANSCODE
+
 } fillet_app_struct;
 
 #endif // _FILLET_H_

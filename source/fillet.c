@@ -51,6 +51,9 @@
 #include "hlsmux.h"
 #include "mp4core.h"
 #include "background.h"
+#if defined(ENABLE_TRANSCODE)
+#include "transvideo.h"
+#endif // ENABLE_TRANSCODE
 
 #define SOURCE_NONE      -1
 #define SOURCE_IP        1
@@ -67,6 +70,7 @@ static int sync_thread_running = 0;
 static pthread_t frame_sync_thread_id;
 static int enable_background = 0;
 static int enable_verbose = 0;
+static int enable_transcode = 0;
 
 static volatile int child_pids[MAX_SESSIONS];
 static config_options_struct config_data;
@@ -81,6 +85,15 @@ static struct option long_options[] = {
      {"manifest", required_argument, 0, 'm'},
      {"rollover", required_argument, 0, 'r'},
      {"identity", required_argument, 0, 'u'},
+#if defined(ENABLE_TRANSCODE)     
+     {"outputs", required_argument, 0, 'o'},              // number of output profiles
+     {"vcodec", required_argument, 0, 'c'},               // video output codec used    --vcodec=hevc or --vcodec=h264
+     {"resolutions", required_argument, 0, 'e'},          // the resolutions            --resolutions={320x240,640x360,960x540,1280x720}
+     {"vrate", required_argument, 0, 'v'},                // the video bitrates (kbps)  --vrate={800,1250,2500,5000}
+     {"acodec", required_argument, 0, 'a'},               // audio output codec used    --acodec=aac or --acodec=ac3
+     {"arate", required_argument, 0, 't'},                // the audio bitrates (kbps)  --arate={128,96}
+#endif // ENABLE_TRANSCODE
+     {"youtube", required_argument, 0, 'C'},              // the youtube cid
      {"background", no_argument, &enable_background, 1},
      {0, 0, 0, 0}
 };
@@ -204,7 +217,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "w:s:f:i:S:r:u",
+                           "C:w:s:f:i:S:r:u",
                            long_options,
                            &option_index);
 
@@ -213,6 +226,18 @@ static int parse_input_options(int argc, char **argv)
           }
 
           switch (c) {
+          case 'C':
+              if (optarg) {
+                  snprintf(config_data.youtube_cid,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: YouTube CID provided: %s\n", config_data.youtube_cid);
+                  config_data.enable_youtube_output = 1;
+                  config_data.enable_ts_output = 0;
+                  config_data.enable_fmp4_output = 0;
+              } else {
+                  fprintf(stderr,"ERROR: Invalid YouTube CID provided\n");
+                  return -1;
+              }
+              break;
 	  case 'u':
 	      if (optarg) {
 		  config_data.identity = atoi(optarg);
@@ -750,7 +775,7 @@ static void *frame_sync_thread(void *context)
     return NULL;
 }
 
-int64_t time_difference(struct timespec *now, struct timespec *start)
+static int64_t time_difference(struct timespec *now, struct timespec *start)
 {
     int64_t tsec;
     int64_t tnsec;
@@ -773,25 +798,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     fillet_app_struct *core = (fillet_app_struct*)context;
     int restart_sync_thread = 0;
 
-    if (sample_type == STREAM_TYPE_MPEG2) {
-	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
-	
-	if (!vstream->found_key_frame && sample_flags) {
-	    vstream->found_key_frame = 1;
-	    if (dts > 0) {
-		vstream->first_timestamp = dts;
-	    } else {
-		vstream->first_timestamp = pts;
-	    }
-	}
-	
-	vstream->current_receive_count++;
-	if (sample_flags) {
-	    fprintf(stderr," [INTRA] %ld", vstream->current_receive_count - vstream->last_intra_count);
-	    vstream->last_intra_count = vstream->current_receive_count;
-	}
-	fprintf(stderr,"\n");
-    } else if (sample_type == STREAM_TYPE_H264) {
+    if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 	sorted_frame_struct *new_frame;
 	uint8_t *new_buffer;
@@ -893,7 +900,13 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         new_frame->sub_stream = 0;
 	new_frame->sync_frame = sample_flags;
 	new_frame->frame_type = FRAME_TYPE_VIDEO;
-	new_frame->media_type = MEDIA_TYPE_H264;
+        if (sample_type == STREAM_TYPE_H264) {            
+            new_frame->media_type = MEDIA_TYPE_H264;
+        } else if (sample_type == STREAM_TYPE_MPEG2) {
+            new_frame->media_type = MEDIA_TYPE_MPEG2;
+        } else if (sample_type == STREAM_TYPE_HEVC) {
+            new_frame->media_type = MEDIA_TYPE_HEVC;
+        }
 	new_frame->time_received = 0;
 	if (lang_tag) {
 	    new_frame->lang_tag[0] = lang_tag[0];
@@ -903,12 +916,27 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	} else {
 	    memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
 	}
-	pthread_mutex_lock(&sync_lock);	
-	video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
-	if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
-	    restart_sync_thread = 1;	    	   
-	}
-	pthread_mutex_unlock(&sync_lock);	
+
+        if (enable_transcode) {
+#if defined(ENABLE_TRANSCODE)            
+            dataqueue_message_struct *decode_msg;
+
+            decode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+            if (decode_msg) {
+                decode_msg->buffer = new_frame;
+                decode_msg->buffer_size = sizeof(sorted_frame_struct);                
+                dataqueue_put_front(core->transvideo->input_queue, decode_msg);
+                decode_msg = NULL;
+            }
+#endif // ENABLE_TRANSCODE            
+        } else {
+            pthread_mutex_lock(&sync_lock);	
+            video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
+            if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
+                restart_sync_thread = 1;	    	   
+            }
+            pthread_mutex_unlock(&sync_lock);
+        }
     } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3) {
 	audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
@@ -1160,6 +1188,8 @@ int main(int argc, char **argv)
      config_data.identity = 1000;
      config_data.enable_ts_output = 1;
      config_data.enable_fmp4_output = 1;
+     config_data.enable_youtube_output = 0;
+     memset(config_data.youtube_cid,0,sizeof(config_data.youtube_cid));
      
      sprintf(config_data.manifest_directory,"/var/www/hls/");
      

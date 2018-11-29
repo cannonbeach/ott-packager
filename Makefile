@@ -2,13 +2,26 @@ CC=gcc
 CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -funroll-loops
 SRC=./source
 INC=-I./include
-OBJS=crc.o tsdecode.o fgetopt.o mempool.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o
+OBJS=crc.o tsdecode.o fgetopt.o mempool.o transvideo.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o
 LIB=libfillet.a
+BASELIBS=
+
+#ENABLE_TRANSCODE=1
+
+ifdef ENABLE_TRANSCODE
+	CFLAGS += -DENABLE_TRANSCODE
+	BASELIBS += ./cbffmpeg/libavfilter/libavfilter.a \
+                    ./cbffmpeg/libavformat/libavformat.a \
+		    ./cbffmpeg/libswscale/libswscale.a \
+		    ./cbffmpeg/libavcodec/libavcodec.a \
+	      	    ./cbffmpeg/libavutil/libavutil.a \
+		    ./cbffmpeg/libswresample/libswresample.a
+endif
 
 all: $(LIB) fillet
 
 fillet: fillet.o $(OBJS)
-	$(CC) fillet.o $(OBJS) -L./ -lm -lpthread -o fillet
+	$(CC) fillet.o $(OBJS) -L./ $(BASELIBS) -lm -lpthread -lz -o fillet
 
 $(LIB): $(OBJS)
 	ar rcs $(LIB) $(OBJS)
@@ -40,6 +53,9 @@ hlsmux.o: $(SRC)/hlsmux.c
 
 fgetopt.o: $(SRC)/fgetopt.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/fgetopt.c
+
+transvideo.o: $(SRC)/transvideo.c
+	$(CC) $(CFLAGS) $(INC) $(SRC)/transvideo.c
 
 tsdecode.o: $(SRC)/tsdecode.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/tsdecode.c

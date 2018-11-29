@@ -162,8 +162,7 @@ static int output_fmp4_ftyp(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
     buffer_offset += output_fmp4_4cc(fmp4,"avc1");
-    //add external signaling for some of these?
-    //buffer_offset += output_fmp4_4cc(fmp4,"cmfc");    
+    buffer_offset += output_fmp4_4cc(fmp4,"cmfc");    
 
     output32_raw(data, buffer_offset);
     
@@ -186,15 +185,14 @@ static int output_fmp4_styp(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
     buffer_offset += output_fmp4_4cc(fmp4,"avc1");
-    //add external signaling for some of these?
-    //buffer_offset += output_fmp4_4cc(fmp4,"cmfc");
+    buffer_offset += output_fmp4_4cc(fmp4,"cmfc");
     
     output32_raw(data, buffer_offset);
 
     return buffer_offset;
 }
 
-static int output_fmp4_sidx(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length)
+static int output_fmp4_sidx(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, track_struct *track_data, int current_track_id)
 {
     uint8_t *data;
     int buffer_offset;
@@ -209,46 +207,48 @@ static int output_fmp4_sidx(fragment_file_struct *fmp4, int64_t *sidx_time, int6
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"sidx");
-    buffer_offset += output32(fmp4, 0); //0x1000000);
-    buffer_offset += output32(fmp4, fmp4->track_id);
+    buffer_offset += output32(fmp4, 0);
+    buffer_offset += output32(fmp4, current_track_id);
     buffer_offset += output32(fmp4, fmp4->timescale);
 
     // take time from tfdt+sample_duration
-    fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)fmp4->frag_duration * (uint64_t)fmp4->sequence_number;
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
-	fragment_duration += fmp4->fragments[0].fragment_composition_time;
+    if (fmp4->enable_youtube) {
+        fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)track_data->frag_duration * (uint64_t)track_data->sequence_number;
+        if (track_data->track_type == TRACK_TYPE_VIDEO) {
+            fragment_duration += track_data->fragments[0].fragment_composition_time;
+        }
+    } else {
+        fragment_duration = (uint32_t)start_time;
     }
-#if 1
-    fragment_duration = (uint32_t)start_time;
     buffer_offset += output32(fmp4, fragment_duration);     // time t
-#else    
-    buffer_offset += output32(fmp4, fragment_duration);     // time t
-#endif    
+
     *sidx_time = fragment_duration;
     buffer_offset += output32(fmp4, 0);  // first_offset
     buffer_offset += output16(fmp4, 0); // reserved = 0
     buffer_offset += output16(fmp4, 1); // reference_count
 
-    sidx_buffer_offset = (uint32_t)fmp4->sidx_buffer_offset;
+    sidx_buffer_offset = (uint32_t)track_data->sidx_buffer_offset;
     sidx_buffer_offset = sidx_buffer_offset & 0xefffffff;
 
     total_duration = 0;
     fragment_sizes = 0;    
-    for (frag = 0; frag < fmp4->fragment_count; frag++) {
-	total_duration += fmp4->fragments[frag].fragment_duration;
-	fragment_sizes += fmp4->fragments[frag].fragment_buffer_size;
+    for (frag = 0; frag < track_data->fragment_count; frag++) {
+	total_duration += track_data->fragments[frag].fragment_duration;
+	fragment_sizes += track_data->fragments[frag].fragment_buffer_size;
     }
     fragment_sizes += sidx_buffer_offset;
     buffer_offset += output32(fmp4, fragment_sizes);
-#if 1
+
     total_duration = (uint32_t)frag_length;
     buffer_offset += output32(fmp4, total_duration);      // the total duration of the fragment
-#else    
-    buffer_offset += output32(fmp4, total_duration);      // the total duration of the fragment
-#endif    
+
     *sidx_duration = total_duration;    
-    
-    SAP = 0x90000000;  // SAP
+
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {    
+        SAP = 0x90000000;  // SAP - SAP_type = 1;
+    } else {
+        SAP = 0x80000000;  // SAP - SAP_type = 0;
+    }
     buffer_offset += output32(fmp4, SAP);  
     
     output32_raw(data, buffer_offset);
@@ -303,26 +303,31 @@ static int output_fmp4_mvhd(fragment_file_struct *fmp4)
     return buffer_offset;    
 }
 
-static int output_fmp4_tkhd(fragment_file_struct *fmp4)
+static int output_fmp4_tkhd(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
-
+    uint32_t current_time = 2082844800 + time(NULL);    
+                           
     data = fmp4->buffer + fmp4->buffer_offset;
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tkhd");
     buffer_offset += output32(fmp4, 0x7); // flags, track_enabled, etc.
-    buffer_offset += output32(fmp4, 485168486);  //creation_time - TODO
-    buffer_offset += output32(fmp4, 485168486);  //modification_time - TODO
-    buffer_offset += output32(fmp4, fmp4->track_id);
+    buffer_offset += output32(fmp4, current_time);
+    buffer_offset += output32(fmp4, current_time);
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
+        buffer_offset += output32(fmp4, fmp4->video_track_id);        
+    } else {
+        buffer_offset += output32(fmp4, fmp4->audio_track_id);
+    }
     buffer_offset += output32(fmp4, 0);  //reservd
     buffer_offset += output32(fmp4, 0);  //duration - TODO
     buffer_offset += output32(fmp4, 0);  //reservd0
     buffer_offset += output32(fmp4, 0);  //reservd1
     buffer_offset += output16(fmp4, 0);  //layer
     buffer_offset += output16(fmp4, 0);  //altgroup
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output16(fmp4, 0);
     } else {
 	buffer_offset += output16(fmp4, 0x0100);
@@ -338,7 +343,7 @@ static int output_fmp4_tkhd(fragment_file_struct *fmp4)
     buffer_offset += output32(fmp4, 0x00000000);
     buffer_offset += output32(fmp4, 0x00000000);
     buffer_offset += output32(fmp4, 0x40000000);
-    if (fmp4->track_type == TRACK_TYPE_AUDIO) {
+    if (track_data->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output16(fmp4, 0);
 	buffer_offset += output16(fmp4, 0);
 	buffer_offset += output16(fmp4, 0);
@@ -355,19 +360,24 @@ static int output_fmp4_tkhd(fragment_file_struct *fmp4)
     return buffer_offset;
 }
 
-static int output_fmp4_mdhd(fragment_file_struct *fmp4)
+static int output_fmp4_mdhd(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
+    uint32_t current_time = 2082844800 + time(NULL);
 
     data = fmp4->buffer + fmp4->buffer_offset;
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4, "mdhd");
     buffer_offset += output32(fmp4, 0);
-    buffer_offset += output32(fmp4, 485168486);  // creation_time
-    buffer_offset += output32(fmp4, 485168486);  // modification_time
-    buffer_offset += output32(fmp4, fmp4->timescale);
+    buffer_offset += output32(fmp4, current_time);  // creation_time
+    buffer_offset += output32(fmp4, current_time);  // modification_time
+    if (track_data->track_type == TRACK_TYPE_AUDIO) {
+        buffer_offset += output32(fmp4, fmp4->audio_samplerate);        
+    } else {
+        buffer_offset += output32(fmp4, fmp4->timescale);
+    }
     buffer_offset += output32(fmp4, 0); // duration?
     buffer_offset += output16(fmp4, fmp4->lang_code);
     buffer_offset += output16(fmp4, 0);
@@ -392,7 +402,7 @@ static int output_identity(fragment_file_struct *fmp4, char *identity)
     return buffer_offset;
 }
 
-static int output_fmp4_hdlr(fragment_file_struct *fmp4)
+static int output_fmp4_hdlr(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -402,9 +412,9 @@ static int output_fmp4_hdlr(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"hdlr");
     buffer_offset += output32(fmp4, 0);
     buffer_offset += output32(fmp4, 0);
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output_fmp4_4cc(fmp4,"vide");
-    } else if (fmp4->track_type == TRACK_TYPE_AUDIO) {
+    } else if (track_data->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output_fmp4_4cc(fmp4,"soun");
     } else {
 	buffer_offset += output_fmp4_4cc(fmp4,"text");
@@ -413,9 +423,9 @@ static int output_fmp4_hdlr(fragment_file_struct *fmp4)
     buffer_offset += output32(fmp4, 0); // reservd
     buffer_offset += output32(fmp4, 0); // reservd
 
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output_identity(fmp4,"FILLET:VIDEO");
-    } else if (fmp4->track_type == TRACK_TYPE_AUDIO) {
+    } else if (track_data->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output_identity(fmp4,"FILLET:AUDIO");
     }
     buffer_offset += output8(fmp4, 0);
@@ -554,9 +564,9 @@ static int output_fmp4_vse(fragment_file_struct *fmp4)
     data = fmp4->buffer + fmp4->buffer_offset;
 
     buffer_offset = output32(fmp4, 0);
-    if (fmp4->media_type == MEDIA_TYPE_H264) {
+    if (fmp4->video_media_type == MEDIA_TYPE_H264) {
 	buffer_offset += output_fmp4_4cc(fmp4,"avc1");
-    } else {
+    } else if (fmp4->video_media_type == MEDIA_TYPE_HEVC) {
 	buffer_offset += output_fmp4_4cc(fmp4,"hvc1");
     }
 
@@ -584,7 +594,7 @@ static int output_fmp4_vse(fragment_file_struct *fmp4)
     buffer_offset += output16(fmp4, 0x0018);
     buffer_offset += output16(fmp4, 0xffff);
 
-    if (fmp4->media_type == MEDIA_TYPE_H264) {
+    if (fmp4->video_media_type == MEDIA_TYPE_H264) {
 	buffer_offset += output_fmp4_avcc(fmp4);
     } else {
 	// TODO
@@ -613,7 +623,7 @@ static int output_fmp4_esds(fragment_file_struct *fmp4)
     buffer_offset += output8(fmp4, 0x80);
     buffer_offset += output8(fmp4, 0x1c);  // 28 bytes
 
-    buffer_offset += output16(fmp4, fmp4->track_id);
+    buffer_offset += output16(fmp4, fmp4->audio_track_id);
     buffer_offset += output8(fmp4, 0x00); //version, flags
 
     // decoderconfig
@@ -685,7 +695,7 @@ static int output_fmp4_ase(fragment_file_struct *fmp4)
     return buffer_offset;    
 }
 
-static int output_fmp4_stsd(fragment_file_struct *fmp4)
+static int output_fmp4_stsd(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -696,9 +706,9 @@ static int output_fmp4_stsd(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"stsd");
     buffer_offset += output32(fmp4, 0);
     buffer_offset += output32(fmp4, 1);  // entry_count
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output_fmp4_vse(fmp4);
-    } else if (fmp4->track_type == TRACK_TYPE_AUDIO) {
+    } else if (track_data->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output_fmp4_ase(fmp4);
     } else {
 	// TODO
@@ -778,7 +788,7 @@ static int output_fmp4_stco(fragment_file_struct *fmp4)
     return buffer_offset;
 }
 
-static int output_fmp4_stbl(fragment_file_struct *fmp4)
+static int output_fmp4_stbl(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -787,7 +797,7 @@ static int output_fmp4_stbl(fragment_file_struct *fmp4)
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"stbl");
-    buffer_offset += output_fmp4_stsd(fmp4);
+    buffer_offset += output_fmp4_stsd(fmp4, track_data);
     buffer_offset += output_fmp4_stts(fmp4);
     buffer_offset += output_fmp4_stsc(fmp4);
     buffer_offset += output_fmp4_stsz(fmp4);
@@ -798,7 +808,7 @@ static int output_fmp4_stbl(fragment_file_struct *fmp4)
     return buffer_offset;
 }
 
-static int output_fmp4_trex(fragment_file_struct *fmp4)
+static int output_fmp4_trex(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -808,9 +818,13 @@ static int output_fmp4_trex(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"trex");
     buffer_offset += output32(fmp4, 0);
-    buffer_offset += output32(fmp4, fmp4->track_id);
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
+        buffer_offset += output32(fmp4, fmp4->video_track_id);
+    } else {
+        buffer_offset += output32(fmp4, fmp4->audio_track_id);        
+    }
     buffer_offset += output32(fmp4, 1);
-    buffer_offset += output32(fmp4, 0);
+    buffer_offset += output32(fmp4, 0); //default sample duration
     buffer_offset += output32(fmp4, 0);
     buffer_offset += output32(fmp4, 0);
 
@@ -823,19 +837,22 @@ static int output_fmp4_mvex(fragment_file_struct *fmp4)
 {
     uint8_t *data;
     int buffer_offset;
-
+    int current_track;
+    
     data = fmp4->buffer + fmp4->buffer_offset;
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"mvex");
-    buffer_offset += output_fmp4_trex(fmp4);
+    for (current_track = 0; current_track < fmp4->track_count; current_track++) {
+        buffer_offset += output_fmp4_trex(fmp4, (track_struct*)&fmp4->track_data[current_track]);
+    }
 
     output32_raw(data, buffer_offset);
     
     return buffer_offset;
 }
 
-static int output_fmp4_minf(fragment_file_struct *fmp4)
+static int output_fmp4_minf(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -843,22 +860,22 @@ static int output_fmp4_minf(fragment_file_struct *fmp4)
     data = fmp4->buffer + fmp4->buffer_offset;
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"minf");
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output_fmp4_vmhd(fmp4);
-    } else if (fmp4->track_type == TRACK_TYPE_AUDIO) {
+    } else if (track_data->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output_fmp4_smhd(fmp4);
     } else {
 	buffer_offset += 0;
     }
     buffer_offset += output_fmp4_dinf(fmp4);
-    buffer_offset += output_fmp4_stbl(fmp4);
+    buffer_offset += output_fmp4_stbl(fmp4, track_data);
 
     output32_raw(data, buffer_offset);
 
     return buffer_offset;
 }
 
-static int output_fmp4_mdia(fragment_file_struct *fmp4)
+static int output_fmp4_mdia(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -867,16 +884,16 @@ static int output_fmp4_mdia(fragment_file_struct *fmp4)
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"mdia");
-    buffer_offset += output_fmp4_mdhd(fmp4);
-    buffer_offset += output_fmp4_hdlr(fmp4);
-    buffer_offset += output_fmp4_minf(fmp4);
+    buffer_offset += output_fmp4_mdhd(fmp4, track_data);
+    buffer_offset += output_fmp4_hdlr(fmp4, track_data);
+    buffer_offset += output_fmp4_minf(fmp4, track_data);
 
     output32_raw(data, buffer_offset);
     
     return buffer_offset;
 }
 
-static int output_fmp4_trak(fragment_file_struct *fmp4)
+static int output_fmp4_trak(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -885,8 +902,8 @@ static int output_fmp4_trak(fragment_file_struct *fmp4)
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"trak");
-    buffer_offset += output_fmp4_tkhd(fmp4);
-    buffer_offset += output_fmp4_mdia(fmp4);
+    buffer_offset += output_fmp4_tkhd(fmp4, track_data);
+    buffer_offset += output_fmp4_mdia(fmp4, track_data);
 
     output32_raw(data, buffer_offset);
     
@@ -903,15 +920,22 @@ static int output_fmp4_moov(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"moov");
     buffer_offset += output_fmp4_mvhd(fmp4);
-    buffer_offset += output_fmp4_trak(fmp4);
-    buffer_offset += output_fmp4_mvex(fmp4);
+    if (fmp4->enable_youtube) {
+        int current_track;
+        for (current_track = 0; current_track < fmp4->track_count; current_track++) {
+            buffer_offset += output_fmp4_trak(fmp4, (track_struct*)&fmp4->track_data[current_track]);
+        }
+    } else {
+        buffer_offset += output_fmp4_trak(fmp4, (track_struct*)&fmp4->track_data[0]);
+    }
+    buffer_offset += output_fmp4_mvex(fmp4);       
 
     output32_raw(data, buffer_offset);
 
     return buffer_offset;
 }
 
-static int output_fmp4_mfhd(fragment_file_struct *fmp4)
+static int output_fmp4_mfhd(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -921,14 +945,14 @@ static int output_fmp4_mfhd(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"mfhd");
     buffer_offset += output32(fmp4, 0);
-    buffer_offset += output32(fmp4, fmp4->sequence_number);
+    buffer_offset += output32(fmp4, track_data->sequence_number);
 
     output32_raw(data, buffer_offset);
 
     return buffer_offset;
 }
 
-static int output_fmp4_tfhd(fragment_file_struct *fmp4)
+static int output_fmp4_tfhd(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -938,22 +962,19 @@ static int output_fmp4_tfhd(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tfhd");
 
-#if 0
-    buffer_offset += output32(fmp4, 0x20002); //0x020002);
-    buffer_offset += output32(fmp4, fmp4->track_id);
-    buffer_offset += output32(fmp4, 1);
-#else    
     buffer_offset += output32(fmp4, 0x20000); //0x020002);
-    buffer_offset += output32(fmp4, fmp4->track_id);
-    //buffer_offset += output32(fmp4, 1);
-#endif    
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
+        buffer_offset += output32(fmp4, fmp4->video_track_id);
+    } else {
+        buffer_offset += output32(fmp4, fmp4->audio_track_id);
+    }
 
     output32_raw(data, buffer_offset);
 	
     return buffer_offset;
 }
 
-static int output_fmp4_tfdt(fragment_file_struct *fmp4, double start_time)
+static int output_fmp4_tfdt(fragment_file_struct *fmp4, double start_time, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -963,11 +984,11 @@ static int output_fmp4_tfdt(fragment_file_struct *fmp4, double start_time)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tfdt");
     buffer_offset += output32(fmp4, 0x01000000);
-#if 1
-    fragment_duration = (uint64_t)start_time;
-#else
-    fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)fmp4->frag_duration * (uint64_t)fmp4->sequence_number;
-#endif    
+    if (!fmp4->enable_youtube) {
+        fragment_duration = (uint64_t)start_time;
+    } else {
+        fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)track_data->frag_duration * (uint64_t)track_data->sequence_number;
+    }
     buffer_offset += output64(fmp4, fragment_duration);
 
     output32_raw(data, buffer_offset);
@@ -975,7 +996,7 @@ static int output_fmp4_tfdt(fragment_file_struct *fmp4, double start_time)
     return buffer_offset;
 }
 
-static int output_fmp4_trun(fragment_file_struct *fmp4)
+static int output_fmp4_trun(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     uint8_t *data_start;    
@@ -987,48 +1008,41 @@ static int output_fmp4_trun(fragment_file_struct *fmp4)
     
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"trun");
-    if (fmp4->track_type == TRACK_TYPE_VIDEO) {
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output32(fmp4, 0x000f01);
     } else {
 	buffer_offset += output32(fmp4, 0x000701);
+        //buffer_offset += output32(fmp4, 0x000201);
     }
-    buffer_offset += output32(fmp4, fmp4->fragment_count);
+    buffer_offset += output32(fmp4, track_data->fragment_count);
     
     data_start = data + buffer_offset;
     buffer_offset += output32(fmp4, 0);
 
     total_duration = 0;
-    for (frag = 0; frag < fmp4->fragment_count; frag++) {
-	buffer_offset += output32(fmp4, fmp4->fragments[frag].fragment_duration);
-	total_duration += fmp4->fragments[frag].fragment_duration;
-	buffer_offset += output32(fmp4, fmp4->fragments[frag].fragment_buffer_size);
-	if (fmp4->track_type == TRACK_TYPE_AUDIO || frag == 0) {
-#if 0
-            buffer_offset += output32(fmp4, 0);
-#else            
-	    buffer_offset += output32(fmp4, 0x2000000);  // sync sample
-#endif            
-	} else {
-#if 0
-            buffer_offset += output32(fmp4, 0x10000);
-#else            
-	    buffer_offset += output32(fmp4, 0x1000000);
-#endif            
-	}
-	if (fmp4->track_type == TRACK_TYPE_VIDEO) {
-	    buffer_offset += output32(fmp4, fmp4->fragments[frag].fragment_composition_time);
-	}
+    for (frag = 0; frag < track_data->fragment_count; frag++) {
+        buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_duration);
+        total_duration += track_data->fragments[frag].fragment_duration;
+        buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_buffer_size);
+        if (track_data->track_type == TRACK_TYPE_AUDIO || frag == 0) {
+            buffer_offset += output32(fmp4, 0x2000000);  // sync sample
+        } else {
+            buffer_offset += output32(fmp4, 0x1000000);
+        }
+        if (track_data->track_type == TRACK_TYPE_VIDEO) {
+            buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_composition_time);
+        }
     }
-    fmp4->total_duration = total_duration;
+    track_data->total_duration = total_duration;
 
     output32_raw(data, buffer_offset);
-    fmp4->sidx_buffer_offset = fmp4->buffer_offset + 8;
+    track_data->sidx_buffer_offset = fmp4->buffer_offset + 8;
     output32_raw(data_start, fmp4->buffer_offset + 8 - fmp4->initial_offset);
 
     return buffer_offset;
 }
 
-static int output_fmp4_traf(fragment_file_struct *fmp4, double start_time)
+static int output_fmp4_traf(fragment_file_struct *fmp4, double start_time, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -1037,16 +1051,16 @@ static int output_fmp4_traf(fragment_file_struct *fmp4, double start_time)
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"traf");
-    buffer_offset += output_fmp4_tfhd(fmp4);
-    buffer_offset += output_fmp4_tfdt(fmp4, start_time);
-    buffer_offset += output_fmp4_trun(fmp4);
+    buffer_offset += output_fmp4_tfhd(fmp4, track_data);
+    buffer_offset += output_fmp4_tfdt(fmp4, start_time, track_data);
+    buffer_offset += output_fmp4_trun(fmp4, track_data);
 
     output32_raw(data, buffer_offset);
 
     return buffer_offset;
 }
 
-static int output_fmp4_moof(fragment_file_struct *fmp4, double start_time)
+static int output_fmp4_moof(fragment_file_struct *fmp4, double start_time, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -1055,15 +1069,15 @@ static int output_fmp4_moof(fragment_file_struct *fmp4, double start_time)
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"moof");
-    buffer_offset += output_fmp4_mfhd(fmp4);
-    buffer_offset += output_fmp4_traf(fmp4, start_time);
+    buffer_offset += output_fmp4_mfhd(fmp4, track_data);
+    buffer_offset += output_fmp4_traf(fmp4, start_time, track_data);
 
     output32_raw(data, buffer_offset);   
     
     return buffer_offset;
 }
 
-static int output_fmp4_mdat(fragment_file_struct *fmp4)
+static int output_fmp4_mdat(fragment_file_struct *fmp4, track_struct *track_data)
 {
     uint8_t *data;
     int buffer_offset;
@@ -1075,13 +1089,13 @@ static int output_fmp4_mdat(fragment_file_struct *fmp4)
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"mdat");
 
-    for (frag = 0; frag < fmp4->fragment_count; frag++) {
+    for (frag = 0; frag < track_data->fragment_count; frag++) {
 	//uint32_t *fragsize = (uint32_t*)fmp4->fragments[frag].fragment_buffer;
 	//fprintf(stderr,"writing frag size: %u\n", ntohl(*fragsize));
         //total_fragsize += ntohl(*fragsize);	
-	buffer_offset += output_raw_data(fmp4, fmp4->fragments[frag].fragment_buffer, fmp4->fragments[frag].fragment_buffer_size);
-        total_fragsize += fmp4->fragments[frag].fragment_buffer_size;
-	free(fmp4->fragments[frag].fragment_buffer);
+	buffer_offset += output_raw_data(fmp4, track_data->fragments[frag].fragment_buffer, track_data->fragments[frag].fragment_buffer_size);
+        total_fragsize += track_data->fragments[frag].fragment_buffer_size;
+	free(track_data->fragments[frag].fragment_buffer);
     }
     fprintf(stderr,"writing fmp4 data: %ld\n", total_fragsize);
 
@@ -1093,14 +1107,16 @@ static int output_fmp4_mdat(fragment_file_struct *fmp4)
 fragment_file_struct *fmp4_file_create(int media_type, int timescale, int lang_code, int frag_duration)
 {
     fragment_file_struct *fmp4;
-
-    fmp4 = (fragment_file_struct*)malloc(sizeof(fragment_file_struct));
+    fmp4 = (fragment_file_struct*)malloc(sizeof(fragment_file_struct));    
     if (!fmp4) {
 	return NULL;
     }
+    track_struct *track_data = (track_struct*)&fmp4->track_data[0];
+    
     memset(fmp4, 0, sizeof(fragment_file_struct));    
 
-    fmp4->media_type = media_type;
+    fmp4->audio_media_type = media_type;
+    fmp4->video_media_type = media_type;
     fmp4->buffer = (uint8_t*)malloc(MAX_MP4_SIZE);   
     if (!fmp4->buffer) {
 	free(fmp4);
@@ -1110,13 +1126,47 @@ fragment_file_struct *fmp4_file_create(int media_type, int timescale, int lang_c
 
     fmp4->buffer_offset = 0;
     fmp4->next_track_id = 2;
-    fmp4->track_id = 1;
+    fmp4->video_track_id = 1;
+    fmp4->audio_track_id = 1;
     fmp4->track_count = 0;
     fmp4->timescale = timescale;
     fmp4->lang_code = lang_code;
-    fmp4->sequence_number = 0;
-    fmp4->frag_duration = frag_duration;
-    fmp4->total_duration = 0;
+    fmp4->enable_youtube = 0;
+
+    track_data->sequence_number = 0;
+    track_data->frag_duration = frag_duration;
+    track_data->total_duration = 0;   
+
+    return fmp4;      
+}
+
+fragment_file_struct *fmp4_file_create_youtube(int video_media_type, int audio_media_type, int timescale, int lang_code, int frag_duration)
+{
+    fragment_file_struct *fmp4;
+
+    fmp4 = (fragment_file_struct*)malloc(sizeof(fragment_file_struct));
+    if (!fmp4) {
+	return NULL;
+    }
+    memset(fmp4, 0, sizeof(fragment_file_struct));    
+
+    fmp4->video_media_type = video_media_type;
+    fmp4->audio_media_type = audio_media_type;
+    fmp4->buffer = (uint8_t*)malloc(MAX_MP4_SIZE);   
+    if (!fmp4->buffer) {
+	free(fmp4);
+	return NULL;
+    }
+    memset(fmp4->buffer, 0, MAX_MP4_SIZE);
+
+    fmp4->buffer_offset = 0;
+    fmp4->next_track_id = 3;
+    fmp4->video_track_id = 1;
+    fmp4->audio_track_id = 2;
+    fmp4->track_count = 0;
+    fmp4->timescale = timescale;
+    fmp4->lang_code = lang_code;
+    fmp4->enable_youtube = 1;
 
     return fmp4;      
 }
@@ -1136,22 +1186,43 @@ int fmp4_file_finalize(fragment_file_struct *fmp4)
     
 int fmp4_fragment_start(fragment_file_struct *fmp4)
 {
+    if (fmp4->enable_youtube) {
+        
+    }
     return 0;
 }
 
-int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, uint32_t sequence_number)
+int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, uint32_t sequence_number, int fragment_type)
 {
     fmp4->buffer_offset = 0;
-
-    fmp4->sequence_number = sequence_number;
     fmp4->initial_offset = output_fmp4_styp(fmp4);
-    fmp4->initial_offset += output_fmp4_sidx(fmp4, sidx_time, sidx_duration, start_time, frag_length);
-    
-    output_fmp4_moof(fmp4, start_time);    
-    output_fmp4_mdat(fmp4);
-    
-    fmp4->sequence_number++;
-    fmp4->fragment_count = 0;
+    if (fmp4->enable_youtube) {
+        if (fragment_type == VIDEO_FRAGMENT) {
+            int vtid = fmp4->video_track_id-1;
+            fmp4->track_data[vtid].sequence_number = sequence_number;            
+            fmp4->initial_offset += output_fmp4_sidx(fmp4, sidx_time, sidx_duration, start_time, frag_length, (track_struct*)&fmp4->track_data[vtid], fmp4->video_track_id);    
+            output_fmp4_moof(fmp4, start_time, (track_struct*)&fmp4->track_data[vtid]);
+            output_fmp4_mdat(fmp4, (track_struct*)&fmp4->track_data[vtid]);      
+            fmp4->track_data[vtid].sequence_number++;
+            fmp4->track_data[vtid].fragment_count = 0;
+        } else {
+            int atid = fmp4->audio_track_id-1;
+            fmp4->track_data[atid].sequence_number = sequence_number;                        
+            fmp4->initial_offset += output_fmp4_sidx(fmp4, sidx_time, sidx_duration, start_time, frag_length, (track_struct*)&fmp4->track_data[atid], fmp4->audio_track_id);    
+            output_fmp4_moof(fmp4, start_time, (track_struct*)&fmp4->track_data[atid]);
+            output_fmp4_mdat(fmp4, (track_struct*)&fmp4->track_data[atid]);      
+            fmp4->track_data[atid].sequence_number++;
+            fmp4->track_data[atid].fragment_count = 0;
+        }
+    } else {
+        fmp4->track_data[0].sequence_number = sequence_number;
+        // video and audio track id are the same        
+        fmp4->initial_offset += output_fmp4_sidx(fmp4, sidx_time, sidx_duration, start_time, frag_length, (track_struct*)&fmp4->track_data[0], fmp4->video_track_id);
+        output_fmp4_moof(fmp4, start_time, (track_struct*)&fmp4->track_data[0]);
+        output_fmp4_mdat(fmp4, (track_struct*)&fmp4->track_data[0]);  
+        fmp4->track_data[0].sequence_number++;
+        fmp4->track_data[0].fragment_count = 0;
+    }
     
     return 0;
 }
@@ -1227,17 +1298,18 @@ int fmp4_video_track_create(fragment_file_struct *fmp4, int video_width, int vid
     if (!fmp4) {
 	return -1;
     }
+    int vtid = fmp4->video_track_id-1;
 
-    fmp4->fragment_count = 0;
-    fmp4->track_count++;
-    memset(fmp4->fragments, 0, sizeof(fmp4->fragments));
+    fmp4->track_count++;    
+
+    fmp4->track_data[vtid].fragment_count = 0;
+    memset(fmp4->track_data[vtid].fragments, 0, sizeof(fmp4->track_data[vtid].fragments));
+
     fmp4->video_width = video_width;
     fmp4->video_height = video_height;
     fmp4->video_bitrate = video_bitrate;
-    fmp4->audio_bitrate = 0;
-    fmp4->subtitle_bitrate = 0;
-    fmp4->track_type = TRACK_TYPE_VIDEO;
-    
+    fmp4->track_data[vtid].track_type = TRACK_TYPE_VIDEO;        
+
     return 0;
 }
 
@@ -1256,19 +1328,19 @@ int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int 
     if (!fmp4) {
 	return -1;
     }
+    int atid = fmp4->audio_track_id-1;
 
-    fmp4->fragment_count = 0;
-    fmp4->track_count++;
-    memset(fmp4->fragments, 0, sizeof(fmp4->fragments));
-    fmp4->video_width = 0;
-    fmp4->video_height = 0;
-    fmp4->video_bitrate = 0;
+    fmp4->track_count++;   
+
+    fmp4->track_data[atid].fragment_count = 0;
+    memset(fmp4->track_data[atid].fragments, 0, sizeof(fmp4->track_data[atid].fragments));
+
     fmp4->audio_channels = audio_channels;
     fmp4->audio_samplerate = audio_samplerate;
     fmp4->audio_bitrate = audio_bitrate;
     fmp4->audio_object_type = audio_object_type;
     fmp4->subtitle_bitrate = 0;
-    fmp4->track_type = TRACK_TYPE_AUDIO;
+    fmp4->track_data[atid].track_type = TRACK_TYPE_AUDIO;
    
     if (audio_channels == 2 && audio_samplerate == 48000) {
 	fmp4->audio_config = 0x1190;
@@ -1322,14 +1394,14 @@ static int replace_startcode_with_size(uint8_t *input_buffer, int input_buffer_s
 		read_pos += 3;	     
 		continue;
 	    }
-            // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there
-            /*
-            if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
+            
+            // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there            
+            /*if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
                 parsing_sample = 0;
                 read_pos += 3;
                 continue;
-            }
-            */
+            }*/
+            
             if (nal_type == 7 || nal_type == 8 || nal_type == 5) {
                 fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
             }
@@ -1370,17 +1442,19 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 			    int fragment_duration,
 			    int64_t fragment_composition_time)
 {
-    int frag = fmp4->fragment_count;
+    int vtid = fmp4->video_track_id-1;
+    track_struct *track_data = (track_struct*)&fmp4->track_data[vtid];
+    int frag = track_data->fragment_count;
     uint8_t *new_frag;
     int updated_fragment_buffer_size;
 
     if (frag >= MAX_FRAGMENTS) {
-	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF FRAGMENTS!\n");
+	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF VIDEO FRAGMENTS: %d!  VTID:%d\n", frag, vtid);
 	return -1;
     }    
     
     if (frag == 0) {
-	fmp4->fragment_start_timestamp = fragment_timestamp * fmp4->timescale;
+	track_data->fragment_start_timestamp = fragment_timestamp * fmp4->timescale;
     }
 
     new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
@@ -1391,13 +1465,13 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
     /*fprintf(stderr,"new frag size: %u   0x%x 0x%x 0x%x 0x%x\n", ntohl(*fragsize),
       new_frag[0], new_frag[1], new_frag[2], new_frag[3]);*/
     
-    fmp4->fragments[frag].fragment_buffer = new_frag;
-    fmp4->fragments[frag].fragment_buffer_size = updated_fragment_buffer_size;
-    fmp4->fragments[frag].fragment_duration = fragment_duration;
-    fmp4->fragments[frag].fragment_timestamp = fragment_timestamp * fmp4->timescale;
-    fmp4->fragments[frag].fragment_composition_time = fragment_composition_time;
+    track_data->fragments[frag].fragment_buffer = new_frag;
+    track_data->fragments[frag].fragment_buffer_size = updated_fragment_buffer_size;
+    track_data->fragments[frag].fragment_duration = fragment_duration;
+    track_data->fragments[frag].fragment_timestamp = fragment_timestamp * fmp4->timescale;
+    track_data->fragments[frag].fragment_composition_time = fragment_composition_time;
 
-    fmp4->fragment_count++;
+    track_data->fragment_count++;
 
     return 0;
 }
@@ -1408,18 +1482,21 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
 			    double fragment_timestamp,
 			    int fragment_duration)
 {
-    int frag = fmp4->fragment_count;
     uint8_t *new_frag;
     int header_size;
 #define ADTS_HEADER_SIZE 7
 
+    int atid = fmp4->audio_track_id-1;
+    track_struct *track_data = (track_struct*)&fmp4->track_data[atid];
+    int frag = track_data->fragment_count; 
+    
     if (frag >= MAX_FRAGMENTS) {
-	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF FRAGMENTS!\n");
+	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF AUDIO FRAGMENTS: %d!  ATID:%d\n", frag, atid);
 	return -1;
     }    
     
     if (frag == 0) {
-	fmp4->fragment_start_timestamp = fragment_timestamp * fmp4->timescale;
+	track_data->fragment_start_timestamp = fragment_timestamp * fmp4->timescale; // should this be sampling rate instead?
     }
 
     new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
@@ -1429,13 +1506,13 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
     fragment_buffer_size -= header_size;
     memcpy(new_frag, fragment_buffer + header_size, fragment_buffer_size);
 
-    fmp4->fragments[frag].fragment_buffer = new_frag;
-    fmp4->fragments[frag].fragment_buffer_size = fragment_buffer_size;
-    fmp4->fragments[frag].fragment_duration = fragment_duration;
-    fmp4->fragments[frag].fragment_timestamp = fragment_timestamp * fmp4->timescale;
-    fmp4->fragments[frag].fragment_composition_time = 0;
+    track_data->fragments[frag].fragment_buffer = new_frag;
+    track_data->fragments[frag].fragment_buffer_size = fragment_buffer_size;
+    track_data->fragments[frag].fragment_duration = fragment_duration;
+    track_data->fragments[frag].fragment_timestamp = fragment_timestamp * fmp4->timescale;  // should this be sampling rate?
+    track_data->fragments[frag].fragment_composition_time = 0;
 
-    fmp4->fragment_count++;
+    track_data->fragment_count++;
 
     return 0;
 }

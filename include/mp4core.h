@@ -27,10 +27,10 @@
 #define TRACK_TYPE_VIDEO    0x00
 #define TRACK_TYPE_AUDIO    0x01
 #define TRACK_TYPE_CAPTION  0x02
-#define MAX_TRACKS          16
+#define MAX_TRACKS          2
 
 #define MAX_NAME_SIZE       512
-#define MAX_MP4_SIZE        16384*1024
+#define MAX_MP4_SIZE        16384*1024   //16mb
 
 #define MEDIA_TYPE_AAC      0x01
 #define MEDIA_TYPE_AC3      0x02
@@ -38,10 +38,14 @@
 
 #define MEDIA_TYPE_H264     0x10
 #define MEDIA_TYPE_HEVC     0x11
+#define MEDIA_TYPE_MPEG2    0x12
 
 #define MAX_FRAGMENTS       20*60    // 60 fps @ 20 seconds
 #define MAX_PRIVATE_DATA_SIZE  256
 #define MAX_AUDIO_CONFIG_SIZE  16
+
+#define VIDEO_FRAGMENT      0x01
+#define AUDIO_FRAGMENT      0x00
 
 typedef struct _fragment_struct_
 {
@@ -52,28 +56,44 @@ typedef struct _fragment_struct_
     int64_t                 fragment_composition_time;
 } fragment_struct;
 
-typedef struct _fragment_file_struct_
-{
-    char                   fragment_filename[MAX_NAME_SIZE];
-    FILE                   *output_file;
-
-    int                    media_type;
-    int                    track_count;
+typedef struct _track_struct_ {
     int                    track_type;
-    int                    timescale;
     int64_t                sequence_number;
     int                    frag_duration;
     int                    total_duration;
 
-    int                    video_width;
-    int                    video_height;
-    int                    video_bitrate;
+    fragment_struct        fragments[MAX_FRAGMENTS];
+    int                    fragment_count;
+    int64_t                fragment_start_timestamp;
+    int64_t                sidx_buffer_offset;
+} track_struct;
+
+typedef struct _fragment_file_struct_
+{
+    char                   fragment_filename[MAX_NAME_SIZE];
+    FILE                   *output_file;
+    int                    enable_youtube;
+
+    int                    track_count;
+    track_struct           track_data[MAX_TRACKS];
+    int                    video_track_id;
+    int                    audio_track_id;
+    int                    next_track_id;
+
+    int64_t                duration_buffer_offset;        
+    
+    int                    timescale;
+
     uint8_t                video_sps[MAX_PRIVATE_DATA_SIZE];
     int                    video_sps_size;
     uint8_t                video_pps[MAX_PRIVATE_DATA_SIZE];
     int                    video_pps_size;
     uint8_t                video_vps[MAX_PRIVATE_DATA_SIZE];
     int                    video_vps_size;
+
+    int                    video_width;
+    int                    video_height;
+    int                    video_bitrate;
 
     int                    audio_channels;
     int                    audio_samplerate;
@@ -82,21 +102,14 @@ typedef struct _fragment_file_struct_
     uint32_t               audio_config;
     int                    audio_config_size;
     int                    subtitle_bitrate;
-    int                    lang_code;
+    int                    lang_code;    
 
-    int                    next_track_id;
-    int                    track_id;
-
-    int64_t                sidx_buffer_offset;
-    int64_t                duration_buffer_offset;
+    int                    video_media_type;
+    int                    audio_media_type;
 
     int64_t                buffer_offset;
     int64_t                initial_offset;
-    uint8_t                *buffer;
-
-    fragment_struct        fragments[MAX_FRAGMENTS];
-    int                    fragment_count;
-    int64_t                fragment_start_timestamp;
+    uint8_t                *buffer;  
 } fragment_file_struct;
 
 int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
@@ -112,10 +125,11 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 			    int fragment_duration,
 			    int64_t fragment_composition_time);
 
+fragment_file_struct *fmp4_file_create_youtube(int video_media_type, int audio_media_type, int timescale, int lang_code, int frag_duration);
 fragment_file_struct *fmp4_file_create(int media_type, int timescale, int lang_code, int frag_duration);
 int fmp4_file_finalize(fragment_file_struct *fmp4);
 int fmp4_fragment_start(fragment_file_struct *fmp4);
-int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, uint32_t sequence_number);
+int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, uint32_t sequence_number, int fragment_type);
 int fmp4_video_set_pps(fragment_file_struct *fmp4, uint8_t *pps, int pps_size);
 int fmp4_video_set_sps(fragment_file_struct *fmp4, uint8_t *sps, int sps_size);
 int fmp4_video_set_vps(fragment_file_struct *fmp4, uint8_t *vps, int vps_size);
