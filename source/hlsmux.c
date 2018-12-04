@@ -1233,7 +1233,7 @@ static int update_mp4_video_manifest(fillet_app_struct *core, stream_struct *str
     video_manifest = fopen(stream_name,"w");
 
     fprintf(video_manifest,"#EXTM3U\n");
-    fprintf(video_manifest,"#EXT-X-VERSION:8\n");
+    fprintf(video_manifest,"#EXT-X-VERSION:6\n");
     fprintf(video_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
     fprintf(video_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");    
     fprintf(video_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
@@ -1273,7 +1273,7 @@ static int update_mp4_audio_manifest(fillet_app_struct *core, stream_struct *str
     audio_manifest = fopen(stream_name,"w");
 
     fprintf(audio_manifest,"#EXTM3U\n");
-    fprintf(audio_manifest,"#EXT-X-VERSION:8\n");
+    fprintf(audio_manifest,"#EXT-X-VERSION:6\n");
     fprintf(audio_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
     fprintf(audio_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");    
     fprintf(audio_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
@@ -1364,14 +1364,14 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
 
     //When the MPD is updated, the value of MPD@availabilityStartTime shall be the same in the original and the updated MPD.    
     //Segment availability start time = MPD@availabilityStartTime + PeriodStart + MediaSegment[i].startTime + MediaSegment[i].duration 
-    
+    //urn:mpeg:dash:profile:isoff-live:2011,urn:com:dashif:dash264    
     fprintf(master_manifest,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" type=\"dynamic\" minimumUpdatePeriod=\"PT30S\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minBufferTime=\"PT5S\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011\">\n",
+    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" type=\"dynamic\" minimumUpdatePeriod=\"PT5S\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minBufferTime=\"PT5S\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011,urn:com:dashif:dash264\">\n",
 	    tm_avail.tm_year + 1900, tm_avail.tm_mon + 1, tm_avail.tm_mday, tm_avail.tm_hour, tm_avail.tm_min, tm_avail.tm_sec,
             core->cd->window_size * core->cd->segment_length);
     fprintf(master_manifest,"<Period id=\"1\" start=\"PT0S\">\n");
     fprintf(master_manifest,"<AdaptationSet id=\"0\" contentType=\"video\" segmentAlignment=\"true\" maxWidth=\"%d\" maxHeight=\"%d\" maxFrameRate=\"30000/1001\" par=\"16:9\" startWithSAP=\"1\">\n",
-	    max_width, max_height);
+        max_width, max_height);
 
     lsdata = sdata;
 
@@ -1384,7 +1384,7 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
     fprintf(master_manifest,"<SegmentTemplate timescale=\"90000\" media=\"/dash_upload?cid=xxxx-xxxx-xxxx-xxxx&staging=1&copy=0&file=media$Number%09d$.mp4\" initialization=\"data:video/mp4;base64,%s\" duration=\"%d\" startNumber=\"%d\"/>\n",
             init_string_base64,
             core->cd->segment_length * 90000,
-            starting_media_sequence_number);
+            starting_media_sequence_number);   
 
     video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;
     audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[0];    
@@ -1425,13 +1425,15 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     char publish_time[MAX_STREAM_NAME];
 
     if (!timeset) {
-        timeset = 1;
+        //timeset = 1;
         t_avail = time(NULL);
         gmtime_r(&t_avail, &tm_avail);        
         strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);
     }
     t_publish = time(NULL);
     t_publish -= ((core->cd->window_size-1) * core->cd->segment_length);
+    //t_publish -= ((core->cd->window_size-1) * core->cd->segment_length);
+    //t_publish -= (core->cd->segment_length);
     gmtime_r(&t_publish, &tm_publish);
     strftime(publish_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_publish);
 
@@ -1469,7 +1471,39 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     }
 
     //When the MPD is updated, the value of MPD@availabilityStartTime shall be the same in the original and the updated MPD.    
-    //Segment availability start time = MPD@availabilityStartTime + PeriodStart + MediaSegment[i].startTime + MediaSegment[i].duration 
+    //Segment availability start time = MPD@availabilityStartTime + PeriodStart + MediaSegment[i].startTime + MediaSegment[i].duration
+    {
+        int64_t pre_sfsn = starting_file_sequence_number - 1;
+        int segment;
+        if ((starting_file_sequence_number-1) < 0) {
+            pre_sfsn = core->cd->rollover_size-1;
+        }
+        for (segment = 0; segment < core->cd->window_size; segment++) {            
+            int64_t pre_next_sequence_number = (pre_sfsn + segment) % core->cd->rollover_size;
+            int64_t media_time_passed = sdata->full_time_video[pre_next_sequence_number] / 90000;
+            if (segment == core->cd->window_size - 1) {
+                // why is it not media time vs system time
+                //t_publish = t_avail + media_time_passed + (core->cd->segment_length*(core->cd->window_size-1));
+                /*
+                FILE *trimfile;
+                int trim_count = 0;
+                trimfile = fopen("/var/tmp/trim.dat","r");
+                if (trimfile) {
+                    char trim_data_line[32];
+                    char *ptrim;
+                    memset(trim_data_line,0,sizeof(trim_data_line));
+                    ptrim = fgets(&trim_data_line[0], 8, trimfile);
+                    fclose(trimfile);
+                    trim_count = atoi(trim_data_line);                    
+                }
+                */
+                //t_publish = t_avail + media_time_passed + ((core->cd->segment_length*core->cd->window_size-1)) + trim_count;//works
+                t_publish = time(NULL) + (core->cd->segment_length*(core->cd->window_size-1));
+                gmtime_r(&t_publish, &tm_publish);
+                strftime(publish_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_publish);
+            }
+        }
+    }    
     
     fprintf(master_manifest,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" xmlns:cenc=\"urn:mpeg:cenc:2013\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011\" minBufferTime=\"PT5S\" type=\"dynamic\" publishTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minimumUpdatePeriod=\"PT5S\" timeShiftBufferDepth=\"PT%dS\">\n",
@@ -1477,15 +1511,16 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
 	    tm_avail.tm_year + 1900, tm_avail.tm_mon + 1, tm_avail.tm_mday, tm_avail.tm_hour, tm_avail.tm_min, tm_avail.tm_sec,
             core->cd->window_size * core->cd->segment_length);
     fprintf(master_manifest,"<Period id=\"0\" start=\"PT0S\">\n");
-    fprintf(master_manifest,"<AdaptationSet id=\"0\" contentType=\"video\" segmentAlignment=\"true\" maxWidth=\"%d\" maxHeight=\"%d\" maxFrameRate=\"30000/1001\" par=\"16:9\" startWithSAP=\"1\">\n",
-	    max_width, max_height);
 
+#if !defined(DISABLE_VIDEO) // disable video    
+    fprintf(master_manifest,"<AdaptationSet id=\"0\" contentType=\"video\" segmentAlignment=\"true\" maxWidth=\"%d\" maxHeight=\"%d\" maxFrameRate=\"60000/1001\" par=\"16:9\">\n",
+	    max_width, max_height);
     lsdata = sdata;
     for (i = 0; i < core->num_sources; i++) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
 	int segment;
 
-	fprintf(master_manifest,"<Representation id=\"%d\" mimeType=\"video/mp4\" codecs=\"avc1.%2x%02x%02x\" width=\"%d\" height=\"%d\" frameRate=\"30000/1001\" bandwidth=\"%ld\">\n",
+	fprintf(master_manifest,"<Representation id=\"%d\" mimeType=\"video/mp4\" codecs=\"avc1.%2x%02x%02x\" width=\"%d\" height=\"%d\" frameRate=\"60000/1001\" bandwidth=\"%ld\">\n",
 		i,
 		lsdata->h264_profile, //hex
 		lsdata->midbyte,
@@ -1517,22 +1552,24 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
                 }*/
                 lsdata->pto_video = 0; // normalizing our time to 0
 
-                if (lsdata->full_time_video[next_sequence_number] == 0) {
+                if (lsdata->full_time_video[next_sequence_number] == 0 || timeset == 0) {
                     // reset the AST
                     timeset = 1;
 
                     t_avail = time(NULL);
-                    t_avail -= ((core->cd->window_size-1) * core->cd->segment_length);
+                    t_avail -= ((core->cd->window_size-1) * core->cd->segment_length);  //WORKING
                     //t_avail -= ((core->cd->window_size+1) * core->cd->segment_length);
-                    //t_avail += (core->cd->window_size * core->cd->segment_length);                    
+                    //t_avail -= (core->cd->window_size * core->cd->segment_length);                    
                     gmtime_r(&t_avail, &tm_avail);        
                     strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);                    
                 }
             }
             lsdata->pto_video = 0; // normalizing our time to 0            
             if (segment == 0) {
-                fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"video%ld/init.mp4\" media=\"video%d/segment$Time$.mp4\" startNumber=\"%ld\">\n",
-                        lsdata->pto_video, VIDEO_CLOCK, i, i, starting_media_sequence_number-1);
+                fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"video%ld/init.mp4\" media=\"video%d/segment$Time$.mp4\">\n",
+                        lsdata->pto_video, VIDEO_CLOCK, i, i);                
+                /*fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"video%ld/init.mp4\" media=\"video%d/segment$Time$.mp4\" startNumber=\"%ld\">\n",
+                  lsdata->pto_video, VIDEO_CLOCK, i, i, starting_media_sequence_number-1);*/
                 fprintf(master_manifest,"<SegmentTimeline>\n");
             }            
             
@@ -1547,16 +1584,18 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
 	fprintf(master_manifest,"</Representation>\n");
 	lsdata++;
     }    
-    fprintf(master_manifest,"</AdaptationSet>\n");    
+    fprintf(master_manifest,"</AdaptationSet>\n");
+#endif      // disable video
 
+#if !defined(DISABLE_AUDIO)     // disable audio
     // loop start
     int j;
     for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
         lsdata = sdata;            
         if (lsdata->start_time_audio[j] != -1) {
             audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[j];
-            
-            fprintf(master_manifest,"<AdaptationSet id=\"%d\" contentType=\"audio\" segmentAlignment=\"true\" startWithSAP=\"1\">\n", j+1);
+
+            fprintf(master_manifest,"<AdaptationSet id=\"%d\" contentType=\"audio\" segmentAlignment=\"true\">\n", j+1);
             fprintf(master_manifest,"<Representation id=\"%d\" bandwidth=\"%d\" codecs=\"mp4a.40.2\" mimeType=\"audio/mp4\" audioSamplingRate=\"48000\">\n", i+j, astream->audio_bitrate);
             fprintf(master_manifest,"<AudioChannelConfiguration schemeIdUri=\"urn:mpeg:dash:23003:3:audio_channel_configuration:2011\" value=\"2\"/>\n");
     
@@ -1584,12 +1623,17 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
                       }*/
                     // we're actually normalizing our time to 0...
                     lsdata->pto_audio = 0;
-                    fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"audio0_substream%d/init.mp4\" media=\"audio0_substream%d/segment$Time$.mp4\" startNumber=\"%ld\">\n",
+                    fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"audio0_substream%d/init.mp4\" media=\"audio0_substream%d/segment$Time$.mp4\">\n",
+                            lsdata->pto_audio,
+                            AUDIO_CLOCK,
+                            j,
+                            j);
+                    /*fprintf(master_manifest,"<SegmentTemplate presentationTimeOffset=\"%ld\" timescale=\"%d\" initialization=\"audio0_substream%d/init.mp4\" media=\"audio0_substream%d/segment$Time$.mp4\" startNumber=\"%ld\">\n",
                             lsdata->pto_audio,
                             AUDIO_CLOCK,
                             j,
                             j,
-                            starting_media_sequence_number-1);
+                            starting_media_sequence_number-1);*/
                     fprintf(master_manifest,"<SegmentTimeline>\n");
                 }
                 
@@ -1605,6 +1649,7 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
             fprintf(master_manifest,"</AdaptationSet>\n");
         }
     } // loop end
+#endif // disable audio
     
     fprintf(master_manifest,"</Period>\n");
     fprintf(master_manifest,"</MPD>\n");    
@@ -1638,7 +1683,7 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
 
     // add support multiple audio substream in m3u8 manifest
     fprintf(master_manifest,"#EXTM3U\n");
-    fprintf(master_manifest,"#EXT-X-VERSION:8\n");
+    fprintf(master_manifest,"#EXT-X-VERSION:6\n");
     fprintf(master_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");
     if (strlen(sdata->lang_tag) > 0) {
 	fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"allaudio\",LANGUAGE=\"%s\",NAME=\"%s\",AUTOSELECT=YES,DEFAULT=YES,URI=\"audio%d_substream0_fmp4.m3u8\"\n",
@@ -1955,7 +2000,7 @@ void *mux_pump_thread(void *context)
                                                 astream->audio_samplerate,
                                                 astream->audio_object_type,
                                                 astream->audio_bitrate);
-			fmp4_output_header(hlsmux->video[source].fmp4);
+			fmp4_output_header(hlsmux->video[source].fmp4, IS_VIDEO);
 
                         // convert buffer into base64 data for inclusion into MPD file
                         // write out to file for debug mode purposes
@@ -2005,7 +2050,7 @@ void *mux_pump_thread(void *context)
 								
 			start_init_mp4_fragment(core, &hlsmux->video[source], source, IS_VIDEO, NO_SUBSTREAM);  // no substream =-1
 
-			fmp4_output_header(hlsmux->video[source].fmp4);
+			fmp4_output_header(hlsmux->video[source].fmp4, IS_VIDEO);
 			
 			syslog(LOG_INFO,"HLSMUX: WRITING OUT VIDEO INIT FILE - FMP4(%d): %ld\n",
                                source,
@@ -2382,7 +2427,7 @@ void *mux_pump_thread(void *context)
 								
 		    start_init_mp4_fragment(core, &hlsmux->audio[source][sub_stream], source, IS_AUDIO, sub_stream);
 
-		    fmp4_output_header(hlsmux->audio[source][sub_stream].fmp4);
+		    fmp4_output_header(hlsmux->audio[source][sub_stream].fmp4, IS_AUDIO);
 			
 		    syslog(LOG_INFO,"HLSMUX: WRITING OUT AUDIO INIT FILE - FMP4(%d): %ld\n",
                            source,

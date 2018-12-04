@@ -15,13 +15,15 @@ ifdef ENABLE_TRANSCODE
 		    ./cbffmpeg/libswscale/libswscale.a \
 		    ./cbffmpeg/libavcodec/libavcodec.a \
 	      	    ./cbffmpeg/libavutil/libavutil.a \
+		    ./cbffmpeg/libavresample/libavresample.a \
 		    ./cbffmpeg/libswresample/libswresample.a
+	BASELIBS += -lz
 endif
 
 all: $(LIB) fillet
 
 fillet: fillet.o $(OBJS)
-	$(CC) fillet.o $(OBJS) -L./ $(BASELIBS) -lm -lpthread -lz -o fillet
+	$(CC) fillet.o $(OBJS) -L./ $(BASELIBS) -lm -lpthread -o fillet
 
 $(LIB): $(OBJS)
 	ar rcs $(LIB) $(OBJS)

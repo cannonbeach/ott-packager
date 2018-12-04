@@ -146,7 +146,7 @@ static int output_fmp4_4cc(fragment_file_struct *fmp4, char *cc)
     return 4;
 }
     
-static int output_fmp4_ftyp(fragment_file_struct *fmp4)
+static int output_fmp4_ftyp(fragment_file_struct *fmp4, int is_video)
 {
     uint8_t *data;
     int buffer_offset;
@@ -161,7 +161,9 @@ static int output_fmp4_ftyp(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"iso8");    
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
-    buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+    if (is_video) {
+        buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+    }
     buffer_offset += output_fmp4_4cc(fmp4,"cmfc");    
 
     output32_raw(data, buffer_offset);
@@ -169,7 +171,7 @@ static int output_fmp4_ftyp(fragment_file_struct *fmp4)
     return buffer_offset;
 }
 
-static int output_fmp4_styp(fragment_file_struct *fmp4)
+static int output_fmp4_styp(fragment_file_struct *fmp4, int fragment_type)
 {
     uint8_t *data;
     int buffer_offset;
@@ -184,7 +186,9 @@ static int output_fmp4_styp(fragment_file_struct *fmp4)
     buffer_offset += output_fmp4_4cc(fmp4,"iso8");    
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
-    buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+    if (fragment_type == VIDEO_FRAGMENT) {
+        buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+    }
     buffer_offset += output_fmp4_4cc(fmp4,"cmfc");
     
     output32_raw(data, buffer_offset);
@@ -244,11 +248,12 @@ static int output_fmp4_sidx(fragment_file_struct *fmp4, int64_t *sidx_time, int6
 
     *sidx_duration = total_duration;    
 
-    if (track_data->track_type == TRACK_TYPE_VIDEO) {    
+    /*if (track_data->track_type == TRACK_TYPE_VIDEO) {    
         SAP = 0x90000000;  // SAP - SAP_type = 1;
     } else {
         SAP = 0x80000000;  // SAP - SAP_type = 0;
-    }
+    }*/
+    SAP = 0x90000000;  // SAP - SAP_type = 1;
     buffer_offset += output32(fmp4, SAP);  
     
     output32_raw(data, buffer_offset);
@@ -373,11 +378,12 @@ static int output_fmp4_mdhd(fragment_file_struct *fmp4, track_struct *track_data
     buffer_offset += output32(fmp4, 0);
     buffer_offset += output32(fmp4, current_time);  // creation_time
     buffer_offset += output32(fmp4, current_time);  // modification_time
-    if (track_data->track_type == TRACK_TYPE_AUDIO) {
+    buffer_offset += output32(fmp4, fmp4->timescale);
+    /*if (track_data->track_type == TRACK_TYPE_AUDIO) {
         buffer_offset += output32(fmp4, fmp4->audio_samplerate);        
     } else {
         buffer_offset += output32(fmp4, fmp4->timescale);
-    }
+    }*/
     buffer_offset += output32(fmp4, 0); // duration?
     buffer_offset += output16(fmp4, fmp4->lang_code);
     buffer_offset += output16(fmp4, 0);
@@ -962,12 +968,25 @@ static int output_fmp4_tfhd(fragment_file_struct *fmp4, track_struct *track_data
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"tfhd");
 
+    if (track_data->track_type == TRACK_TYPE_VIDEO) {
+        buffer_offset += output32(fmp4, 0x20000);        
+        buffer_offset += output32(fmp4, fmp4->video_track_id);
+    } else {
+        buffer_offset += output32(fmp4, 0x2002a);        
+        buffer_offset += output32(fmp4, fmp4->audio_track_id);
+        buffer_offset += output32(fmp4, 1);  // default sample description index- ?
+        int64_t duration90k = track_data->fragments[0].fragment_duration;
+        duration90k = duration90k * 90000 / 48000;        
+        buffer_offset += output32(fmp4, duration90k); // default sample duration-- fixed for now
+        buffer_offset += output32(fmp4, 0); // default sample flags
+    }    
+    /*
     buffer_offset += output32(fmp4, 0x20000); //0x020002);
     if (track_data->track_type == TRACK_TYPE_VIDEO) {
         buffer_offset += output32(fmp4, fmp4->video_track_id);
     } else {
         buffer_offset += output32(fmp4, fmp4->audio_track_id);
-    }
+    }*/
 
     output32_raw(data, buffer_offset);
 	
@@ -985,7 +1004,11 @@ static int output_fmp4_tfdt(fragment_file_struct *fmp4, double start_time, track
     buffer_offset += output_fmp4_4cc(fmp4,"tfdt");
     buffer_offset += output32(fmp4, 0x01000000);
     if (!fmp4->enable_youtube) {
-        fragment_duration = (uint64_t)start_time;
+        if (track_data->track_type == TRACK_TYPE_VIDEO) {
+            fragment_duration = (uint64_t)((int64_t)start_time - (int64_t)track_data->fragments[0].fragment_composition_time);
+        } else {
+            fragment_duration = (uint64_t)start_time;            
+        }
     } else {
         fragment_duration = (uint64_t)fmp4->timescale * (uint64_t)track_data->frag_duration * (uint64_t)track_data->sequence_number;
     }
@@ -1011,8 +1034,8 @@ static int output_fmp4_trun(fragment_file_struct *fmp4, track_struct *track_data
     if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output32(fmp4, 0x000f01);
     } else {
-	buffer_offset += output32(fmp4, 0x000701);
-        //buffer_offset += output32(fmp4, 0x000201);
+        buffer_offset += output32(fmp4, 0x000201);
+	/*buffer_offset += output32(fmp4, 0x000701);*/
     }
     buffer_offset += output32(fmp4, track_data->fragment_count);
     
@@ -1021,16 +1044,18 @@ static int output_fmp4_trun(fragment_file_struct *fmp4, track_struct *track_data
 
     total_duration = 0;
     for (frag = 0; frag < track_data->fragment_count; frag++) {
-        buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_duration);
-        total_duration += track_data->fragments[frag].fragment_duration;
-        buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_buffer_size);
-        if (track_data->track_type == TRACK_TYPE_AUDIO || frag == 0) {
-            buffer_offset += output32(fmp4, 0x2000000);  // sync sample
-        } else {
-            buffer_offset += output32(fmp4, 0x1000000);
-        }
         if (track_data->track_type == TRACK_TYPE_VIDEO) {
+            buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_duration);
+            total_duration += track_data->fragments[frag].fragment_duration;
+            buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_buffer_size);
+            if (frag == 0) {
+                buffer_offset += output32(fmp4, 0x2000000);  // sync sample
+            } else {
+                buffer_offset += output32(fmp4, 0x1000000);
+            }
             buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_composition_time);
+        } else {
+            buffer_offset += output32(fmp4, track_data->fragments[frag].fragment_buffer_size);
         }
     }
     track_data->total_duration = total_duration;
@@ -1195,7 +1220,7 @@ int fmp4_fragment_start(fragment_file_struct *fmp4)
 int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *sidx_duration, double start_time, double frag_length, uint32_t sequence_number, int fragment_type)
 {
     fmp4->buffer_offset = 0;
-    fmp4->initial_offset = output_fmp4_styp(fmp4);
+    fmp4->initial_offset = output_fmp4_styp(fmp4, fragment_type);
     if (fmp4->enable_youtube) {
         if (fragment_type == VIDEO_FRAGMENT) {
             int vtid = fmp4->video_track_id-1;
@@ -1281,13 +1306,13 @@ int fmp4_video_set_vps(fragment_file_struct *fmp4, uint8_t *vps, int vps_size)
     return 0;
 }
 
-int fmp4_output_header(fragment_file_struct *fmp4)
+int fmp4_output_header(fragment_file_struct *fmp4, int is_video)
 {
     if (!fmp4) {
 	return -1;
     }
 
-    output_fmp4_ftyp(fmp4);
+    output_fmp4_ftyp(fmp4, is_video);
     output_fmp4_moov(fmp4);
     
     return 0;

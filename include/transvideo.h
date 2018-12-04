@@ -24,5 +24,9 @@
 #if !defined(_TRANSVIDEO_H_)
 #define _TRANSVIDEO_H_
 
+#include "fillet.h"
+
+int start_video_transcode_threads(fillet_app_struct *core);
+int stop_video_transcode_threads(fillet_app_struct *core);
 
 #endif // _TRANSVIDEO_H_

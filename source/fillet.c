@@ -71,6 +71,9 @@ static pthread_t frame_sync_thread_id;
 static int enable_background = 0;
 static int enable_verbose = 0;
 static int enable_transcode = 0;
+static int enable_fmp4 = 0;
+static int enable_youtube = 0;
+static int enable_ts = 0;
 
 static volatile int child_pids[MAX_SESSIONS];
 static config_options_struct config_data;
@@ -85,13 +88,17 @@ static struct option long_options[] = {
      {"manifest", required_argument, 0, 'm'},
      {"rollover", required_argument, 0, 'r'},
      {"identity", required_argument, 0, 'u'},
-#if defined(ENABLE_TRANSCODE)     
+     {"dash", no_argument, &enable_fmp4, 'd'},
+     {"hls", no_argument, &enable_ts, 'h'},
+     {"google", no_argument, &enable_youtube, 'y'},
+#if defined(ENABLE_TRANSCODE)
+     {"transcode", no_argument, &enable_transcode, 'z'},
      {"outputs", required_argument, 0, 'o'},              // number of output profiles
-     {"vcodec", required_argument, 0, 'c'},               // video output codec used    --vcodec=hevc or --vcodec=h264
-     {"resolutions", required_argument, 0, 'e'},          // the resolutions            --resolutions={320x240,640x360,960x540,1280x720}
-     {"vrate", required_argument, 0, 'v'},                // the video bitrates (kbps)  --vrate={800,1250,2500,5000}
-     {"acodec", required_argument, 0, 'a'},               // audio output codec used    --acodec=aac or --acodec=ac3
-     {"arate", required_argument, 0, 't'},                // the audio bitrates (kbps)  --arate={128,96}
+     {"vcodec", required_argument, 0, 'c'},               // video output codec used    --vcodec hevc or --vcodec h264
+     {"resolutions", required_argument, 0, 'e'},          // the resolutions            --resolutions 320x240,640x360,960x540,1280x720
+     {"vrate", required_argument, 0, 'v'},                // the video bitrates (kbps)  --vrate 800,1250,2500,5000
+     {"acodec", required_argument, 0, 'a'},               // audio output codec used    --acodec aac or --acodec ac3
+     {"arate", required_argument, 0, 't'},                // the audio bitrates (kbps)  --arate 128,96
 #endif // ENABLE_TRANSCODE
      {"youtube", required_argument, 0, 'C'},              // the youtube cid
      {"background", no_argument, &enable_background, 1},
@@ -112,6 +119,50 @@ void crash_handler(int sig)
     exit(1);
 }
 
+#if defined(ENABLE_TRANSCODE)
+static int create_transvideo_core(fillet_app_struct *core)
+{
+    int i;
+    
+    core->transvideo = (transvideo_internal_struct*)malloc(sizeof(transvideo_internal_struct));
+    core->preparevideo = (preparevideo_internal_struct*)malloc(sizeof(preparevideo_internal_struct));
+    core->encodevideo = (encodevideo_internal_struct*)malloc(sizeof(encodevideo_internal_struct));
+    
+    core->transvideo->input_queue = (void*)dataqueue_create();
+    core->preparevideo->input_queue = (void*)dataqueue_create();
+
+    for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
+        core->encodevideo->input_queue[i] = (void*)dataqueue_create();
+    }
+
+    start_video_transcode_threads(core);
+    
+    return 0;
+}
+
+static int destroy_transvideo_core(fillet_app_struct *core)
+{
+    int i;
+
+    stop_video_transcode_threads(core);
+    
+    for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
+        dataqueue_destroy(core->encodevideo->input_queue[i]);
+        core->encodevideo->input_queue[i] = NULL;
+    }
+    dataqueue_destroy(core->preparevideo->input_queue);
+    dataqueue_destroy(core->transvideo->input_queue);
+    free(core->preparevideo);
+    core->preparevideo = NULL;
+    free(core->transvideo);
+    core->transvideo = NULL;
+    free(core->encodevideo);
+    core->encodevideo = NULL;
+    
+    return 0;
+}
+#endif // ENABLE_TRANSCODE    
+
 static int destroy_fillet_core(fillet_app_struct *core)
 {
     int num_sources;
@@ -120,6 +171,10 @@ static int destroy_fillet_core(fillet_app_struct *core)
     if (!core) {
 	return -1;
     }
+
+#if defined(ENABLE_TRANSCODE)
+    destroy_transvideo_core(core);
+#endif
 
     num_sources = core->num_sources;
     for (current_source = 0; current_source < num_sources; current_source++) {
@@ -195,12 +250,18 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
 	vstream->last_timestamp_dts = -1;
 	vstream->video_queue = (void*)dataqueue_create();
     }
+#if defined(ENABLE_TRANSCODE)
+    create_transvideo_core(core);
+#endif
 
     return core;
 
 _fillet_create_fail:
 
-    destroy_fillet_core(core);
+#if defined(ENABLE_TRANSCODE)
+    destroy_transvideo_core(core);
+#endif    
+    destroy_fillet_core(core);    
     
     return NULL;
 }
@@ -217,7 +278,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "C:w:s:f:i:S:r:u",
+                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h",
                            long_options,
                            &option_index);
 
@@ -226,6 +287,204 @@ static int parse_input_options(int argc, char **argv)
           }
 
           switch (c) {
+          case 'o':
+#if defined(ENABLE_TRANSCODE)              
+              if (optarg) {
+                  config_data.num_outputs = atoi(optarg);
+                  if (config_data.num_outputs > MAX_TRANS_OUTPUTS || config_data.num_outputs < 1) {
+                      fprintf(stderr,"ERROR: Invalid number of outputs provided: %d\n", config_data.num_outputs);
+                      return -1;
+                  }
+              } else {
+                  fprintf(stderr,"ERROR: No outputs provided\n");
+                  return -1;
+              }
+              fprintf(stderr,"STATUS: Number of transcoded outputs: %d\n", config_data.num_outputs);
+#endif // ENABLE_TRANSCODE              
+              break;
+          case 'c':
+#if defined(ENABLE_TRANSCODE)              
+              if (optarg) {
+                  int c;                  
+                  // eventually add combined h264/hevc encoding
+                  if (strncmp(optarg,"hevc",4)==0) {
+                      // hevc selected as output codec
+                      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                          config_data.transvideo_info[c].video_codec = STREAM_TYPE_HEVC;
+                      }
+                  } else if (strncmp(optarg,"h264",3)==0) {
+                      // h264 selected as output codec
+                      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                          config_data.transvideo_info[c].video_codec = STREAM_TYPE_H264;
+                      }
+                  } else {
+                      fprintf(stderr,"ERROR: Invalid video codec was selected\n");
+                      return -1;
+                  }
+              } else {
+                  fprintf(stderr,"ERROR: No output video codec was selected\n");
+                  return -1;
+              }
+#endif // ENABLE_TRANSCODE              
+              break;
+          case 'e':
+#if defined(ENABLE_TRANSCODE)              
+              if (optarg) {
+                  int c;
+                  int optarg_len = strlen(optarg);
+                  int widx = 0;
+                  int hidx = 0;
+                  int parsing_width = 1;
+                  char widthstr[MAX_STR_SIZE];
+                  char heightstr[MAX_STR_SIZE];
+                  int outputidx = 0;
+                  memset(widthstr,0,sizeof(widthstr));
+                  memset(heightstr,0,sizeof(heightstr));
+                  for (c = 0; c < optarg_len; c++) {
+                      if (parsing_width) {
+                          if (optarg[c] != 'x' && optarg[c] != '\0') {                              
+                              widthstr[widx++] = optarg[c];
+                              if (widx >= MAX_STR_SIZE) {
+                                  fprintf(stderr,"ERROR: String size exceeded when parsing for width\n");
+                                  return -1;
+                              }
+                          } else {
+                              config_data.transvideo_info[outputidx].width = atoi(widthstr);
+                              parsing_width = 0;
+                          }
+                      } else {
+                          if (optarg[c] != ',' && optarg[c] != '\0') {
+                              heightstr[hidx++] = optarg[c];
+                              if (hidx >= MAX_STR_SIZE) {
+                                  fprintf(stderr,"ERROR: String size exceeded when parsing for height\n");
+                                  return -1;
+                              }
+                          }
+
+                          if (optarg[c] == ',' || optarg[c] == '\0' || c == optarg_len - 1) {
+                              config_data.transvideo_info[outputidx].height = atoi(heightstr);
+                              outputidx++;
+                              if (outputidx >= MAX_TRANS_OUTPUTS) {
+                                  fprintf(stderr,"ERROR: Exceeded number of allowed video transcoder outputs (resolution parsing)\n");
+                                  return -1;
+                              }
+                              widx = 0;
+                              hidx = 0;
+                              fprintf(stderr,"STATUS: output stream(%d) resolution detected: %d x %d\n",
+                                      outputidx-1,
+                                      config_data.transvideo_info[outputidx-1].width,
+                                      config_data.transvideo_info[outputidx-1].height);
+                              parsing_width = 1;
+                              memset(widthstr,0,sizeof(widthstr));
+                              memset(heightstr,0,sizeof(heightstr));
+                          }
+                      }
+                  }
+              } else {
+                  fprintf(stderr,"ERROR: No output resolutions specified\n");
+                  return -1;
+              }
+#endif // ENABLE_TRANSCODE              
+              break;
+          case 'v':
+#if defined(ENABLE_TRANSCODE)              
+              if (optarg) {
+                  int c;
+                  int optarg_len = strlen(optarg);
+                  char bitratestr[MAX_STR_SIZE];
+                  int bidx = 0;
+                  int outputidx = 0;
+                  memset(bitratestr,0,sizeof(bitratestr));
+                  for (c = 0; c < optarg_len; c++) {
+                      if (optarg[c] != ',' && optarg[c] != '\0') {
+                          bitratestr[bidx++] = optarg[c];
+                          if (bidx >= MAX_STR_SIZE) {
+                              fprintf(stderr,"ERROR: String size exceeded when parsing for bitrate\n");
+                              return -1;
+                          }
+                      }
+                      
+                      if (optarg[c] == ',' || optarg[c] == '\0' || c == optarg_len - 1) {
+                          config_data.transvideo_info[outputidx].video_bitrate = atoi(bitratestr);
+                          outputidx++;
+                          if (outputidx >= MAX_TRANS_OUTPUTS) {
+                              fprintf(stderr,"ERROR: Exceeded number of allowed video transcoder outputs (bitrate parsing)\n");
+                              return -1;
+                          }                          
+                          bidx = 0;
+                          fprintf(stderr,"STATUS: output stream(%d) video bitrate: %d\n",
+                                  outputidx-1,
+                                  config_data.transvideo_info[outputidx-1].video_bitrate);
+                          memset(bitratestr,0,sizeof(bitratestr));                          
+                      }
+                  }
+              }
+#endif // ENABLE_TRANSCODE              
+              break;
+          case 'a':
+#if defined(ENABLE_TRANSCODE)              
+              if (optarg) {
+                  int c;                  
+                  // eventually add combined h264/hevc encoding
+                  if (strncmp(optarg,"ac3",3)==0) {
+                      // hevc selected as output codec
+                      for (c = 0; c < MAX_AUDIO_SOURCES; c++) {
+                          config_data.transaudio_info[c].audio_codec = STREAM_TYPE_AC3;
+                      }
+                  } else if (strncmp(optarg,"aac",3)==0) {
+                      // h264 selected as output codec
+                      for (c = 0; c < MAX_AUDIO_SOURCES; c++) {
+                          config_data.transaudio_info[c].audio_codec = STREAM_TYPE_AAC;
+                      }
+                  } else if (strncmp(optarg,"pass",4)==0) { // pass
+                      for (c = 0; c < MAX_AUDIO_SOURCES; c++) {
+                          config_data.transaudio_info[c].audio_codec = STREAM_TYPE_PASS;
+                      }                      
+                  } else {
+                      fprintf(stderr,"ERROR: Invalid audio codec was selected\n");
+                      return -1;
+                  }
+              } else {
+                  fprintf(stderr,"ERROR: No output audio codec was selected\n");
+                  return -1;
+              }
+#endif              
+              break;
+          case 't':
+#if defined(ENABLE_TRANSCODE)
+              if (optarg) {
+                  int c;
+                  int optarg_len = strlen(optarg);
+                  char bitratestr[MAX_STR_SIZE];
+                  int bidx = 0;
+                  int outputidx = 0;
+                  memset(bitratestr,0,sizeof(bitratestr));
+                  for (c = 0; c < optarg_len; c++) {
+                      if (optarg[c] != ',' && optarg[c] != '\0') {
+                          bitratestr[bidx++] = optarg[c];
+                          if (bidx >= MAX_STR_SIZE) {
+                              fprintf(stderr,"ERROR: String size exceeded when parsing for bitrate\n");
+                              return -1;
+                          }
+                      }
+                      
+                      if (optarg[c] == ',' || optarg[c] == '\0' || c == optarg_len - 1) {
+                          config_data.transaudio_info[outputidx].audio_bitrate = atoi(bitratestr);
+                          outputidx++;
+                          if (outputidx >= MAX_AUDIO_SOURCES) {
+                              fprintf(stderr,"ERROR: Exceeded number of allowed audio transcoder outputs (bitrate parsing)\n");
+                              return -1;
+                          }                          
+                          bidx = 0;
+                          fprintf(stderr,"STATUS: output stream(%d) audio bitrate: %d\n",
+                                  outputidx-1,
+                                  config_data.transaudio_info[outputidx-1].audio_bitrate);
+                          memset(bitratestr,0,sizeof(bitratestr));                          
+                      }
+                  }
+              }              
+#endif // ENABLE_TRANSCODE              
+              break;                     
           case 'C':
               if (optarg) {
                   snprintf(config_data.youtube_cid,MAX_STR_SIZE-1,"%s",optarg);
@@ -924,7 +1183,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             decode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
             if (decode_msg) {
                 decode_msg->buffer = new_frame;
-                decode_msg->buffer_size = sizeof(sorted_frame_struct);                
+                decode_msg->buffer_size = sizeof(sorted_frame_struct);
                 dataqueue_put_front(core->transvideo->input_queue, decode_msg);
                 decode_msg = NULL;
             }
@@ -945,16 +1204,6 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	struct timespec current_time;
 	int64_t br;
 	int64_t diff;
-
-        /*
-        if (sample_type == STREAM_TYPE_AC3) {
-            syslog(LOG_INFO,"SESSION:%d (MAIN) ERROR: UNSUPPORTED MEDIA TYPE (AC3) - PLEASE SUBMIT FEATURE REQUEST\n",
-                   core->session_id);
-            fprintf(stderr,"SESSION:%d (MAIN) ERROR: UNSUPPORTED MEDIA TYPE (AC3) - PLEASE SUBMIT FEATURE REQUEST\n",
-                    core->session_id);
-            exit(0);
-        }
-        */
 
         if (enable_verbose) {
             fprintf(stderr,"STATUS: RECEIVE_FRAME (AUDIO:%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d (AUDIO STREAM:%d)\n",
@@ -1186,9 +1435,6 @@ int main(int argc, char **argv)
      config_data.rollover_size = MAX_ROLLOVER_SIZE;
      config_data.active_sources = 0;
      config_data.identity = 1000;
-     config_data.enable_ts_output = 1;
-     config_data.enable_fmp4_output = 1;
-     config_data.enable_youtube_output = 0;
      memset(config_data.youtube_cid,0,sizeof(config_data.youtube_cid));
      
      sprintf(config_data.manifest_directory,"/var/www/hls/");
@@ -1199,19 +1445,46 @@ int main(int argc, char **argv)
 	 fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
 	 fprintf(stderr,"\n");
 	 fprintf(stderr,"usage: fillet [options]\n");
-	 fprintf(stderr,"\n\n");	  
-	 fprintf(stderr,"       --sources    [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]\n");
-	 fprintf(stderr,"       --ip         [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)\n");
-	 fprintf(stderr,"       --interface  [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]\n");
-	 fprintf(stderr,"                    If multicast, make sure route is in place\n\n");
-	 fprintf(stderr,"       --window     [WINDOW IN SEGMENTS FOR MANIFEST]\n");
-	 fprintf(stderr,"       --segment    [SEGMENT LENGTH IN SECONDS]\n");
-	 fprintf(stderr,"       --manifest   [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
-	 fprintf(stderr,"       --identity   [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]\n");
-	 fprintf(stderr,"       --background [RUN IN BACKGROUND]\n");
+	 fprintf(stderr,"\n\n");
+         fprintf(stderr,"PACKAGING OPTIONS\n");
+	 fprintf(stderr,"       --sources     [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]\n");
+	 fprintf(stderr,"       --ip          [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)\n");
+	 fprintf(stderr,"       --interface   [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]\n");
+	 fprintf(stderr,"                     If multicast, make sure route is in place\n\n");
+	 fprintf(stderr,"       --window      [WINDOW IN SEGMENTS FOR MANIFEST]\n");
+	 fprintf(stderr,"       --segment     [SEGMENT LENGTH IN SECONDS]\n");
+	 fprintf(stderr,"       --manifest    [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
+	 fprintf(stderr,"       --identity    [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]\n");
+         fprintf(stderr,"       --hls         [ENABLE TRADITIONAL HLS TRANSPORT STREAM OUTPUT - NO ARGUMENT REQUIRED]\n");
+         fprintf(stderr,"       --dash        [ENABLE FRAGMENTED MP4 STREAM OUTPUT (INCLUDES DASH+HLS FMP4) - NO ARGUMENT REQUIRED]\n");
+	 fprintf(stderr,"       --background  [RUN IN BACKGROUND]\n");
 	 fprintf(stderr,"\n");
+#if defined(ENABLE_TRANSCODE)
+         fprintf(stderr,"TRANSCODE OPTIONS\n");
+         fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT PROFILES TO BE TRANSCODED]\n");
+         fprintf(stderr,"       --vcodec      [VIDEO CODEC - needs to be hevc or h264]\n");
+         fprintf(stderr,"       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720 ]\n");
+         fprintf(stderr,"       --vrate       [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500 ]\n");
+         fprintf(stderr,"       --acodec      [AUDIO CODEC - needs to be aac, ac3 or pass]\n");
+         fprintf(stderr,"       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96 ]\n");
+         fprintf(stderr,"\n");
+#endif // ENABLE_TRANSCODE         
 	 return 1;
      }
+
+     if (enable_ts == 0 && enable_fmp4 == 0 && enable_youtube == 0) {
+         fprintf(stderr,"FILLET: ERROR: Please select TS output and/or fMP4 output mode OR YouTube DASH publishing mode\n");
+         fprintf(stderr,"\n");
+         return 1;
+     }
+     if ((enable_ts || enable_fmp4) && enable_youtube) {
+         fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- YouTube mode and TS/fMP4 are not compatible\n");
+         fprintf(stderr,"\n");
+         return 1;
+     }        
+     
+     config_data.enable_ts_output = enable_ts;
+     config_data.enable_fmp4_output = enable_fmp4;
 
      if (enable_background) {
          core = create_fillet_core(&config_data, MAX_SOURCES); // need to reserve ahead of time

@@ -102,7 +102,11 @@ typedef struct _preparevideo_internal_struct_ {
 
 typedef struct _transvideo_internal_struct_ {
     void                   *input_queue;
-} transvideo_internal_struct;    
+} transvideo_internal_struct;
+
+typedef struct _encodevideo_internal_struct_ {
+    void                   *input_queue[MAX_TRANS_OUTPUTS];
+} encodevideo_internal_struct;
     
 #endif // ENABLE_TRANSCODE
 
@@ -128,7 +132,8 @@ typedef struct _config_options_struct_ {
     int              enable_fmp4_output;
     int              enable_youtube_output;
 
-#if defined(ENABLE_TRANSCODE)    
+#if defined(ENABLE_TRANSCODE)
+    int                           num_outputs;    
     trans_video_output_struct     transvideo_info[MAX_TRANS_OUTPUTS];
     trans_audio_output_struct     transaudio_info[MAX_AUDIO_SOURCES];
 #endif // ENABLE_TRANSCODE    
@@ -268,9 +273,9 @@ typedef struct _fillet_app_struct_
     int                           transcode_enabled;
 
 #if defined(ENABLE_TRANSCODE)    
-    int                           num_outputs;
     preparevideo_internal_struct  *preparevideo;
     transvideo_internal_struct    *transvideo;
+    encodevideo_internal_struct   *encodevideo;
 #endif // ENABLE_TRANSCODE
 
 } fillet_app_struct;

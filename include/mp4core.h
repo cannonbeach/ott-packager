@@ -133,7 +133,7 @@ int fmp4_fragment_end(fragment_file_struct *fmp4, int64_t *sidx_time, int64_t *s
 int fmp4_video_set_pps(fragment_file_struct *fmp4, uint8_t *pps, int pps_size);
 int fmp4_video_set_sps(fragment_file_struct *fmp4, uint8_t *sps, int sps_size);
 int fmp4_video_set_vps(fragment_file_struct *fmp4, uint8_t *vps, int vps_size);
-int fmp4_output_header(fragment_file_struct *fmp4);
+int fmp4_output_header(fragment_file_struct *fmp4, int is_video);
 uint8_t *fmp4_get_fragment(fragment_file_struct *fmp4, int *fragment_size);
 int fmp4_video_track_create(fragment_file_struct *fmp4, int video_width, int video_height, int video_bitrate);
 int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int audio_samplerate, int audio_object_type, int audio_bitrate);
