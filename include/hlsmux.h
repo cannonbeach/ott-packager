@@ -28,5 +28,6 @@
 
 void *hlsmux_create(fillet_app_struct *core);
 void hlsmux_destroy(void *hlsmux);
+int reset_dash_availability_time(fillet_app_struct *core);
 
 #endif // _HLSMUX_H_

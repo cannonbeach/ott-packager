@@ -156,6 +156,8 @@ typedef struct _stream_struct_ {
     int64_t                  file_sequence_number;
     int64_t                  media_sequence_number;
     int64_t                  fragments_published;
+    int64_t                  discontinuity_adjustment;
+    int64_t                  last_segment_time;
     FILE                     *output_ts_file;
     FILE                     *output_fmp4_file;
 
@@ -269,6 +271,9 @@ typedef struct _fillet_app_struct_
     config_options_struct         *cd;
 
     input_struct                  fillet_input[MAX_MUX_SOURCES];
+
+    time_t                        t_avail;
+    int                           timeset;
 
     int                           transcode_enabled;
 

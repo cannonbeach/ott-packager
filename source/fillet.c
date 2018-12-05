@@ -1392,6 +1392,7 @@ static void *runtime_thread(void *context)
             }
             //quit_sync_thread = 0;            
             sync_thread_running = 1;
+            reset_dash_availability_time(core);
             pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
         }
         sleep(1);

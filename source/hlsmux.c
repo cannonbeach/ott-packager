@@ -413,13 +413,19 @@ static void hlsmux_save_state(fillet_app_struct *core, source_context_struct *sd
 	fwrite(&hlsmux->video[i].file_sequence_number, sizeof(int64_t), 1, state_file);
 	fwrite(&hlsmux->video[i].media_sequence_number, sizeof(int64_t), 1, state_file);
 	fwrite(&hlsmux->video[0].fragments_published, sizeof(int64_t), 1, state_file);  //the 0 is not a typo-need to line up if restart occurs
+        fwrite(&hlsmux->video[0].last_segment_time, sizeof(int64_t), 1, state_file);
+        fwrite(&hlsmux->video[0].discontinuity_adjustment, sizeof(int64_t), 1, state_file);
 
         for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
             fwrite(&hlsmux->audio[i][j].file_sequence_number, sizeof(int64_t), 1, state_file);
             fwrite(&hlsmux->audio[i][j].media_sequence_number, sizeof(int64_t), 1, state_file);
+            fwrite(&hlsmux->video[0].fragments_published, sizeof(int64_t), 1, state_file);  //yes,video - so they match            
+            fwrite(&hlsmux->audio[i][j].last_segment_time, sizeof(int64_t), 1, state_file);
+            fwrite(&hlsmux->audio[i][j].discontinuity_adjustment, sizeof(int64_t), 1, state_file);
         }
-	fwrite(&hlsmux->video[0].fragments_published, sizeof(int64_t), 1, state_file);  //yes,video - so they match
     }
+    fwrite(&core->t_avail, sizeof(time_t), 1, state_file);
+    fwrite(&core->timeset, sizeof(int), 1, state_file);                
 
     fclose(state_file);
     return;
@@ -450,17 +456,24 @@ static int hlsmux_load_state(fillet_app_struct *core, source_context_struct *sda
 	    r = fread(&hlsmux->video[i].file_sequence_number, sizeof(int64_t), 1, state_file);
 	    r = fread(&hlsmux->video[i].media_sequence_number, sizeof(int64_t), 1, state_file);
 	    r = fread(&hlsmux->video[i].fragments_published, sizeof(int64_t), 1, state_file);
+            r = fread(&hlsmux->video[i].last_segment_time, sizeof(int64_t), 1, state_file);
+            r = fread(&hlsmux->video[i].discontinuity_adjustment, sizeof(int64_t), 1, state_file);
+            
             for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
                 r = fread(&hlsmux->audio[i][j].file_sequence_number, sizeof(int64_t), 1, state_file);
                 r = fread(&hlsmux->audio[i][j].media_sequence_number, sizeof(int64_t), 1, state_file);
                 r = fread(&hlsmux->audio[i][j].fragments_published, sizeof(int64_t), 1, state_file);
+                r = fread(&hlsmux->audio[i][j].last_segment_time, sizeof(int64_t), 1, state_file);
+                r = fread(&hlsmux->audio[i][j].discontinuity_adjustment, sizeof(int64_t), 1, state_file);
             }
 	    /*if (r < s64*6) {
 		fclose(state_file);
 		return 0;
-	    }*/
+	    }*/            
 	}
-	
+        r = fread(&core->t_avail, sizeof(time_t), 1, state_file);
+        r = fread(&core->timeset, sizeof(int), 1, state_file);
+
 	fclose(state_file);
 	return 1;
     }
@@ -1044,7 +1057,8 @@ static int end_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int 
                 snprintf(local_dir, MAX_STREAM_NAME-1, "%s/audio%d_substream%d", core->cd->manifest_directory, source, sub_stream);
             }
             snprintf(stream_name, MAX_STREAM_NAME-1, "%s/segment%ld.mp4", local_dir, stream->file_sequence_number);
-            snprintf(stream_name_link, MAX_STREAM_NAME-1, "%s/segment%ld.mp4", local_dir, segment_time); //stream->media_sequence_number);                        
+            snprintf(stream_name_link, MAX_STREAM_NAME-1, "%s/segment%ld.mp4", local_dir, segment_time); //stream->media_sequence_number);
+            syslog(LOG_INFO,"HLSMUX: WRITING OUT %s (%s)\n", stream_name_link, stream_name);
             symlink(stream_name, stream_name_link);
         }        
     }
@@ -1300,11 +1314,9 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
     char master_manifest_filename[MAX_STREAM_NAME];
     FILE *master_manifest;
     int i;
-    static time_t t_avail;
     static struct tm tm_avail;
     time_t t_publish;
     struct tm tm_publish;
-    static int timeset = 0;
     int max_width = 0;
     int max_height = 0;
     source_context_struct *lsdata;
@@ -1318,10 +1330,10 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
 
     memset(init_string_base64, 0, sizeof(init_string_base64));
 
-    if (!timeset) {
-        timeset = 1;
-        t_avail = time(NULL);
-        gmtime_r(&t_avail, &tm_avail);        
+    if (!core->timeset) {
+        core->timeset = 1;
+        core->t_avail = time(NULL);
+        gmtime_r(&core->t_avail, &tm_avail);        
         strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);
     }
     t_publish = time(NULL);
@@ -1404,17 +1416,20 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
     return 0;
 }
 
+int reset_dash_availability_time(fillet_app_struct *core)
+{
+    return 0;
+}
+
 static int write_dash_master_manifest(fillet_app_struct *core, source_context_struct *sdata)
 {
     struct stat sb;
     char master_manifest_filename[MAX_STREAM_NAME];
     FILE *master_manifest;
     int i;
-    static time_t t_avail;
-    static struct tm tm_avail;
+    struct tm tm_avail;
     time_t t_publish;
     struct tm tm_publish;
-    static int timeset = 0;
     int max_width = 0;
     int max_height = 0;
     source_context_struct *lsdata;
@@ -1424,12 +1439,9 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     char avail_time[MAX_STREAM_NAME];
     char publish_time[MAX_STREAM_NAME];
 
-    if (!timeset) {
-        //timeset = 1;
-        t_avail = time(NULL);
-        gmtime_r(&t_avail, &tm_avail);        
-        strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);
-    }
+    gmtime_r(&core->t_avail, &tm_avail);    
+    strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);
+    
     t_publish = time(NULL);
     t_publish -= ((core->cd->window_size-1) * core->cd->segment_length);
     //t_publish -= ((core->cd->window_size-1) * core->cd->segment_length);
@@ -1451,7 +1463,11 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
 	fprintf(stderr,"STATUS: Done creating manifest directory\n");
     }
 
-    snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/masterdash.mpd",core->cd->manifest_directory);
+    if (!core->timeset) {
+        snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"/tmp/junkfile",core->cd->manifest_directory);        
+    } else {
+        snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/masterdash.mpd",core->cd->manifest_directory);
+    }
 
     master_manifest = fopen(master_manifest_filename,"w");
     if (!master_manifest) {
@@ -1545,24 +1561,24 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
 
             if (segment == 0 && i == 0) {
                 /*
-                if (lsdata->pto_video < 0) {                
+                if (lsdata->pto_video < 0) {
                     lsdata->pto_video++;
                 } else if (lsdata->pto_video == 0) {
-                    lsdata->pto_video = lsdata->full_time_video[next_sequence_number];                
+                    lsdata->pto_video = lsdata->full_time_video[next_sequence_number];
                 }*/
                 lsdata->pto_video = 0; // normalizing our time to 0
 
-                if (lsdata->full_time_video[next_sequence_number] == 0 || timeset == 0) {
+                if (core->timeset == 0) {
                     // reset the AST
-                    timeset = 1;
-
-                    t_avail = time(NULL);
-                    t_avail -= ((core->cd->window_size-1) * core->cd->segment_length);  //WORKING
+                    core->timeset = 1;
+                    fprintf(stderr,"STATUS: Resetting the availability time\n");
+                    core->t_avail = time(NULL);
+                    core->t_avail -= ((core->cd->window_size-1) * core->cd->segment_length);
                     //t_avail -= ((core->cd->window_size+1) * core->cd->segment_length);
-                    //t_avail -= (core->cd->window_size * core->cd->segment_length);                    
-                    gmtime_r(&t_avail, &tm_avail);        
-                    strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);                    
+                    //t_avail -= (core->cd->window_size * core->cd->segment_length);
                 }
+                gmtime_r(&core->t_avail, &tm_avail);
+                strftime(avail_time,MAX_STREAM_NAME-1,"%Y-%m-%dT%H:%M:%SZ", &tm_avail);                
             }
             lsdata->pto_video = 0; // normalizing our time to 0            
             if (segment == 0) {
@@ -1738,6 +1754,9 @@ void *mux_pump_thread(void *context)
     int source_discontinuity = 0;
     int manifest_written = 0;
     int sub_manifest_ready = 0;
+
+    core->t_avail = 0;
+    core->timeset = 0;
     
     for (i = 0; i < MAX_SOURCE_STREAMS; i++) {
         int j;
@@ -1784,6 +1803,8 @@ void *mux_pump_thread(void *context)
 	hlsmux->video[i].file_sequence_number = 0;
 	hlsmux->video[i].media_sequence_number = 0;
 	hlsmux->video[i].fragments_published = 0;
+        hlsmux->video[i].discontinuity_adjustment = 0;
+        hlsmux->video[i].last_segment_time = 0;        
 	hlsmux->video[i].fmp4 = NULL;
 
         for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
@@ -1797,6 +1818,8 @@ void *mux_pump_thread(void *context)
             hlsmux->audio[i][j].file_sequence_number = 0;
             hlsmux->audio[i][j].media_sequence_number = 0;
             hlsmux->audio[i][j].fragments_published = 0;
+            hlsmux->audio[i][j].discontinuity_adjustment = 0;
+            hlsmux->audio[i][j].last_segment_time = 0;
         }
     }
 
@@ -1903,11 +1926,19 @@ void *mux_pump_thread(void *context)
 		hlsmux->video[i].file_sequence_number = first_video_file_sequence_number;
 		hlsmux->video[i].media_sequence_number = first_video_media_sequence_number;
 		hlsmux->video[i].fmp4 = NULL;
+                if (hlsmux->video[i].last_segment_time > 0) {
+                    hlsmux->video[i].discontinuity_adjustment += hlsmux->video[i].last_segment_time;
+                    hlsmux->video[i].last_segment_time = 0;
+                }
                 
                 for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
                     hlsmux->audio[i][j].file_sequence_number = first_video_file_sequence_number;
                     hlsmux->audio[i][j].media_sequence_number = first_video_media_sequence_number;
                     hlsmux->audio[i][j].fmp4 = NULL;
+                    if (hlsmux->audio[i][j].last_segment_time > 0) {
+                        hlsmux->audio[i][j].discontinuity_adjustment += hlsmux->audio[i][j].last_segment_time;
+                        hlsmux->audio[i][j].last_segment_time = 0;
+                    }
                 }
 	    }
 	    source_discontinuity = 0;
@@ -2065,13 +2096,13 @@ void *mux_pump_thread(void *context)
 		}
 		frag_delta = (frame->full_time - source_data[source].start_time_video) / (double)VIDEO_CLOCK;
                 
-                syslog(LOG_INFO,"HLSMUX: VIDEO(%d): TIME:%ld FRAG_DELTA:%f  TVD:%f  EVD:%f FRAGLENGTH:%ld \n",                       
+                /*syslog(LOG_INFO,"HLSMUX: VIDEO(%d): TIME:%ld FRAG_DELTA:%f  TVD:%f  EVD:%f FRAGLENGTH:%ld \n",                       
                        source,
                        frame->full_time,
                        frag_delta,
                        source_data[source].total_video_duration,
                        source_data[source].expected_video_duration,
-                       fragment_length);
+                       fragment_length);*/
                 
 		if (source_data[source].total_video_duration+frag_delta >= source_data[source].expected_video_duration+fragment_length) {
                     int64_t sidx_time;
@@ -2086,12 +2117,14 @@ void *mux_pump_thread(void *context)
 			end_ts_fragment(core, &hlsmux->video[source], source, 0); // substream is 0 for video
 		    }
 
-                    segment_time = (int64_t)((double)source_data[source].total_video_duration * (double)VIDEO_CLOCK);
+                    segment_time = (int64_t)((double)source_data[source].total_video_duration * (double)VIDEO_CLOCK) + hlsmux->video[source].discontinuity_adjustment;
+                    hlsmux->video[source].last_segment_time = segment_time - hlsmux->video[source].discontinuity_adjustment;
                     duration_time = (int64_t)((double)frag_delta * (double)VIDEO_CLOCK);
 		    if (core->cd->enable_fmp4_output) {
 			if (hlsmux->video[source].fmp4) {
 			    fmp4_fragment_end(hlsmux->video[source].fmp4, &sidx_time, &sidx_duration,
-                                              source_data[source].total_video_duration * (double)VIDEO_CLOCK, frag_delta * (double)VIDEO_CLOCK,
+                                              source_data[source].total_video_duration * (double)VIDEO_CLOCK + hlsmux->video[source].discontinuity_adjustment,
+                                              frag_delta * (double)VIDEO_CLOCK,
                                               hlsmux->video[source].media_sequence_number,
                                               VIDEO_FRAGMENT);
                             
@@ -2459,14 +2492,14 @@ void *mux_pump_thread(void *context)
 	    }
 	    frag_delta = (frame->full_time - source_data[source].start_time_audio[sub_stream]) / (double)AUDIO_CLOCK;
 
-            syslog(LOG_INFO,"HLSMUX: AUDIO(%d): TIME:%ld FRAG_DELTA:%f  STA:%ld TAD:%f  EAD:%f FRAGLENGTH:%ld \n",  
+            /*syslog(LOG_INFO,"HLSMUX: AUDIO(%d): TIME:%ld FRAG_DELTA:%f  STA:%ld TAD:%f  EAD:%f FRAGLENGTH:%ld \n",  
                    source,
                    frame->full_time,
                    frag_delta,
                    source_data[source].start_time_audio[sub_stream],
                    source_data[source].total_audio_duration[sub_stream],
                    source_data[source].expected_audio_duration[sub_stream],
-                   fragment_length);
+                   fragment_length);*/
             
 	    if (source_data[source].total_audio_duration[sub_stream]+frag_delta >= source_data[source].total_video_duration && source_data[source].video_fragment_ready[sub_stream]) {
                 int64_t sidx_time = 0;
@@ -2478,12 +2511,14 @@ void *mux_pump_thread(void *context)
 		    end_ts_fragment(core, &hlsmux->audio[source][sub_stream], source, sub_stream);
 		}
 
-                segment_time = (int64_t)((double)source_data[source].total_audio_duration[sub_stream] * (double)AUDIO_CLOCK);
+                segment_time = (int64_t)((double)source_data[source].total_audio_duration[sub_stream] * (double)AUDIO_CLOCK) + hlsmux->video[source].discontinuity_adjustment;
+                hlsmux->audio[source][sub_stream].last_segment_time = segment_time - hlsmux->video[source].discontinuity_adjustment;//hlsmux->audio[source][sub_stream].discontinuity_adjustment;
                 duration_time = (int64_t)((double)frag_delta * (double)AUDIO_CLOCK);
 		if (core->cd->enable_fmp4_output) {
 		    if (hlsmux->audio[source][sub_stream].fmp4) {
 			fmp4_fragment_end(hlsmux->audio[source][sub_stream].fmp4, &sidx_time, &sidx_duration,
-                                          source_data[source].total_audio_duration[sub_stream] * (double)AUDIO_CLOCK, frag_delta * (double)AUDIO_CLOCK,
+                                          source_data[source].total_audio_duration[sub_stream] * (double)AUDIO_CLOCK + hlsmux->video[source].discontinuity_adjustment,
+                                          frag_delta * (double)AUDIO_CLOCK,
                                           hlsmux->audio[source][sub_stream].media_sequence_number,
                                           AUDIO_FRAGMENT);
 
