@@ -4,7 +4,7 @@ OTT streaming packager supporting ABR streaming for HLS and DASH
 This application is intended to serve as a reliable and scalable OTT streaming repackager to deliver content as part of an overall media streaming platform. There are two key variations of OTT streaming technologies that this software accommodates:
 
     HLS (HTTP Live Streaming) - most notably developed by Apple and very widely supported
-    DASH (Dynamic Adaptive Streaming of HTTP) - developed more traditionally by a consortium
+    DASH (Dynamic Adaptive Streaming over HTTP) - developed more traditionally by a consortium
 
 
 HLS is probably the most widely used variation and is supported by an extremely large ecosystem of devices. It works in browsers, set top boxes, phones/tablets, etc. DASH is also used but has a much more limited deployment footprint. It is also much more feature rich and is difficult to easily get comprehensive player interoperability. DASH is still not at the same level of maturity as HLS, but it is slowly gaining ground.
