@@ -16,6 +16,7 @@ The most widely supported combination of protocols and codecs is transport strea
 With this application, you can ingest *live* MPEG2 transport streams (containing H264/HEVC video and AAC audio) carried over UDP (Multicast or Unicast) for repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats. The application serves only as a repackaging solution and not as a full origin server or transcoder (at least for now!).
 
 An OTT streaming platform typically has four key system components:
+
 **1. Encoder/Transcoder (ffmpeg or commercial encoding solution)**
 The encoder/transcoder will convert the input stream into a set of output streams compatible with HLS- H.264 video streams and AAC audio streams in transport streams.
 
