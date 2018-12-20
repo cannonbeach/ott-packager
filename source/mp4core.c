@@ -211,7 +211,9 @@ static int output_fmp4_sidx(fragment_file_struct *fmp4, int64_t *sidx_time, int6
 
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"sidx");
-    buffer_offset += output32(fmp4, 0);
+    buffer_offset += output8(fmp4, 1);  // use 64-bit values
+    buffer_offset += output8(fmp4, 0);
+    buffer_offset += output16(fmp4, 0);
     buffer_offset += output32(fmp4, current_track_id);
     buffer_offset += output32(fmp4, fmp4->timescale);
 
@@ -222,12 +224,12 @@ static int output_fmp4_sidx(fragment_file_struct *fmp4, int64_t *sidx_time, int6
             fragment_duration += track_data->fragments[0].fragment_composition_time;
         }
     } else {
-        fragment_duration = (uint32_t)start_time;
+        fragment_duration = (uint64_t)start_time;
     }
-    buffer_offset += output32(fmp4, fragment_duration);     // time t
+    buffer_offset += output64(fmp4, fragment_duration);     // time t
 
     *sidx_time = fragment_duration;
-    buffer_offset += output32(fmp4, 0);  // first_offset
+    buffer_offset += output64(fmp4, 0);  // first_offset
     buffer_offset += output16(fmp4, 0); // reserved = 0
     buffer_offset += output16(fmp4, 1); // reference_count
 
