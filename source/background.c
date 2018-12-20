@@ -77,11 +77,11 @@ int load_kvp_config(fillet_app_struct *core)
 
     kvp = fopen(kvp_filename,"r");
     if (!kvp) {
-        fprintf(stderr,"ERROR: Session:%d Unable to open configuration /opt/fillet/%s\n", core->session_id, kvp_filename);
-	syslog(LOG_ERR,"SESSION:%d (CONFIG) ERROR: UNABLE TO OPEN /opt/fillet/%s\n", core->session_id, kvp_filename);
+        fprintf(stderr,"ERROR: Session:%d Unable to open configuration: %s\n", core->session_id, kvp_filename);
+	syslog(LOG_ERR,"SESSION:%d (CONFIG) ERROR: UNABLE TO OPEN: %s\n", core->session_id, kvp_filename);
 	return -1;
     }
-    syslog(LOG_INFO,"SESSION:%d (CONFIG) STATUS: READING /opt/fillet/%s\n", core->session_id, kvp_filename);
+    syslog(LOG_INFO,"SESSION:%d (CONFIG) STATUS: READING: %s\n", core->session_id, kvp_filename);
     
     while (!feof(kvp)) {
 	char kvpdata[MAX_STR_SIZE];
@@ -100,6 +100,8 @@ int load_kvp_config(fillet_app_struct *core)
 	    //segment_length=5
 	    //window_size=5
 	    //rollover=128
+            //manifest=
+            //
 	    if (strncmp(pkvpdata,"streams=",8) == 0) {
 		vals = sscanf(pkvpdata,"streams=%d",
 			      &source_streams);

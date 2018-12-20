@@ -51,11 +51,11 @@
 #define MAX_STR_SIZE               512
 #define MAX_AUDIO_SOURCES          5
 #define MAX_AUDIO_STREAMS          5
-#define MAX_VIDEO_SOURCES          5
+#define MAX_VIDEO_SOURCES          8
 #define MAX_FRAME_DATA_SYNC_AUDIO  512
 #define MAX_FRAME_DATA_SYNC_VIDEO  256
 #define MAX_MUX_SOURCES            10
-#define MAX_TRANS_OUTPUTS          8
+#define MAX_TRANS_OUTPUTS          MAX_VIDEO_SOURCES
 #define MAX_VIDEO_MUX_BUFFER       1024*1024*4
 #define MAX_AUDIO_MUX_BUFFER       1024*64
 #define MAX_VIDEO_PES_BUFFER       1024*1024*4
@@ -174,7 +174,7 @@ typedef struct _stream_struct_ {
 typedef struct _hlsmux_struct_ {
     void                     *input_queue;
     
-    stream_struct            audio[MAX_AUDIO_SOURCES][MAX_AUDIO_STREAMS];
+    stream_struct            audio[MAX_VIDEO_SOURCES][MAX_AUDIO_STREAMS];
     stream_struct            video[MAX_VIDEO_SOURCES];
     
     pthread_t                hlsmux_thread_id;

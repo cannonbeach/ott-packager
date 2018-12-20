@@ -1790,8 +1790,8 @@ void *mux_pump_thread(void *context)
         source_data[i].pto_video = -core->cd->window_size;
         source_data[i].pto_audio = -core->cd->window_size;
     }
-
-    for (i = 0; i < num_sources; i++) {
+    
+    for (i = 0; i < MAX_VIDEO_SOURCES; i++) {
         int j;
         
 	hlsmux->video[i].muxbuffer = (uint8_t*)malloc(MAX_VIDEO_MUX_BUFFER);
@@ -2778,7 +2778,7 @@ cleanup_mux_pump_thread:
         }        
     }    
 
-    for (i = 0; i < num_sources; i++) {
+    for (i = 0; i < MAX_VIDEO_SOURCES; i++) {
         int j;
         
 	free(hlsmux->video[i].pesbuffer);

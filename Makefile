@@ -16,8 +16,9 @@ ifdef ENABLE_TRANSCODE
 		    ./cbffmpeg/libavcodec/libavcodec.a \
 	      	    ./cbffmpeg/libavutil/libavutil.a \
 		    ./cbffmpeg/libavresample/libavresample.a \
-		    ./cbffmpeg/libswresample/libswresample.a
-	BASELIBS += -lz
+		    ./cbffmpeg/libswresample/libswresample.a \
+                    ./cbx264/libx264.a
+	BASELIBS += -lz -ldl
 endif
 
 all: $(LIB) fillet

@@ -151,7 +151,9 @@ static int destroy_transvideo_core(fillet_app_struct *core)
         core->encodevideo->input_queue[i] = NULL;
     }
     dataqueue_destroy(core->preparevideo->input_queue);
+    core->preparevideo->input_queue = NULL;
     dataqueue_destroy(core->transvideo->input_queue);
+    core->transvideo->input_queue = NULL;
     free(core->preparevideo);
     core->preparevideo = NULL;
     free(core->transvideo);
@@ -176,7 +178,11 @@ static int destroy_fillet_core(fillet_app_struct *core)
     destroy_transvideo_core(core);
 #endif
 
+#if defined(ENABLE_TRANSCODE)
+    num_sources = MAX_TRANS_OUTPUTS;
+#else    
     num_sources = core->num_sources;
+#endif // ENABLE_TRANSCODE    
     for (current_source = 0; current_source < num_sources; current_source++) {
 	video_stream_struct *vstream;
 	audio_stream_struct *astream;
@@ -213,16 +219,19 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     if (!core) {
 	return NULL;
     }
-
+    
     core->num_sources = num_sources;
     core->cd = cd;
+#if defined(ENABLE_TRANSCODE)
+    num_sources = MAX_TRANS_OUTPUTS;
+#endif // ENABLE_TRANSCODE        
     core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
     core->event_queue = (void*)dataqueue_create();
     core->event_wait = (sem_t*)malloc(sizeof(sem_t));
     sem_init(core->event_wait, 0, 0);
     
     memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
-    
+
     for (current_source = 0; current_source < num_sources; current_source++) {
 	video_stream_struct *vstream;
 	audio_stream_struct *astream;
@@ -929,6 +938,8 @@ static void *frame_sync_thread(void *context)
 	video_sync = 0;
 
 	if (quit_sync_thread) {
+            int i;
+            
 	    pthread_mutex_lock(&sync_lock);		    	    
 	    dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
 	    dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
@@ -936,7 +947,14 @@ static void *frame_sync_thread(void *context)
 	    video_synchronizer_entries = 0;
 	    audio_synchronizer_entries = 0;	    
 	    fprintf(stderr,"SESSION:%d (MAIN) STATUS: LEAVING SYNC THREAD - DISCONTINUITY\n", core->session_id);
-            sync_thread_running = 0;            
+            sync_thread_running = 0;
+
+            if (enable_transcode) {
+                fprintf(stderr,"SESSION:%d (MAIN) STATUS: RESTARTING APPLICATION\n", core->session_id);
+                // setup Docker container do a restart
+                exit(0);
+            }
+                
 	    return NULL;
 	}
 
@@ -1052,6 +1070,94 @@ static int64_t time_difference(struct timespec *now, struct timespec *start)
     return ((tnsec / 1000) + (tsec * 1000000));
 }
 
+int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source)
+{
+    sorted_frame_struct *new_frame;
+    video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+    int restart_sync_thread = 0;
+    int i;
+    int sync_frame = 0;
+
+    new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
+    new_frame->buffer = new_buffer;
+    new_frame->buffer_size = sample_size;
+    new_frame->pts = pts;
+    new_frame->dts = dts;
+    new_frame->full_time = dts;// + vstream->overflow_dts;    
+
+    /*if (dts > 0) {
+        new_frame->full_time = dts;// + vstream->overflow_dts;
+    } else {
+        new_frame->full_time = pts;// + vstream->overflow_dts;
+    }*/
+    
+    new_frame->duration = new_frame->full_time - vstream->last_full_time;	
+    new_frame->first_timestamp = vstream->first_timestamp;
+    new_frame->source = source;
+    new_frame->sub_stream = 0;
+
+    fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%ld\n\n\n",
+            pts,
+            dts,
+            vstream->first_timestamp,
+            new_frame->duration,
+            vstream->last_full_time);
+
+    vstream->last_full_time = new_frame->full_time; 
+
+    for (i = 0; i < sample_size - 4; i++) {
+        if (new_buffer[i] == 0x00 &&
+            new_buffer[i+1] == 0x00 &&
+            new_buffer[i+2] == 0x00 &&
+            new_buffer[i+3] == 0x01) {
+            int nal_type = new_buffer[i+4] & 0x1f;
+            if (nal_type == 7 ||
+                nal_type == 8 ||
+                nal_type == 5) {
+                sync_frame = 1;
+                break;
+            }
+        }
+    }
+    
+    new_frame->sync_frame = sync_frame;
+    new_frame->frame_type = FRAME_TYPE_VIDEO;    
+    new_frame->media_type = MEDIA_TYPE_H264;
+    new_frame->time_received = 0;
+    //if (lang_tag) {
+    //        new_frame->lang_tag[0] = lang_tag[0];
+    //        new_frame->lang_tag[1] = lang_tag[1];
+    //        new_frame->lang_tag[2] = lang_tag[2];
+    //        new_frame->lang_tag[3] = lang_tag[3];	    
+    //    } else {
+    // add lang tag passthrough
+    memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
+    //    }
+    
+    pthread_mutex_lock(&sync_lock);	
+    video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
+    if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
+        restart_sync_thread = 1;	    	   
+    }
+    pthread_mutex_unlock(&sync_lock);
+
+    if (restart_sync_thread) {
+        fprintf(stderr,"GETTING SYNC LOCK\n");
+	pthread_mutex_lock(&sync_lock);
+	dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
+	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
+	pthread_mutex_unlock(&sync_lock);
+        fprintf(stderr,"DONE WITH SYNC LOCK\n");
+	video_synchronizer_entries = 0;
+	audio_synchronizer_entries = 0;
+	quit_sync_thread = 1;
+        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
+	pthread_join(frame_sync_thread_id, NULL);
+        fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
+    }
+    return 0;
+}
+
 static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, int sub_source, char *lang_tag, void *context)
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
@@ -1152,8 +1258,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	} else {
 	    new_frame->full_time = pts + vstream->overflow_dts;
 	}
-	new_frame->duration = new_frame->full_time - vstream->last_full_time;	
-	vstream->last_full_time = new_frame->full_time;
+	new_frame->duration = new_frame->full_time - vstream->last_full_time;
+        if (!enable_transcode) {            
+            vstream->last_full_time = new_frame->full_time;
+        }
 	new_frame->first_timestamp = vstream->first_timestamp;
 	new_frame->source = source;
         new_frame->sub_stream = 0;
@@ -1473,19 +1581,29 @@ int main(int argc, char **argv)
 	 return 1;
      }
 
-     if (enable_ts == 0 && enable_fmp4 == 0 && enable_youtube == 0) {
-         fprintf(stderr,"FILLET: ERROR: Please select TS output and/or fMP4 output mode OR YouTube DASH publishing mode\n");
-         fprintf(stderr,"\n");
-         return 1;
+     if (!enable_background) {
+         if (enable_ts == 0 && enable_fmp4 == 0 && enable_youtube == 0) {
+             fprintf(stderr,"FILLET: ERROR: Please select TS output and/or fMP4 output mode OR YouTube DASH publishing mode\n");
+             fprintf(stderr,"\n");
+             return 1;
+         }
+         if ((enable_ts || enable_fmp4) && enable_youtube) {
+             fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- YouTube mode and TS/fMP4 are not compatible\n");
+             fprintf(stderr,"\n");
+             return 1;
+         }
      }
-     if ((enable_ts || enable_fmp4) && enable_youtube) {
-         fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- YouTube mode and TS/fMP4 are not compatible\n");
-         fprintf(stderr,"\n");
-         return 1;
-     }        
      
      config_data.enable_ts_output = enable_ts;
      config_data.enable_fmp4_output = enable_fmp4;
+
+#if defined(ENABLE_TRANSCODE)     
+     if (enable_transcode && config_data.num_outputs == 0) {
+         fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- Transcoding enabled but no outputs were selected\n");
+         fprintf(stderr,"\n");
+         return 1;
+     }
+#endif // ENABLE_TRANSCODE     
 
      if (enable_background) {
          core = create_fillet_core(&config_data, MAX_SOURCES); // need to reserve ahead of time

@@ -43,6 +43,7 @@ typedef struct _dataqueue_message_struct_ {
         int             aspect_den;
         int             width;
         int             height;
+        uint8_t         stream_index;    
     	void            *buffer;
 } dataqueue_message_struct;
 
