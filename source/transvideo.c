@@ -69,6 +69,8 @@ typedef struct _x264_encoder_struct_ {
     int              uv_size;
     int              width;
     int              height;
+    int64_t          frame_count_pts;
+    int64_t          frame_count_dts;
 } x264_encoder_struct;
 
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source);    
@@ -84,6 +86,8 @@ void *video_encode_thread(void *context)
 
     for (current_encoder = 0; current_encoder < num_outputs; current_encoder++) {
         x264_data[current_encoder].h = NULL;
+        x264_data[current_encoder].frame_count_pts = 1;
+        x264_data[current_encoder].frame_count_dts = 0;
     }
     
     while (video_encode_thread_running) {
@@ -153,8 +157,14 @@ void *video_encode_thread(void *context)
                 x264_data[current_encoder].param.i_slice_count = 0;
                 x264_data[current_encoder].param.i_frame_reference = 1;
                 
-                sar_width = output_height*msg->aspect_num;
-                sar_height = output_width*msg->aspect_den;
+                if (core->cd->transvideo_info[0].aspect_num > 0 &&
+                    core->cd->transvideo_info[0].aspect_den > 0) {
+                    sar_width = output_height*core->cd->transvideo_info[0].aspect_num;
+                    sar_height = output_width*core->cd->transvideo_info[0].aspect_den;      
+                } else {
+                    sar_width = output_height*msg->aspect_num;
+                    sar_height = output_width*msg->aspect_den;
+                }
                 if (sar_width > 0 && sar_height > 0) {
                     x264_data[current_encoder].param.vui.i_sar_width = sar_width;
                     x264_data[current_encoder].param.vui.i_sar_height = sar_height;
@@ -196,6 +206,7 @@ void *video_encode_thread(void *context)
 
             x264_data[current_queue].pic.i_pts = msg->pts;
             x264_data[current_queue].pic.i_dts = msg->dts;
+            x264_data[current_queue].pic.opaque = (void*)x264_data[current_queue].frame_count_pts;
             
             memcpy(x264_data[current_queue].pic.img.plane[0],
                    video,
@@ -217,8 +228,13 @@ void *video_encode_thread(void *context)
                                               &x264_data[current_queue].pic,
                                               &x264_data[current_queue].pic_out);
 
+            x264_data[current_queue].frame_count_pts++;
+
             if (x264_data[current_queue].i_nal > 0) {
                 uint8_t *nal_buffer;
+                double output_fps = 30000.0/1001.0;
+                double ticks_per_frame = 90000.0/output_fps;
+                video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream                
 
                 nal_buffer = (uint8_t*)malloc(output_size+1);
                 memcpy(nal_buffer, x264_data[current_queue].nal->p_payload, output_size);
@@ -235,10 +251,25 @@ void *video_encode_thread(void *context)
                            dbfile);
                     fflush(dbfile);
                 }*/
-                
-                fprintf(stderr,"RECEIVED ENCODED FRAME OUTPUT:%d\n", output_size);
+
+                if (x264_data[current_encoder].param.i_fps_den > 0) {
+                    output_fps = (double)x264_data[current_encoder].param.i_fps_num / (double)x264_data[current_encoder].param.i_fps_den;
+                    if (output_fps > 0) {
+                        ticks_per_frame = 90000.0/output_fps;
+                    }
+                }
+                                
+                fprintf(stderr,"RECEIVED ENCODED FRAME OUTPUT:%d FRAME COUNT DISPLAY ORDER:%ld  CURRENT TS:%ld\n",
+                        output_size,
+                        (int64_t)x264_data[current_queue].pic_out.opaque,
+                        (int64_t)x264_data[current_queue].pic_out.opaque * (int64_t)ticks_per_frame + (int64_t)vstream->first_timestamp);
                 pts = x264_data[current_queue].pic_out.i_pts;
-                dts = x264_data[current_queue].pic_out.i_dts;                
+                dts = x264_data[current_queue].pic_out.i_dts;
+
+                pts = (int64_t)x264_data[current_queue].pic_out.opaque * (int64_t)ticks_per_frame + (int64_t)vstream->first_timestamp;
+                dts = (int64_t)x264_data[current_queue].frame_count_dts * (int64_t)ticks_per_frame + (int64_t)vstream->first_timestamp;
+
+                x264_data[current_queue].frame_count_dts++;
                 video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_queue);
             }            
                    

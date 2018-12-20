@@ -88,7 +88,9 @@ typedef struct _trans_video_output_struct_ {
     int                    video_codec;
     int                    width;
     int                    height;
-    int                    video_bitrate;    
+    int                    video_bitrate;
+    int                    aspect_num;
+    int                    aspect_den;
 } trans_video_output_struct;
 
 typedef struct _trans_audio_output_struct_ {

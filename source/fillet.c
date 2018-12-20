@@ -99,6 +99,7 @@ static struct option long_options[] = {
      {"vrate", required_argument, 0, 'v'},                // the video bitrates (kbps)  --vrate 800,1250,2500,5000
      {"acodec", required_argument, 0, 'a'},               // audio output codec used    --acodec aac or --acodec ac3
      {"arate", required_argument, 0, 't'},                // the audio bitrates (kbps)  --arate 128,96
+     {"aspect", required_argument, 0, 'A'},                // force the aspect ratio (16:9,4:3, or other)
 #endif // ENABLE_TRANSCODE
      {"youtube", required_argument, 0, 'C'},              // the youtube cid
      {"background", no_argument, &enable_background, 1},
@@ -287,7 +288,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h",
+                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A",
                            long_options,
                            &option_index);
 
@@ -333,6 +334,61 @@ static int parse_input_options(int argc, char **argv)
               } else {
                   fprintf(stderr,"ERROR: No output video codec was selected\n");
                   return -1;
+              }
+#endif // ENABLE_TRANSCODE              
+              break;
+          case 'A':
+#if defined(ENABLE_TRANSCODE)
+              if (optarg) {
+                  int c;
+                  int optarg_len = strlen(optarg);
+                  int nidx = 0;
+                  int didx = 0;
+                  int parsing_num = 1;
+                  char numstr[MAX_STR_SIZE];
+                  char denstr[MAX_STR_SIZE];
+                  int outputidx = 0;
+                  memset(numstr,0,sizeof(numstr));
+                  memset(denstr,0,sizeof(denstr));
+                  for (c = 0; c < optarg_len; c++) {
+                      if (parsing_num) {
+                          if (optarg[c] != ':' && optarg[c] != '\0') {
+                              numstr[nidx++] = optarg[c];
+                              if (nidx >= MAX_STR_SIZE) {
+                                  fprintf(stderr,"ERROR: String size exceeded when parsing for num\n");
+                                  return -1;
+                              }
+                          } else {
+                              config_data.transvideo_info[outputidx].aspect_num = atoi(numstr);
+                              parsing_num = 0;
+                          }
+                      } else {
+                          if (optarg[c] != '\0') {
+                              denstr[didx++] = optarg[c];
+                              if (didx >= MAX_STR_SIZE) {
+                                  fprintf(stderr,"ERROR: String size exceeded when parsing for den\n");
+                                  return -1;
+                              }
+                          }
+                          
+                          if (optarg[c] == '\0' || c == optarg_len - 1) {
+                              config_data.transvideo_info[outputidx].aspect_den = atoi(denstr);
+                              outputidx++;
+                              /*if (outputidx >= MAX_TRANS_OUTPUTS) {
+                                  fprintf(stderr,"ERROR: Exceeded number of allowed video transcoder outputs (aspect parsing)\n");
+                                  return -1;
+                              }*/
+                              nidx = 0;
+                              didx = 0;
+
+                              fprintf(stderr,"STATUS: output stream(%d) aspect ratio detected: %d:%d\n",
+                                      outputidx-1,
+                                      config_data.transvideo_info[outputidx-1].aspect_num,
+                                      config_data.transvideo_info[outputidx-1].aspect_den);
+                              break;
+                          }                          
+                      }
+                  }                  
               }
 #endif // ENABLE_TRANSCODE              
               break;
@@ -1570,12 +1626,14 @@ int main(int argc, char **argv)
 	 fprintf(stderr,"\n");
 #if defined(ENABLE_TRANSCODE)
          fprintf(stderr,"TRANSCODE OPTIONS\n");
+         fprintf(stderr,"       --transcode   [ENABLE TRANSCODER AND NOT JUST PACKAGING]\n");
          fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT PROFILES TO BE TRANSCODED]\n");
          fprintf(stderr,"       --vcodec      [VIDEO CODEC - needs to be hevc or h264]\n");
          fprintf(stderr,"       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720 ]\n");
          fprintf(stderr,"       --vrate       [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500 ]\n");
          fprintf(stderr,"       --acodec      [AUDIO CODEC - needs to be aac, ac3 or pass]\n");
          fprintf(stderr,"       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96 ]\n");
+         fprintf(stderr,"       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other ]\n");
          fprintf(stderr,"\n");
 #endif // ENABLE_TRANSCODE         
 	 return 1;
