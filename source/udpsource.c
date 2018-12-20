@@ -162,7 +162,7 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
     
     retcode = setsockopt(new_socket, SOL_SOCKET, SO_BINDTODEVICE, (void *)&ifr, sizeof(ifr));
     if (retcode < 0) {
-	fprintf(stderr,"unable to bind to device: %s\n", interface_name);
+	fprintf(stderr,"error: unable to bind to device: %s (are you running as root?  does the device exist?)\n", interface_name);
 	socket_udp_close(new_socket);	    
 	return -1;
     }
