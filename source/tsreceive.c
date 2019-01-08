@@ -77,6 +77,8 @@ void *udp_source_thread(void *context)
     tsdata->pat_version_number = -1;
     tsdata->pat_transport_stream_id = -1;
     tsdata->source = source_count;
+    core->input_signal = 0;
+    core->source_interruptions = 0;
 
     udp_socket = socket_udp_open(core->fillet_input[source_count].interface,
 				 core->fillet_input[source_count].udp_source_ipaddr,
@@ -129,7 +131,11 @@ void *udp_source_thread(void *context)
                     core->fillet_input[active_source_index].udp_source_port,
                     core->fillet_input[active_source_index].interface,
                     no_signal_counter);
-            
+
+            if (core->input_signal == 1) {
+                core->source_interruptions++;
+            }
+            core->input_signal = 0;
             no_signal_counter++;
 	    continue;
 	}
@@ -140,6 +146,7 @@ void *udp_source_thread(void *context)
                 no_signal_counter = 0;
 		int total_packets = bytes / 188;
 		if (total_packets > 0) {
+                    core->input_signal = 1;
 		    decode_packets(udp_buffer, total_packets, tsdata);
 		}
 	    }

@@ -1,32 +1,64 @@
 # ott-streaming-packager
 OTT streaming packager supporting ABR streaming for HLS and DASH
 
-This application is intended to serve as a reliable and scalable OTT streaming repackager to deliver content as part of an overall media streaming platform. There are two key variations of OTT streaming technologies that this software accommodates:
+This application is intended to serve as a reliable and scalable OTT streaming repackager (with optional transcoding) to deliver content as part of an overall media streaming platform. There are two key variations of OTT streaming technologies that this software accommodates:
 
-    HLS (HTTP Live Streaming) - most notably developed by Apple and very widely supported
-    DASH (Dynamic Adaptive Streaming over HTTP) - developed more traditionally by a consortium
+    HLS (HTTP Live Streaming) - Transport Stream HLS and Fragmented MP4 HLS (CMAF style)
+    DASH (Dynamic Adaptive Streaming over HTTP) - Fragmented MP4 
 
+With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application serves can optionally trancode or just repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio.
 
-HLS is probably the most widely used variation and is supported by an extremely large ecosystem of devices. It works in browsers, set top boxes, phones/tablets, etc. DASH is also used but has a much more limited deployment footprint. It is also much more feature rich and is difficult to easily get comprehensive player interoperability. DASH is still not at the same level of maturity as HLS, but it is slowly gaining ground.
+---Quickstart---
 
-HLS started out as a transport stream based format that leveraged the traditional MPEG based broadcast standards. This made a lot of sense when Apple first deployed this model since a lot of content was already packaged in transport streams, analysis tools were readily available and it is very well understood by a large audience. It has been in use for a very long time! DASH has taken a slightly different approach by adopting the fragmented MP4 file format that I believe was originally developed by Apple (DASH does specify that you can use transport stream, but I don't think anyone actually does?). Having two different standards can really complicate deployment models, especially when some devices support one type and other devices support the other. It can get even more complicated when DRM and encryption are involved. Over the course of the last year or so, Apple has also announced support for the fragmented MP4 file format as part of their HLS specification. This should hopefully simplify things. There is an industry initiative known as the Common Media Application Format (CMAF) that intends to put some common ground between HLS and DASH, but full scale adoption of it is still not there. At least by standardizing on one common file format that works for both HLS and DASH it helps to minimize the required resources.
+The software install guide here is for Ubuntu 16.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.
 
-The most widely supported combination of protocols and codecs is transport stream based HLS with H.264 video codec and AAC audio codec. There are some devices supporting the newer HEVC video codec (mostly targeting 4K video!) and some devices that support the AC3 audio codec as well. VP9 and AV1 are also excellent alternative video codecs, but support for these in different end user devices is hit/miss. HLS with H.264 video and AAC audio is the best approach to reach the largest audience and should be your primary focus for deploying a service. Additional modes using DASH with other codecs can be included as supplemental media streams to target different devices and/or operational models, but should only be included if needed.
+cannonbeach@insanitywave:$ sudo apt install git
+cannonbeach@insanitywave:$ sudo apt install build-essential
+cannonbeach@insanitywave:$ sudo apt install libz-dev
+cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
+cannonbeach@insanitywave:$ cd ott-packager
+cannonbeach@insanitywave:$ make
 
-With this application, you can ingest *live* MPEG2 transport streams (containing H264/HEVC video and AAC audio) carried over UDP (Multicast or Unicast) for repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats. The application serves only as a repackaging solution and not as a full origin server or transcoder (at least for now!).
+The above steps will compile the application (it is named "fillet"). Please ensure that you already have a basic development environment setup.
 
-An OTT streaming platform typically has four key system components:
+The fillet application must be run as a user with *root* privileges, otherwise it will *not* work.
 
-**1. Encoder/Transcoder (ffmpeg or commercial encoding solution)**
-The encoder/transcoder will convert the input stream into a set of output streams compatible with HLS- H.264 video streams and AAC audio streams in transport streams.
+usage: fillet [options]
 
-**2. Packager (fillet - this application)**
-The packager will be responsible for fragmenting/segmenting the source stream into smaller time/frame aligned chunks of content that can easily be served through a HTTP based web server for delivery to end devices.
+PACKAGING OPTIONS
+       --sources       [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]
+       --ip            [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)
+       --interface     [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]
+                       If multicast, make sure route is in place (see note below)
+       --window        [WINDOW IN SEGMENTS FOR MANIFEST]
+       --segment       [SEGMENT LENGTH IN SECONDS]
+       --manifest      [MANIFEST DIRECTORY "/var/www/html/hls/"]
+       --identity      [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]
+       --hls           [ENABLE TRADITIONAL HLS TRANSPORT STREAM OUTPUT - NO ARGUMENT REQUIRED]
+       --dash          [ENABLE FRAGMENTED MP4 STREAM OUTPUT (INCLUDES DASH+HLS FMP4) - NO ARGUMENT REQUIRED]
+       --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]
+       --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]
+       --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]
 
-**3. Origin Server (apache or nginx)**
-This server is responsible for caching all of the content that the packager produces and makes it readily available for the edge. Archiving of content can be done here along with advanced PVR capabilities.
+TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
+       --transcode     [ENABLE TRANSCODER AND NOT JUST PACKAGING]
+       --outputs       [NUMBER OF OUTPUT PROFILES TO BE TRANSCODED]
+       --vcodec        [VIDEO CODEC - needs to h264]
+       --resolutions   [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720]
+       --vrate         [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500]
+       --acodec        [AUDIO CODEC - needs to be aac]
+       --arate         [AUDIO BITRATES IN KBPS - formatted as: 128,96]\n");
+       --aspect        [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]\n");
+                                                                               
+Command Line Example Usage:
 
-**4. Edge Server (apache or nginx)**
-This server is responsible for caching and delivering all of the content to the end devices/players. Ad insertion is typically done here since it can be done on a per device/user level if needed. It is also possible to do ad insertion upstream as well, but it'll be less targeted/customized.
+cannonbeach@insanitywave:$ sudo ./fillet --sources 2 --ip 127.0.0.1:4000,127.0.0.1:4200 --interface lo --window 5 --segment 5 --manifest /var/www/html/hls --identity 1000
 
-If you require an origin server for your deployment, examples of basic integration with the Nginx and Apache based web servers will be provided, but full configuration of those servers are outside the scope of these instructions (at least for now). HLS and DASH are both HTTP based and it is recommended that your service be deployed using HTTPS for best security. ffmpeg is a free and widely used encoder/transcoder that is more than capable of producing high quality streams that can be used with fillet. In addition, ffmpeg does have some packaging capabilities builtin and can be used for HLS based streaming/segmenting independently.
+This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.
+
+cannonbeach@insanitywave:$ sudo route add -net 224.0.0.0 netmask 240.0.0.0 dev eth0
+
+You should also be aware that the fillet application creates a runtime cache file in the /var/tmp directory for each instance that is run. The cache file is uniquely identified by the "--identity" flag provided as a parameter. It follows the format of: /var/tmp/hlsmux_state_NNNN where NNNN is the identifier you provided. If you want to start your session from a clean state, then you should remove this state file. All of the sequence numbering will restart and all statistics will be cleared as well. It is also good practice when updating to a new version of the software to remove that file. I do add fields to this file and I have not made it backwards compatible.  I am working on making this more configurable such that it can be migrated across different Docker containers.
+
+An initial restful API is also now available (still working on adding statistics)
+curl http://10.0.0.200:18000/api/v1/status

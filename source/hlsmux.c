@@ -1161,7 +1161,7 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
 	fprintf(stderr,"STATUS: Done creating manifest directory\n");
     }
 
-    snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/master.m3u8",core->cd->manifest_directory);
+    snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/%s",core->cd->manifest_directory,core->cd->manifest_hls);
 
     master_manifest = fopen(master_manifest_filename,"w");
     if (!master_manifest) {
@@ -1466,7 +1466,7 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     if (!core->timeset) {
         snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"/tmp/junkfile",core->cd->manifest_directory);        
     } else {
-        snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/masterdash.mpd",core->cd->manifest_directory);
+        snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/%s",core->cd->manifest_directory,core->cd->manifest_dash);
     }
 
     master_manifest = fopen(master_manifest_filename,"w");
@@ -1689,7 +1689,7 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
 	fprintf(stderr,"STATUS: Done creating manifest directory\n");
     }
 
-    snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/masterfmp4.m3u8",core->cd->manifest_directory);
+    snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/%s",core->cd->manifest_directory,core->cd->manifest_fmp4);
 
     master_manifest = fopen(master_manifest_filename,"w");
     if (!master_manifest) {

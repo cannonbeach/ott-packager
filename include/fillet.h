@@ -106,9 +106,17 @@ typedef struct _transvideo_internal_struct_ {
     void                   *input_queue;
 } transvideo_internal_struct;
 
+typedef struct _transaudio_internal_struct_ {
+    void                   *input_queue;
+} transaudio_internal_struct;
+
 typedef struct _encodevideo_internal_struct_ {
     void                   *input_queue[MAX_TRANS_OUTPUTS];
 } encodevideo_internal_struct;
+
+typedef struct _encodeaudio_internal_struct_ {
+    void                   *input_queue;
+} encodeaudio_internal_struct;
     
 #endif // ENABLE_TRANSCODE
 
@@ -124,6 +132,9 @@ typedef struct _config_options_struct_ {
 
     char             manifest_directory[MAX_STR_SIZE];
     char             youtube_cid[MAX_STR_SIZE];
+    char             manifest_dash[MAX_STR_SIZE];
+    char             manifest_hls[MAX_STR_SIZE];
+    char             manifest_fmp4[MAX_STR_SIZE];
 
     int              window_size;
     int              segment_length;
@@ -133,6 +144,7 @@ typedef struct _config_options_struct_ {
     int              enable_ts_output;
     int              enable_fmp4_output;
     int              enable_youtube_output;
+    int              audio_source_index;
 
 #if defined(ENABLE_TRANSCODE)
     int                           num_outputs;    
@@ -226,7 +238,7 @@ typedef struct _video_stream_struct_
     int64_t                first_timestamp;
     int64_t                last_timestamp_pts;
     int64_t                last_timestamp_dts;
-    int                    last_full_time;
+    int64_t                last_full_time;
     int64_t                overflow_pts;
     int64_t                overflow_dts;
     int64_t                video_bitrate;
@@ -266,7 +278,6 @@ typedef struct _fillet_app_struct_
     sorted_frame_struct           *audio_frame_data[MAX_FRAME_DATA_SYNC_AUDIO];
 
     void                          *event_queue;
-    sem_t                         *event_wait;
 
     hlsmux_struct                 *hlsmux;
 
@@ -279,10 +290,18 @@ typedef struct _fillet_app_struct_
 
     int                           transcode_enabled;
 
+    // these are some basic runtime stats- should move to different data structure
+    int64_t                       uptime;
+    int                           input_signal;
+    int                           source_interruptions;
+    int                           sync_thread_restart_count;
+
 #if defined(ENABLE_TRANSCODE)    
     preparevideo_internal_struct  *preparevideo;
     transvideo_internal_struct    *transvideo;
     encodevideo_internal_struct   *encodevideo;
+    transaudio_internal_struct    *transaudio[MAX_AUDIO_SOURCES];
+    encodeaudio_internal_struct   *encodeaudio[MAX_AUDIO_SOURCES];
 #endif // ENABLE_TRANSCODE
 
 } fillet_app_struct;

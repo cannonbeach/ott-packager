@@ -70,6 +70,16 @@ cd ..
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
+echo "Installing fdk-aac from cannonbeach fork"
+git clone https://github.com/cannonbeach/fdk-aac.git ./cbfdkaac
+cd cbfdkaac
+./autogen.sh
+# todo-check if configure script was generated
+./configure --prefix=/usr --enable-static --with-pic
+# todo-check to see if makefile generated
+make -j8
+cd ..
+
 echo "Installing x265 from packaged source"
 #hg clone https://bitbucket.org/multicoreware/x265 ./headx265
 wget $x265download

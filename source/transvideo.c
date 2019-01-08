@@ -731,6 +731,7 @@ void *video_decode_thread(void *context)
                 retcode = avcodec_send_packet(decode_avctx, decode_pkt);
                 if (retcode < 0) {
                     //error decoding video frame-report!
+                    fprintf(stderr,"error: unable to decode video frame - sorry\n");
                 }
 
                 while (retcode >= 0) {
@@ -881,13 +882,13 @@ void *video_decode_thread(void *context)
                 }
                 free(frame->buffer);
                 frame->buffer = NULL;
-                free(msg->buffer);
-                msg->buffer = NULL;
-                free(msg);
-                msg = NULL;
             } else {
                 //report error condition
             }
+            free(msg->buffer);
+            msg->buffer = NULL;
+            free(msg);
+            msg = NULL;            
         } else {
             //report error condition
         }

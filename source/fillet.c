@@ -53,6 +53,7 @@
 #include "background.h"
 #if defined(ENABLE_TRANSCODE)
 #include "transvideo.h"
+#include "transaudio.h"
 #endif // ENABLE_TRANSCODE
 
 #define SOURCE_NONE      -1
@@ -68,7 +69,6 @@ static pthread_mutex_t sync_lock = PTHREAD_MUTEX_INITIALIZER;
 static int quit_sync_thread = 0;
 static int sync_thread_running = 0;
 static pthread_t frame_sync_thread_id;
-static int enable_background = 0;
 static int enable_verbose = 0;
 static int enable_transcode = 0;
 static int enable_fmp4 = 0;
@@ -91,6 +91,9 @@ static struct option long_options[] = {
      {"dash", no_argument, &enable_fmp4, 'd'},
      {"hls", no_argument, &enable_ts, 'h'},
      {"google", no_argument, &enable_youtube, 'y'},
+     {"manifest-dash", required_argument, 0, 'M'},
+     {"manifest-hls", required_argument, 0, 'H'},
+     {"manifest-fmp4", required_argument, 0, 'F'},     
 #if defined(ENABLE_TRANSCODE)
      {"transcode", no_argument, &enable_transcode, 'z'},
      {"outputs", required_argument, 0, 'o'},              // number of output profiles
@@ -102,7 +105,6 @@ static struct option long_options[] = {
      {"aspect", required_argument, 0, 'A'},                // force the aspect ratio (16:9,4:3, or other)
 #endif // ENABLE_TRANSCODE
      {"youtube", required_argument, 0, 'C'},              // the youtube cid
-     {"background", no_argument, &enable_background, 1},
      {0, 0, 0, 0}
 };
 
@@ -132,11 +134,19 @@ static int create_transvideo_core(fillet_app_struct *core)
     core->transvideo->input_queue = (void*)dataqueue_create();
     core->preparevideo->input_queue = (void*)dataqueue_create();
 
+    for (i = 0; i < MAX_AUDIO_SOURCES; i++) {
+        core->transaudio[i] = (transaudio_internal_struct*)malloc(sizeof(transaudio_internal_struct));
+        core->transaudio[i]->input_queue = (void*)dataqueue_create();
+        core->encodeaudio[i] = (encodeaudio_internal_struct*)malloc(sizeof(encodeaudio_internal_struct));
+        core->encodeaudio[i]->input_queue = (void*)dataqueue_create();
+    }
+        
     for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
         core->encodevideo->input_queue[i] = (void*)dataqueue_create();
     }
 
     start_video_transcode_threads(core);
+    start_audio_transcode_threads(core);
     
     return 0;
 }
@@ -146,10 +156,21 @@ static int destroy_transvideo_core(fillet_app_struct *core)
     int i;
 
     stop_video_transcode_threads(core);
+    stop_audio_transcode_threads(core);
     
     for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
         dataqueue_destroy(core->encodevideo->input_queue[i]);
         core->encodevideo->input_queue[i] = NULL;
+    }
+    for (i = 0; i < MAX_AUDIO_SOURCES; i++) {
+        dataqueue_destroy(core->transaudio[i]->input_queue);
+        core->transaudio[i]->input_queue = NULL;
+        free(core->transaudio[i]);
+        core->transaudio[i] = NULL;
+        dataqueue_destroy(core->encodeaudio[i]->input_queue);
+        core->encodeaudio[i]->input_queue = NULL;
+        free(core->encodeaudio[i]);
+        core->encodeaudio[i] = NULL;
     }
     dataqueue_destroy(core->preparevideo->input_queue);
     core->preparevideo->input_queue = NULL;
@@ -203,9 +224,6 @@ static int destroy_fillet_core(fillet_app_struct *core)
     }
     dataqueue_destroy(core->event_queue);
     core->event_queue = NULL;
-    sem_destroy(core->event_wait);
-    core->event_wait = NULL;
-    free(core->event_wait);
     free(core);
 
     return 0;
@@ -228,8 +246,6 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
 #endif // ENABLE_TRANSCODE        
     core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
     core->event_queue = (void*)dataqueue_create();
-    core->event_wait = (sem_t*)malloc(sizeof(sem_t));
-    sem_init(core->event_wait, 0, 0);
     
     memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
 
@@ -288,7 +304,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A",
+                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F",
                            long_options,
                            &option_index);
 
@@ -611,6 +627,30 @@ static int parse_input_options(int argc, char **argv)
 		  snprintf((char*)config_data.active_interface,UDP_MAX_IFNAME-1,"lo");
 	      }
 	      break;
+          case 'M':
+              if (optarg) {  // manifest name DASH
+                  snprintf(config_data.manifest_dash,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: Using supplied manifest filename for DASH: %s\n", config_data.manifest_dash);                  
+              } else {
+                  fprintf(stderr,"STATUS: No DASH manifest specified - using default: %s\n", config_data.manifest_dash);
+              }
+              break;
+          case 'H':
+              if (optarg) {  // manifest name HLS
+                  snprintf(config_data.manifest_hls,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: Using supplied manifest filename for HLS: %s\n", config_data.manifest_hls);
+              } else {
+                  fprintf(stderr,"STATUS: No HLS manifest specified - using default: %s\n", config_data.manifest_hls);
+              }
+              break;
+          case 'F':
+              if (optarg) {  // manifest name fragmented MP4 (HLS)
+                  snprintf(config_data.manifest_fmp4,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: Using supplied manifest filename for FMP4: %s\n", config_data.manifest_fmp4);
+              } else {
+                  fprintf(stderr,"STATUS: No fMP4 manifest specified - using default: %s\n", config_data.manifest_fmp4);
+              }
+              break;
 	  case 'm':
 	      if (optarg) {
 		  int slen;
@@ -968,9 +1008,6 @@ int dump_frames(sorted_frame_struct **frame_data, int max)
 	    //fprintf(stderr,"[I:%4d] NO FRAME DATA\n", i);
 	}
     }
-    if (enable_background) {
-        exit(0);
-    }
     return 0;
 }
 
@@ -994,8 +1031,6 @@ static void *frame_sync_thread(void *context)
 	video_sync = 0;
 
 	if (quit_sync_thread) {
-            int i;
-            
 	    pthread_mutex_lock(&sync_lock);		    	    
 	    dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
 	    dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
@@ -1126,6 +1161,55 @@ static int64_t time_difference(struct timespec *now, struct timespec *start)
     return ((tnsec / 1000) + (tsec * 1000000));
 }
 
+int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts)
+{
+    sorted_frame_struct *new_frame;
+    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[0];
+    int restart_sync_thread = 0;
+
+    new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
+    new_frame->buffer = new_buffer;
+    new_frame->buffer_size = sample_size;
+    new_frame->pts = pts;
+    new_frame->dts = pts;
+    new_frame->full_time = pts;
+    new_frame->duration = new_frame->full_time - astream->last_full_time;
+    new_frame->first_timestamp = 0;
+    new_frame->source = 0;
+    new_frame->sub_stream = 0;
+    astream->last_full_time = new_frame->full_time;
+
+    new_frame->frame_type = FRAME_TYPE_AUDIO;
+    new_frame->media_type = MEDIA_TYPE_AAC;
+    new_frame->time_received = 0;
+    memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
+
+   
+    pthread_mutex_lock(&sync_lock);	
+    audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
+    if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
+        restart_sync_thread = 1;
+    }
+    pthread_mutex_unlock(&sync_lock);
+
+    if (restart_sync_thread) {
+        fprintf(stderr,"GETTING SYNC LOCK\n");
+	pthread_mutex_lock(&sync_lock);
+	dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
+	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
+	pthread_mutex_unlock(&sync_lock);
+        fprintf(stderr,"DONE WITH SYNC LOCK\n");
+	video_synchronizer_entries = 0;
+	audio_synchronizer_entries = 0;
+	quit_sync_thread = 1;
+        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
+	pthread_join(frame_sync_thread_id, NULL);
+        fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
+    }    
+    
+    return 0;
+}
+
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source)
 {
     sorted_frame_struct *new_frame;
@@ -1152,12 +1236,11 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     new_frame->source = source;
     new_frame->sub_stream = 0;
 
-    fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%ld\n\n\n",
+    /*fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%ld\n\n\n",
             pts,
             dts,
             vstream->first_timestamp,
-            new_frame->duration,
-            vstream->last_full_time);
+            new_frame->duration);*/
 
     vstream->last_full_time = new_frame->full_time; 
 
@@ -1247,6 +1330,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    br = (vstream->total_video_bytes * 8) / diff;
 	    vstream->video_bitrate = br * 1000;
 	}
+
+        core->uptime = diff / 1000;
 	
 	if (!vstream->found_key_frame && sample_flags) {
 	    vstream->found_key_frame = 1;
@@ -1379,6 +1464,13 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     sub_source);
         }
 
+        if (source != core->cd->audio_source_index && core->cd->audio_source_index != -1) {
+            // take audio only from the specified stream
+            // if we are being fed with multiple spts of audio then we should just grab the first set
+            // this should be made configurable
+            return 0;
+        }
+
         if (!vstream->found_key_frame) {
 	    return 0;
 	}
@@ -1458,13 +1550,27 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    new_frame->lang_tag[3] = lang_tag[3];	    
 	} else {
 	    memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
-	}	
-	pthread_mutex_lock(&sync_lock);	
-	audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
-	if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
-	    restart_sync_thread = 1;
 	}
-	pthread_mutex_unlock(&sync_lock);	
+        if (enable_transcode) {
+#if defined(ENABLE_TRANSCODE)            
+            dataqueue_message_struct *decode_msg;
+
+            decode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+            if (decode_msg) {
+                decode_msg->buffer = new_frame;
+                decode_msg->buffer_size = sizeof(sorted_frame_struct);
+                dataqueue_put_front(core->transaudio[sub_source]->input_queue, decode_msg);
+                decode_msg = NULL;
+            }
+#endif // ENABLE_TRANSCODE
+        } else {
+            pthread_mutex_lock(&sync_lock);	
+            audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
+            if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
+                restart_sync_thread = 1;
+            }
+            pthread_mutex_unlock(&sync_lock);
+        }
     } else {
 	fprintf(stderr,"UNKNOWN SAMPLE RECEIVED\n");
     }
@@ -1479,109 +1585,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	video_synchronizer_entries = 0;
 	audio_synchronizer_entries = 0;
 	quit_sync_thread = 1;
-        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
+        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP: %d\n", sync_thread_running);
 	pthread_join(frame_sync_thread_id, NULL);
+        sync_thread_running = 0;
         fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
     }
     return 0;
-}
-
-static void disable_child_signal()
-{
-    struct sigaction dowhat;
-    
-    dowhat.sa_handler = SIG_IGN;
-    dowhat.sa_flags = 0;
-    sigemptyset(&dowhat.sa_mask);
-    sigaction(SIGCHLD, &dowhat, NULL);    
-}
-
-static void *runtime_thread(void *context)
-{
-    fillet_app_struct *core = (fillet_app_struct*)context;
-    int i;
-    
-    register_message_callback(message_dispatch, (void*)core);
-    register_frame_callback(receive_frame, (void*)core);
-
-    hlsmux_create(core);
-    for (i = 0; i < config_data.active_sources; i++) {
-        struct in_addr addr;	     
-        snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
-        snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
-        if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
-            syslog(LOG_INFO,"SESSION:%d (MAIN) ERROR: INVALID IP ADDRESS: %s\n",
-                   core->session_id,
-                   config_data.active_source[i].active_ip);
-            hlsmux_destroy(core->hlsmux);
-            core->hlsmux = NULL;
-            return NULL;
-        }
-        core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
-    }
-
-    syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING CORE FRAME SYNC THREAD: ACTIVE SOURCES:%d\n",
-           core->session_id,
-           config_data.active_sources);
-
-    sync_thread_running = 1;
-    pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
-    core->source_running = 1;    
-    for (i = 0; i < config_data.active_sources; i++) {
-        syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
-               core->session_id,
-               i,
-               core->fillet_input[i].udp_source_ipaddr,
-               core->fillet_input[i].udp_source_port,
-               core->fillet_input[i].interface);
-        pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
-        syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE STARTING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
-               core->session_id,
-               i,
-               core->fillet_input[i].udp_source_ipaddr,
-               core->fillet_input[i].udp_source_port,
-               core->fillet_input[i].interface);               
-    }
-
-    syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: ENTERING CORE FRAME SYNC THREAD\n",
-           core->session_id);
-    
-    while (core->source_running) {
-        if (quit_sync_thread && core->source_running) {
-            fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
-            while (sync_thread_running) {
-                usleep(10000);
-                // bail out and respawn if it never comes back
-                // waiting to trigger to 0
-            }
-            //quit_sync_thread = 0;            
-            sync_thread_running = 1;
-            reset_dash_availability_time(core);
-            pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
-        }
-        sleep(1);
-    }
-
-    quit_sync_thread = 1;
-    syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING FRAME SYNC THREAD\n", core->session_id);
-    pthread_join(frame_sync_thread_id, NULL);
-    sync_thread_running = 0;
-
-    for (i = 0; i < config_data.active_sources; i++) {
-        syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING UDP SOURCE THREAD: %d (%s:%d:%s)\n",
-               core->session_id,
-               i,
-               core->fillet_input[i].udp_source_ipaddr,
-               core->fillet_input[i].udp_source_port,
-               core->fillet_input[i].interface);              
-        pthread_join(core->source_stream[i].udp_source_thread_id, NULL);
-    }
-    
-    hlsmux_destroy(core->hlsmux);
-    core->hlsmux = NULL;
-    quit_sync_thread = 0;
-
-    return NULL;
 }
 
 int main(int argc, char **argv)
@@ -1589,9 +1598,7 @@ int main(int argc, char **argv)
      int ret;
      int i;
      fillet_app_struct *core;
-     pthread_t server_thread_id;
      pthread_t client_thread_id;
-     pthread_t runtime_thread_id;
 
      signal(SIGSEGV, crash_handler);
 
@@ -1600,60 +1607,70 @@ int main(int argc, char **argv)
      config_data.rollover_size = MAX_ROLLOVER_SIZE;
      config_data.active_sources = 0;
      config_data.identity = 1000;
+     config_data.enable_youtube_output = 0;
+     config_data.enable_ts_output = 0;
+     config_data.enable_fmp4_output = 0;
+     config_data.audio_source_index = 0;
+     
      memset(config_data.youtube_cid,0,sizeof(config_data.youtube_cid));
      
-     sprintf(config_data.manifest_directory,"/var/www/hls/");
+     snprintf(config_data.manifest_directory,MAX_STR_SIZE-1,"/var/www/hls/");
+     snprintf(config_data.manifest_dash,MAX_STR_SIZE-1,"masterdash.mpd");
+     snprintf(config_data.manifest_hls,MAX_STR_SIZE-1,"master.m3u8");
+     snprintf(config_data.manifest_fmp4,MAX_STR_SIZE-1,"masterfmp4.m3u8");     
      
      ret = parse_input_options(argc, argv);
-     if ((ret < 0 || config_data.active_sources == 0) && (enable_background == 0)) {
+     if ((ret < 0 || config_data.active_sources == 0)) {
          fprintf(stderr,"\n");
 	 fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
 	 fprintf(stderr,"\n");
 	 fprintf(stderr,"usage: fillet [options]\n");
 	 fprintf(stderr,"\n\n");
          fprintf(stderr,"PACKAGING OPTIONS\n");
-	 fprintf(stderr,"       --sources     [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]\n");
-	 fprintf(stderr,"       --ip          [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)\n");
-	 fprintf(stderr,"       --interface   [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]\n");
-	 fprintf(stderr,"                     If multicast, make sure route is in place\n\n");
-	 fprintf(stderr,"       --window      [WINDOW IN SEGMENTS FOR MANIFEST]\n");
-	 fprintf(stderr,"       --segment     [SEGMENT LENGTH IN SECONDS]\n");
-	 fprintf(stderr,"       --manifest    [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
-	 fprintf(stderr,"       --identity    [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]\n");
-         fprintf(stderr,"       --hls         [ENABLE TRADITIONAL HLS TRANSPORT STREAM OUTPUT - NO ARGUMENT REQUIRED]\n");
-         fprintf(stderr,"       --dash        [ENABLE FRAGMENTED MP4 STREAM OUTPUT (INCLUDES DASH+HLS FMP4) - NO ARGUMENT REQUIRED]\n");
-	 fprintf(stderr,"       --background  [RUN IN BACKGROUND]\n");
+	 fprintf(stderr,"       --sources       [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]\n");
+	 fprintf(stderr,"       --ip            [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)\n");
+	 fprintf(stderr,"       --interface     [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]\n");
+	 fprintf(stderr,"                       If multicast, make sure route is in place\n\n");
+	 fprintf(stderr,"       --window        [WINDOW IN SEGMENTS FOR MANIFEST]\n");
+	 fprintf(stderr,"       --segment       [SEGMENT LENGTH IN SECONDS]\n");
+	 fprintf(stderr,"       --manifest      [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
+	 fprintf(stderr,"       --identity      [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]\n");
+         fprintf(stderr,"       --hls           [ENABLE TRADITIONAL HLS TRANSPORT STREAM OUTPUT - NO ARGUMENT REQUIRED]\n");
+         fprintf(stderr,"       --dash          [ENABLE FRAGMENTED MP4 STREAM OUTPUT (INCLUDES DASH+HLS FMP4) - NO ARGUMENT REQUIRED]\n");
+         fprintf(stderr,"       --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]\n");
+         fprintf(stderr,"       --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]\n");
+         fprintf(stderr,"       --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]\n");
 	 fprintf(stderr,"\n");
 #if defined(ENABLE_TRANSCODE)
          fprintf(stderr,"TRANSCODE OPTIONS\n");
          fprintf(stderr,"       --transcode   [ENABLE TRANSCODER AND NOT JUST PACKAGING]\n");
          fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT PROFILES TO BE TRANSCODED]\n");
          fprintf(stderr,"       --vcodec      [VIDEO CODEC - needs to be hevc or h264]\n");
-         fprintf(stderr,"       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720 ]\n");
-         fprintf(stderr,"       --vrate       [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500 ]\n");
+         fprintf(stderr,"       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720]\n");
+         fprintf(stderr,"       --vrate       [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500]\n");
          fprintf(stderr,"       --acodec      [AUDIO CODEC - needs to be aac, ac3 or pass]\n");
-         fprintf(stderr,"       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96 ]\n");
-         fprintf(stderr,"       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other ]\n");
+         fprintf(stderr,"       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96]\n");
+         fprintf(stderr,"       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]\n");
+         fprintf(stderr,"\n");
+         fprintf(stderr,"PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED\n");
          fprintf(stderr,"\n");
 #endif // ENABLE_TRANSCODE         
 	 return 1;
      }
 
-     if (!enable_background) {
-         if (enable_ts == 0 && enable_fmp4 == 0 && enable_youtube == 0) {
-             fprintf(stderr,"FILLET: ERROR: Please select TS output and/or fMP4 output mode OR YouTube DASH publishing mode\n");
-             fprintf(stderr,"\n");
-             return 1;
-         }
-         if ((enable_ts || enable_fmp4) && enable_youtube) {
-             fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- YouTube mode and TS/fMP4 are not compatible\n");
-             fprintf(stderr,"\n");
-             return 1;
-         }
+     if (enable_ts == 0 && enable_fmp4 == 0 && enable_youtube == 0) {
+         fprintf(stderr,"FILLET: ERROR: Please select TS output and/or fMP4 output mode OR YouTube DASH publishing mode\n");
+         fprintf(stderr,"\n");
+         return 1;
+     }
+     if ((enable_ts || enable_fmp4) && enable_youtube) {
+         fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- YouTube mode and TS/fMP4 are not compatible\n");
+         fprintf(stderr,"\n");
+         return 1;
      }
      
-     config_data.enable_ts_output = enable_ts;
-     config_data.enable_fmp4_output = enable_fmp4;
+     config_data.enable_ts_output = !!enable_ts;
+     config_data.enable_fmp4_output = !!enable_fmp4;
 
 #if defined(ENABLE_TRANSCODE)     
      if (enable_transcode && config_data.num_outputs == 0) {
@@ -1663,225 +1680,93 @@ int main(int argc, char **argv)
      }
 #endif // ENABLE_TRANSCODE     
 
-     if (enable_background) {
-         core = create_fillet_core(&config_data, MAX_SOURCES); // need to reserve ahead of time
-     } else {
-         core = create_fillet_core(&config_data, config_data.active_sources);
+     core = create_fillet_core(&config_data, config_data.active_sources);
+     
+     // basic command line mode for testing purposes
+     core->session_id = 1;
+     core->transcode_enabled = !!enable_transcode;
+     core->sync_thread_restart_count = 0;
+     
+     register_message_callback(message_dispatch, (void*)core);
+     register_frame_callback(receive_frame, (void*)core);
+     hlsmux_create(core);
+     for (i = 0; i < config_data.active_sources; i++) {
+         struct in_addr addr;	     
+         snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
+         snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
+         if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
+             fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
+                     config_data.active_source[i].active_ip);
+             goto cleanup_main_app;
+         }
+         core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
      }
      
-     if (enable_background) {
-	 int daemon_launched;
-	 FILE *pid_vartmp;
-	 int child_process;
-	 pid_t new_pid;
-
-         fprintf(stderr,"\n");
-         fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
-         fprintf(stderr,"launching in background mode\n");
-         fprintf(stderr,"\n");
-
-	 daemon_launched = daemon(0, 1);  // need to see some of the stderr messages
-	 if (daemon_launched < 0) {
-	     fprintf(stderr,"FILLET: ERROR: Unable to launch application in background!\n\n");
-	     return -1;
-	 }
-
-         fprintf(stderr,"saving process pid information in /var/tmp/fillet.background\n");
-	 pid_vartmp = fopen("/var/tmp/fillet.background","w");
-	 if (!pid_vartmp) {
-	     fprintf(stderr,"FILLET: ERROR: Unable to open /var/tmp/fillet.background!\n\n");
-	     return -1;
-	 }
-	 fprintf(pid_vartmp,"%u\n", getpid());
-	 fclose(pid_vartmp);
-
-         fprintf(stderr,"launching %d background processes\n", MAX_SESSIONS);
-	 for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
-	     new_pid = launch_new_fillet(core, child_process);
-	     if (new_pid < 0) {
-		 fprintf(stderr,"ERROR: Unable to launch new process in background!\n\n");
-                 syslog(LOG_INFO,"FILLET: ERROR: Unable to launch new process in background!\n");
-		 exit(1);
-	     } else if (new_pid != 0) {
-                 // parent
-                 fprintf(stderr,"STATUS: Launching background worker process: %d (PID:%d)\n", child_process, new_pid);
-                 syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launching background worker process: %d (PID:%d)\n",
-                        child_process,
-                        new_pid);                 
-                 child_pids[child_process] = new_pid;
-		 continue;
-	     } else {
-                 // new child
-		 syslog(LOG_INFO,"FILLET: STATUS: CHILD: Launched new child process!\n\n");
-		 break;
-             }
-	 }
-
-	 if (new_pid > 0) {
-	     //server side
-
-	     disable_child_signal();
-
-	     syslog(LOG_INFO,"FILLET: STATUS: STARTING SERVER THREAD\n");
-	     
-	     while (1) {
-                 int err;
-		 //just ping each client asking for health
-		 //also check that the process is still alive otherwise refork
-                 //fprintf(stderr,"Parent is sleeping\n");
-                 for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
-                     //fprintf(stderr,"PID:%d CHECKING IF PROCESS EXISTS: (%d) PID:%d\n", new_pid, child_process, child_pids[child_process]);
-                     // checking to see if process exists - setting kill to 0 is simply a check that it exists and can receive signals
-                     err = kill(child_pids[child_process], 0);
-                     if (err == 0) {
-                         // process exists - we are fine
-                         continue;
-                     }
-                     if (err == -1) {
-                         syslog(LOG_INFO,"ERROR: PROCESS %d HAS EXITED - STARTING A NEW ONE\n", child_pids[child_process]);
-                         fprintf(stderr,"STATUS: PROCESS %d HAS EXITED - STARTING A NEW ONE\n", child_pids[child_process]);
-
-                         new_pid = launch_new_fillet(core, child_process);
-                         if (new_pid < 0) {
-                             fprintf(stderr,"ERROR: Unable to launch new process in background!\n\n");
-                             syslog(LOG_INFO,"FILLET: ERROR: Unable to launch new process in background!\n");
-                             exit(1);
-                         } else if (new_pid != 0) {
-                             fprintf(stderr,"STATUS: Launching background worker process: %d (PID:%d)\n", child_process, new_pid);
-                             syslog(LOG_INFO,"FILLET: STATUS: PARENT: Launching background worker process: %d (PID:%d)\n",
-                                    child_process,
-                                    new_pid);                 
-                             child_pids[child_process] = new_pid;
-                             continue;
-                         } else {
-                             // new child
-                             syslog(LOG_INFO,"FILLET: STATUS: CHILD: Launched new child process!\n\n");
-                             goto _start_child_process;
-                         }             
-                     }
-                 }
-		 sleep(1);
-	     }
-
-             // this will fall through and the channel will start again
-             
-	     // wait for the kill signal
-             // we should probably put in a master kill switch that gets us here
-	     // kill the children
-	     //for (child_process = 0; child_process < MAX_SESSIONS; child_process++) {
-             // kill(child_pids[child_process], SIGKILL);
-	     //}
-	     // kill the server
-	     //exit(0);
-	 }
-     } else {
-	 // basic command line mode for testing purposes
-	 core->session_id = 1;
-	 register_message_callback(message_dispatch, (void*)core);
-	 register_frame_callback(receive_frame, (void*)core);
-	 hlsmux_create(core);
-	 for (i = 0; i < config_data.active_sources; i++) {
-	     struct in_addr addr;	     
-	     snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
-	     snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
-	     if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
-		 fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
-			 config_data.active_source[i].active_ip);
-		 goto cleanup_main_app;
-		 return -1;
-	     }
-	     core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
-	 }
-
-         sync_thread_running = 1;
-	 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
-	 core->source_running = 1;
-	 for (i = 0; i < config_data.active_sources; i++) {	
-	     pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
-         }
-
-	 while (core->source_running) {
-	     if (quit_sync_thread) {
-                 while (sync_thread_running) {
-                     usleep(10000);
-                 }
-		 quit_sync_thread = 0;                 
-		 fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
-                 sync_thread_running = 1;
-		 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
-	     }
-             usleep(100000);
-	 }
-	 
-cleanup_main_app:
-	 fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
-	 hlsmux_destroy(core->hlsmux);
-         core->hlsmux = NULL;
-	 destroy_fillet_core(core);
-
-	 return 0;
+     sync_thread_running = 1;
+     pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
+     core->source_running = 1;
+     for (i = 0; i < config_data.active_sources; i++) {	
+         pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
      }
-
-_start_child_process:     
-     // this is the main child background thread
-     syslog(LOG_INFO,"FILLET: STATUS: STARTING CHILD SERVER THREAD: %d\n", core->session_id);
-
-     pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
-     while (1) {	 
-	 int msgid;
-
-         syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: WAITING FOR EVENT: ACTIVE:%d\n",
-                core->session_id,
-                core->source_running);
+     
+     pthread_create(&client_thread_id, NULL, client_thread, (void*)core);         
+     while (core->source_running) {
+         if (quit_sync_thread) {
+             while (sync_thread_running) {
+                 // this is signaled in the sync_thread
+                 usleep(10000);
+             }
+             quit_sync_thread = 0;
+             // sync thread will restart if things choke up on the front-end and the sorted queue
+             // gets messed up (could be a result of missing/corrupt/lost data)
+             //
+             // for the pure packaging mode, the content is ingested and put into a sorted queue
+             // so we are able to make sure all of the data is present but also absorb some
+             // interstream delays on the input since it is basically a bunch of spts coming in on udp streams..
+             //
+             // if the sync thread restarts, it flags a discontinuity into the hls manifest
+             // and also keeps the dash manifest going from where it left off
+             // the docker container will restart the application if it happens to exit (if you've set it to restart)
+             //
+             // my goal is to make this as resilient as possible to source stream issues
+             // and to just keep packaging so a proper output stream is available
+             // can't stand having signal interruptions
+             fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");             
+             sync_thread_running = 1;
+             core->sync_thread_restart_count++;
+             pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
+         }
          
-	 msgid = wait_for_event(core);
+         int msgid;
+         
+         msgid = wait_for_event(core);
          if (msgid == -1) {
              //placeholder - this is the kill
+             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE WAITING FOR EVENT- TIMEOUT/KILL\n", core->session_id);
              break;
          }
-         syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE WAITING FOR EVENT - DISPATCH:0x%x\n",
-                core->session_id,
-                msgid);
          if (msgid == MSG_START) {
-             int err;
-             
-             if (core->source_running) {
-                 syslog(LOG_INFO,"SESSION: %d (MAIN) WARNING: CORE SESSION ALREADY RUNNING\n", core->session_id);
-                 // nope!
-                 continue;
-             }
-             //reload configuration file when starting
-             err = load_kvp_config(core);
-             if (err < 0) {
-                 syslog(LOG_INFO,"SESSION:%d (MAIN) ERROR: UNABLE TO PROCESS CONFIGURATION\n", core->session_id);
-                 continue;
-             }
-             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STARTING CORE SESSION\n", core->session_id);
-             pthread_create(&runtime_thread_id, NULL, runtime_thread, (void*)core);
+             fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED START MESSAGE\n", core->session_id);
+             // this is not hooked up right now
          } else if (msgid == MSG_STOP) {
-             if (!core->source_running) {
-                 syslog(LOG_INFO,"SESSION: %d (MAIN) WARNING: CORE SESSION NOT RUNNING\n", core->session_id);
-                 // nope!
-                 continue;
-             }
-             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: STOPPING CORE SESSION\n", core->session_id);
+             fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED STOP MESSAGE\n", core->session_id);
              core->source_running = 0;
-             pthread_join(runtime_thread_id, NULL);
-             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: CORE SESSION STOPPED\n", core->session_id);             
+             // this is not hooked up right now
          } else if (msgid == MSG_RESTART) {
-             if (!core->source_running) {
-                 // nope!
-                 continue;
-             }
-             core->source_running = 0;
-             pthread_join(runtime_thread_id, NULL);
-             pthread_create(&runtime_thread_id, NULL, runtime_thread, (void*)core);
+             fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED RESTART MESSAGE\n", core->session_id);
+             // this is not hooked up right now
          } else if (msgid == MSG_RESPAWN) {
-             exit(0);  // force respawn
-         } 
+             exit(0);  // force respawn - if your docker container is set to restart
+         } else {
+             //fprintf(stderr,"SESSION: %d (MAIN) STATUS: NO MESSAGE TO PROCESS\n", core->session_id);
+         }
      }
      pthread_join(client_thread_id, NULL);
-     destroy_fillet_core(core);     
+cleanup_main_app:         
+     hlsmux_destroy(core->hlsmux);
+     core->hlsmux = NULL;         
+     destroy_fillet_core(core);         
+     fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
      
      return 0;
 }
