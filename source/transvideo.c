@@ -361,6 +361,7 @@ void *video_prepare_thread(void *context)
     for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
         output_scaler[i] = NULL;
         deinterlaced_frame_count[i] = 0;
+        scaled_output[i].output_data[0] = NULL;
     }
     
     params->pixel_fmts = pix_fmts;
@@ -650,8 +651,14 @@ cleanup_video_prepare_thread:
         av_freep(&output_data[0]);
         av_frame_free(&deinterlaced_frame);
         av_frame_free(&source_frame);
-        // free output_scaler
-        // free scaled_output       
+
+        for (current_output = 0; current_output < num_outputs; current_output++) {
+            if (scaled_output[current_output].output_data[0]) {
+                av_freep(&scaled_output[current_output].output_data[0]);                
+            }
+        }
+
+        sws_freeContext(output_scaler);       
     }
     return NULL;
 }
