@@ -942,6 +942,11 @@ int use_frame(sorted_frame_struct **frame_data, int entries, int pos, int64_t *c
     for (i = pos; i < entries; i++) {	
         frame_data[i] = frame_data[i+1];
     }
+
+    if (!get_frame) {
+        fprintf(stderr,"warning: no frame returned in use_frame\n");
+        return 0;
+    }          
     
     if (get_frame->frame_type == FRAME_TYPE_VIDEO) {
 	*current_time = get_frame->full_time;	
@@ -1438,12 +1443,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
 #endif // ENABLE_TRANSCODE            
         } else {
-            pthread_mutex_lock(&sync_lock);	
-            video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
-            if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
-                restart_sync_thread = 1;	    	   
+            if (sync_thread_running) {
+                pthread_mutex_lock(&sync_lock);	
+                video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
+                if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
+                    restart_sync_thread = 1;	    	   
+                }
+                pthread_mutex_unlock(&sync_lock);
             }
-            pthread_mutex_unlock(&sync_lock);
         }
     } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3) {
 	audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
@@ -1564,12 +1571,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
 #endif // ENABLE_TRANSCODE
         } else {
-            pthread_mutex_lock(&sync_lock);	
-            audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
-            if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
-                restart_sync_thread = 1;
+            if (sync_thread_running) {
+                pthread_mutex_lock(&sync_lock);	
+                audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
+                if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
+                    restart_sync_thread = 1;
+                }
+                pthread_mutex_unlock(&sync_lock);
             }
-            pthread_mutex_unlock(&sync_lock);
         }
     } else {
 	fprintf(stderr,"UNKNOWN SAMPLE RECEIVED\n");
