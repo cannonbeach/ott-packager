@@ -14,12 +14,12 @@ With this application, you can ingest *live* MPEG2 transport streams carried ove
 The software install guide here is for Ubuntu 16.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.
 
 ```
-cannonbeach@insanitywave:$ sudo apt install git<br>
-cannonbeach@insanitywave:$ sudo apt install build-essential<br>
-cannonbeach@insanitywave:$ sudo apt install libz-dev<br>
-cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git<br>
-cannonbeach@insanitywave:$ cd ott-packager<br>
-cannonbeach@insanitywave:$ make<br>
+cannonbeach@insanitywave:$ sudo apt install git
+cannonbeach@insanitywave:$ sudo apt install build-essential
+cannonbeach@insanitywave:$ sudo apt install libz-dev
+cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
+cannonbeach@insanitywave:$ cd ott-packager
+cannonbeach@insanitywave:$ make
 ```
 The above steps will compile the application (it is named "fillet"). Please ensure that you already have a basic development environment setup.<br>
 <br>
