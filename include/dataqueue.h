@@ -47,6 +47,8 @@ typedef struct _dataqueue_message_struct_ {
         int             channels;
         int             sample_rate;
         int64_t         first_pts;
+        int             caption_size;    
+        uint8_t         *caption_buffer;
     	void            *buffer;
 } dataqueue_message_struct;
 

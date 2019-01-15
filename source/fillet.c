@@ -487,6 +487,10 @@ static int parse_input_options(int argc, char **argv)
                       
                       if (optarg[c] == ',' || optarg[c] == '\0' || c == optarg_len - 1) {
                           config_data.transvideo_info[outputidx].video_bitrate = atoi(bitratestr);
+                          if (config_data.transvideo_info[outputidx].video_bitrate <= 0) {
+                              fprintf(stderr,"ERROR: Invalid video bitrate specified\n");
+                              return -1;
+                          }                              
                           outputidx++;
                           if (outputidx >= MAX_TRANS_OUTPUTS) {
                               fprintf(stderr,"ERROR: Exceeded number of allowed video transcoder outputs (bitrate parsing)\n");
@@ -551,6 +555,10 @@ static int parse_input_options(int argc, char **argv)
                       
                       if (optarg[c] == ',' || optarg[c] == '\0' || c == optarg_len - 1) {
                           config_data.transaudio_info[outputidx].audio_bitrate = atoi(bitratestr);
+                          if (config_data.transaudio_info[outputidx].audio_bitrate < 40) {
+                              fprintf(stderr,"ERROR: Invalid audio bitrate specified\n");
+                              return -1;
+                          }
                           outputidx++;
                           if (outputidx >= MAX_AUDIO_SOURCES) {
                               fprintf(stderr,"ERROR: Exceeded number of allowed audio transcoder outputs (bitrate parsing)\n");
@@ -1443,13 +1451,15 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
 #endif // ENABLE_TRANSCODE            
         } else {
-            if (sync_thread_running) {
+            if (sync_thread_running && !quit_sync_thread) {
                 pthread_mutex_lock(&sync_lock);	
                 video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
                 if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
                     restart_sync_thread = 1;	    	   
                 }
                 pthread_mutex_unlock(&sync_lock);
+            } else {
+                // return new_frame - free()
             }
         }
     } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3) {
@@ -1571,13 +1581,15 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
 #endif // ENABLE_TRANSCODE
         } else {
-            if (sync_thread_running) {
+            if (sync_thread_running && !quit_sync_thread) {
                 pthread_mutex_lock(&sync_lock);	
                 audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
                 if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
                     restart_sync_thread = 1;
                 }
                 pthread_mutex_unlock(&sync_lock);
+            } else {
+                // return new_frame - free()
             }
         }
     } else {

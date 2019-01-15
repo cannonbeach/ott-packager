@@ -134,7 +134,7 @@ void *audio_encode_thread(void *context)
             } else {
                 aacEncoder_SetParam(handle, AACENC_CHANNELMODE, MODE_1);
             }
-            aacEncoder_SetParam(handle, AACENC_BITRATE, 128000); // fix this- set to the configuration value
+            aacEncoder_SetParam(handle, AACENC_BITRATE, core->cd->transaudio_info[audio_stream].audio_bitrate * 1000);
             aacEncoder_SetParam(handle, AACENC_TRANSMUX, 2); // adts
             aacEncoder_SetParam(handle, AACENC_AFTERBURNER, 1); // higher quality
             aacEncEncode(handle, NULL, NULL, NULL, NULL);
@@ -425,8 +425,7 @@ void *audio_decode_thread(void *context)
                         encode_msg->channels = decode_avctx->channels;
                         encode_msg->sample_rate = decode_avctx->sample_rate;
                         encode_msg->first_pts = first_decoded_pts;
-                        dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);
-                        
+                        dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
                     }
                 }
                 free(frame->buffer);

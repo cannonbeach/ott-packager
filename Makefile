@@ -1,4 +1,5 @@
 CC=gcc
+CXX=g++
 CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -funroll-loops
 SRC=./source
 INC=-I./include
@@ -9,7 +10,6 @@ BASELIBS=
 #ENABLE_TRANSCODE=1
 
 ifdef ENABLE_TRANSCODE
-
         ifneq ("$(wildcard ./cbfdkaac/.libs/libfdk-aac.a)","")
 	    FILE_EXISTS = 1
 	else
@@ -26,15 +26,17 @@ ifdef ENABLE_TRANSCODE
 		    ./cbffmpeg/libavresample/libavresample.a \
 		    ./cbffmpeg/libswresample/libswresample.a \
                     ./cbx264/libx264.a \
-                    ./cbfdkaac/.libs/libfdk-aac.a
+                    ./cbfdkaac/.libs/libfdk-aac.a \
+	            ./x265_2.9/build/linux/libx265.a
 	INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
+        INC += -I./x265_2.9/build/linux
 	BASELIBS += -lz -ldl
 endif
 
 all: $(LIB) fillet
 
 fillet: fillet.o $(OBJS)
-	$(CC) fillet.o $(OBJS) -L./ $(BASELIBS) -lm -lpthread -o fillet
+	$(CXX) fillet.o $(OBJS) -L./ $(BASELIBS) -lm -lpthread -o fillet
 
 $(LIB): $(OBJS)
 	ar rcs $(LIB) $(OBJS)
