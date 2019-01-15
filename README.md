@@ -16,6 +16,7 @@ The software install guide here is for Ubuntu 16.04 server only, however, you ca
 ```
 cannonbeach@insanitywave:$ sudo apt install git
 cannonbeach@insanitywave:$ sudo apt install build-essential
+cannonbeach@insanitywave:$ sudo apt install g++
 cannonbeach@insanitywave:$ sudo apt install libz-dev
 cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
 cannonbeach@insanitywave:$ cd ott-packager
