@@ -54,7 +54,6 @@ int wait_for_event(fillet_app_struct *core)
         msgid = 0;
     }
 
-    syslog(LOG_INFO,"RETURNING MSGID:%d (0x%x)\n", msgid, msgid);
     return msgid;
 }
 
