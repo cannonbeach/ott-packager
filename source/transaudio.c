@@ -295,6 +295,8 @@ void *audio_decode_thread(void *context)
                     audio_decoder_ready = 1;                
                 }//!audio_decoder_ready
 
+                int current_sample_out = 0;
+                int64_t last_full_time = 0;
                 uint8_t *incoming_audio_buffer = frame->buffer;
                 int incoming_audio_buffer_size = frame->buffer_size;
                 //sometimes the audio frames are concatenated, especially coming from
@@ -329,6 +331,8 @@ void *audio_decode_thread(void *context)
                                                                   decode_avctx->sample_fmt,
                                                                   1);
 
+                    ticks_per_sample = (double)(((double)decode_avctx->sample_rate / (double)100000.0)) * (double)2.0 * (double)decode_avctx->channels;                   
+
                     fprintf(stderr,"decoded audio_frame_size:%d  channels:%d  samplerate:%d  samplefmt:%s\n",
                             audio_frame_size,
                             decode_avctx->channels,
@@ -338,7 +342,12 @@ void *audio_decode_thread(void *context)
                     // the ffmpeg decoder should be providing the WAV format order for 5.1- FrontLeft, FrontRight, Center, LFE, Side/BackLeft, Side/BackRight                    
                     decode_frame_count++;
 
-                    full_time = decode_av_frame->pkt_dts; // full time
+                    if (current_sample_out == 0) {
+                        full_time = decode_av_frame->pkt_dts; // full time
+                    } else {
+                        full_time = last_full_time;
+                    }
+                    last_full_time = full_time;
                     pts = decode_av_frame->pts;
                     if (first_decoded_pts == -1) {
                         first_decoded_pts = pts;
@@ -389,30 +398,32 @@ void *audio_decode_thread(void *context)
                                                         source_stride,
                                                         source_samples);
 
-                    updated_output_buffer_size = output_samples * 2 * decode_avctx->channels;
-                    
-                    ticks_per_sample = (double)(((double)decode_avctx->sample_rate / (double)100000.0)) * (double)2.0 * (double)decode_avctx->channels;
+                    updated_output_buffer_size = output_samples * 2 * decode_avctx->channels;                    
                     delta_time = (double)full_time - (double)first_decoded_pts;
 
-                    if (previous_delta_time != -1 && ticks_per_sample != 0) {
-                        expected_audio_data = (int64_t)((double)delta_time / (double)0.9 * (double)ticks_per_sample);
-                        fprintf(stderr,"expected audio date:%ld   actual audio data:%ld   delta:%ld\n", expected_audio_data, actual_audio_data, expected_audio_data - actual_audio_data);
-                        //check how much source audio we have vs. how much we should have
-                        //if audio is missing, then there could be some missing data
-                        //that would throw off the a/v sync for the mp4 file output mode
-                        //so we have to introduce silence pcm to compensate for the "missing" data
-                        //and if things are just really bad and unrecoverable for some unknown reason
-                        //then we'll just have the application quit out based on some threshold
-                        //and rely on the docker container to restart the application in a known healthy state
+                    if (current_sample_out == 0) {
+                        if (previous_delta_time != -1 && ticks_per_sample != 0) {
+                            expected_audio_data = (int64_t)((double)delta_time / (double)0.9 * (double)ticks_per_sample);
+                            fprintf(stderr,"expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld\n",
+                                    expected_audio_data, actual_audio_data, full_time, expected_audio_data - actual_audio_data);
+                            //check how much source audio we have vs. how much we should have
+                            //if audio is missing, then there could be some missing data
+                            //that would throw off the a/v sync for the mp4 file output mode
+                            //so we have to introduce silence pcm to compensate for the "missing" data
+                            //and if things are just really bad and unrecoverable for some unknown reason
+                            //then we'll just have the application quit out based on some threshold
+                            //and rely on the docker container to restart the application in a known healthy state
+                        }
                     }
                     previous_delta_time = delta_time;                    
                     actual_audio_data += updated_output_buffer_size;
 
-                    // check size of updated_output_buffer_size+1
+                        // check size of updated_output_buffer_size+1
                     if (updated_output_buffer_size > 65535 || updated_output_buffer_size < 0) {
                         fprintf(stderr,"warning: output buffer size is excessively large or malformed: %d\n", updated_output_buffer_size); 
                         updated_output_buffer_size = 65535;
                     }
+                    
                     decoded_audio_buffer = (uint8_t*)malloc(updated_output_buffer_size+1);
                     memcpy(decoded_audio_buffer, swr_output_buffer, updated_output_buffer_size);
 
@@ -427,6 +438,7 @@ void *audio_decode_thread(void *context)
                         encode_msg->first_pts = first_decoded_pts;
                         dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
                     }
+                    current_sample_out++;
                 }
                 free(frame->buffer);
                 frame->buffer = NULL;
