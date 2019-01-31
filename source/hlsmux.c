@@ -1201,9 +1201,21 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
 
     for (i = 0; i < core->num_sources; i++) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;	
-	
+
+	int video_bitrate;
+
+#if defined(ENABLE_TRANSCODE)        
+        if (core->transcode_enabled) {
+            video_bitrate = core->cd->transvideo_info[i].video_bitrate * 1000;
+        } else {
+            video_bitrate = vstream->video_bitrate;
+        }
+#else
+        video_bitrate = vstream->video_bitrate;
+#endif
+        
 	fprintf(master_manifest,"#EXT-X-STREAM-INF:BANDWIDTH=%ld,CODECS=\"avc1.%2x%02x%02x\",RESOLUTION=%dx%d,AUDIO=\"aac\"\n",
-		vstream->video_bitrate,
+		video_bitrate,
 		sdata->h264_profile, //hex
 		sdata->midbyte,
 		sdata->h264_level,
@@ -1399,10 +1411,20 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
             starting_media_sequence_number);   
 
     video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;
-    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[0];    
-    fprintf(master_manifest,"<Representation id=\"1\" width=\"%d\" height=\"%d\" bandwidth=\"%d\">\n", lsdata->width, lsdata->height, vstream->video_bitrate);
+    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[0];
+    int video_bitrate;
+#if defined(ENABLE_TRANSCODE)    
+    if (core->transcode_enabled) {
+        video_bitrate = core->cd->transvideo_info[0].video_bitrate * 1000;
+    } else {
+        video_bitrate = vstream->video_bitrate;
+    }
+#else
+    video_bitrate = vstream->video_bitrate;
+#endif    
+    fprintf(master_manifest,"<Representation id=\"1\" width=\"%d\" height=\"%d\" bandwidth=\"%d\">\n", lsdata->width, lsdata->height, video_bitrate);
     fprintf(master_manifest,"<SubRepresentation contentComponent=\"1\" bandwidth=\"%d\" codecs=\"avc1.%02x%02x%02x\"/>\n",
-            vstream->video_bitrate,
+            video_bitrate,
             lsdata->h264_profile,
             lsdata->midbyte,
             lsdata->h264_level);
@@ -1535,14 +1557,25 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     for (i = 0; i < core->num_sources; i++) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
 	int segment;
+        int video_bitrate;
 
+#if defined(ENABLE_TRANSCODE)        
+        if (core->transcode_enabled) {
+            video_bitrate = core->cd->transvideo_info[i].video_bitrate * 1000;        
+        } else {
+            video_bitrate = vstream->video_bitrate;
+        }
+#else
+        video_bitrate = vstream->video_bitrate;        
+#endif        
+        
 	fprintf(master_manifest,"<Representation id=\"%d\" mimeType=\"video/mp4\" codecs=\"avc1.%2x%02x%02x\" width=\"%d\" height=\"%d\" frameRate=\"60000/1001\" bandwidth=\"%ld\">\n",
 		i,
 		lsdata->h264_profile, //hex
 		lsdata->midbyte,
 		lsdata->h264_level,
 		lsdata->width, lsdata->height,
-		vstream->video_bitrate);
+		video_bitrate);
 
 	for (segment = 0; segment < core->cd->window_size; segment++) {
 	    int64_t next_sequence_number;
@@ -1712,10 +1745,21 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
     }
 
     for (i = 0; i < core->num_sources; i++) {
-	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;	
+	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
+        int video_bitrate;
+
+#if defined(ENABLE_TRANSCODE)        
+        if (core->transcode_enabled) {
+            video_bitrate = core->cd->transvideo_info[i].video_bitrate * 1000;        
+        } else {
+            video_bitrate = vstream->video_bitrate;
+        }
+#else
+        video_bitrate = vstream->video_bitrate;
+#endif        
 	
 	fprintf(master_manifest,"#EXT-X-STREAM-INF:BANDWIDTH=%ld,CODECS=\"avc1.%2x%02x%02x\",RESOLUTION=%dx%d,AUDIO=\"allaudio\"\n",
-		vstream->video_bitrate,
+		video_bitrate,
 		sdata->h264_profile, //hex
 		sdata->midbyte,
 		sdata->h264_level,
@@ -2011,6 +2055,8 @@ void *mux_pump_thread(void *context)
                     if (core->cd->enable_youtube_output) {
 			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
                         audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+                        int video_bitrate;
+                        
                         hlsmux->video[source].fmp4 = fmp4_file_create_youtube(MEDIA_TYPE_H264,
                                                                               MEDIA_TYPE_AAC,
                                                                               VIDEO_CLOCK, // timescale for H264 video
@@ -2021,11 +2067,22 @@ void *mux_pump_thread(void *context)
                                            source_data[source].h264_sps_size);                        
                         fmp4_video_set_pps(hlsmux->video[source].fmp4,
                                            source_data[source].h264_pps,
-                                           source_data[source].h264_pps_size);                        
+                                           source_data[source].h264_pps_size);
+
+#if defined(ENABLE_TRANSCODE)                        
+                        if (core->transcode_enabled) {
+                            video_bitrate = core->cd->transvideo_info[source].video_bitrate;
+                        } else {
+                            video_bitrate = vstream->video_bitrate / 1000;
+                        }
+#else
+                        video_bitrate = vstream->video_bitrate / 1000;
+#endif                            
+                        
                         fmp4_video_track_create(hlsmux->video[source].fmp4,
                                                 source_data[source].width,
                                                 source_data[source].height,
-                                                vstream->video_bitrate / 1000);
+                                                video_bitrate);
                         fmp4_audio_track_create(hlsmux->video[source].fmp4,  // using a single fmp4 handle for both video+audio
                                                 astream->audio_channels,
                                                 astream->audio_samplerate,
@@ -2052,9 +2109,11 @@ void *mux_pump_thread(void *context)
                     }
 		    
 		    if (core->cd->enable_fmp4_output) {
-			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;                        
 
 			if (frame->media_type == MEDIA_TYPE_H264) {
+                            int video_bitrate;        
+                            
 			    hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
 									  VIDEO_CLOCK, // timescale for H264 video
 									  0x15c7, // english language code
@@ -2067,12 +2126,22 @@ void *mux_pump_thread(void *context)
 			    
 			    fmp4_video_set_pps(hlsmux->video[source].fmp4,
 					       source_data[source].h264_pps,
-					       source_data[source].h264_pps_size);			
+					       source_data[source].h264_pps_size);
+
+#if defined(ENABLE_TRANSCODE)                            
+                            if (core->transcode_enabled) {
+                                video_bitrate = core->cd->transvideo_info[source].video_bitrate;
+                            } else {
+                                video_bitrate = vstream->video_bitrate / 1000;                                
+                            }
+#else
+                            video_bitrate = vstream->video_bitrate / 1000;                                
+#endif                            
 			    
 			    fmp4_video_track_create(hlsmux->video[source].fmp4,
 						    source_data[source].width,
 						    source_data[source].height,
-						    vstream->video_bitrate / 1000);
+						    video_bitrate);
 			} else if (frame->media_type == MEDIA_TYPE_HEVC) {
 			    //HEVC placeholder
 			} else {
@@ -2192,16 +2261,27 @@ void *mux_pump_thread(void *context)
 		    }
                     if (core->cd->enable_youtube_output) {
 			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
-                        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];                        
+                        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+                        int video_bitrate;
+                        
                         hlsmux->video[source].fmp4 = fmp4_file_create_youtube(MEDIA_TYPE_H264,
                                                                               MEDIA_TYPE_AAC,
                                                                               VIDEO_CLOCK, // timescale for H264 video
                                                                               0x157c, // english language code
-                                                                              fragment_length);  // fragment length in seconds                        
+                                                                              fragment_length);  // fragment length in seconds
+#if defined(ENABLE_TRANSCODE)                        
+                        if (core->transcode_enabled) {
+                            video_bitrate = core->cd->transvideo_info[source].video_bitrate;
+                        } else {
+                            video_bitrate = vstream->video_bitrate / 1000;
+                        }
+#else
+                        video_bitrate = vstream->video_bitrate / 1000;
+#endif                        
                         fmp4_video_track_create(hlsmux->video[source].fmp4,
                                                 source_data[source].width,
                                                 source_data[source].height,
-                                                vstream->video_bitrate / 1000);
+                                                video_bitrate);
                         fmp4_audio_track_create(hlsmux->video[source].fmp4,  // using a single fmp4 handle for both video+audio
                                                 astream->audio_channels,
                                                 astream->audio_samplerate,
@@ -2214,16 +2294,28 @@ void *mux_pump_thread(void *context)
 			
 			start_mp4_fragment(core, &hlsmux->video[source], source, IS_VIDEO, NO_SUBSTREAM);
 			if (hlsmux->video[source].fmp4 == NULL) {
-			    if (frame->media_type == MEDIA_TYPE_H264) {			    
+			    if (frame->media_type == MEDIA_TYPE_H264) {
+                                int video_bitrate;
+                                
 				hlsmux->video[source].fmp4 = fmp4_file_create(MEDIA_TYPE_H264,
 									      VIDEO_CLOCK, // timescale for H264 video
 									      0x157c, // english language code
 									      fragment_length);  // fragment length in seconds
 
-				fmp4_video_track_create(hlsmux->video[source].fmp4,
+#if defined(ENABLE_TRANSCODE)
+                                if (core->transcode_enabled) {
+                                    video_bitrate = core->cd->transvideo_info[source].video_bitrate;
+                                } else {
+                                    video_bitrate = vstream->video_bitrate / 1000;
+                                }
+#else
+                                video_bitrate = vstream->video_bitrate / 1000;
+#endif                                
+
+                                fmp4_video_track_create(hlsmux->video[source].fmp4,
 							source_data[source].width,
 							source_data[source].height,
-							vstream->video_bitrate / 1000);
+							video_bitrate);
 			    } else if (frame->media_type == MEDIA_TYPE_HEVC) {
 				//HEVC placeholder
 			    } else {
