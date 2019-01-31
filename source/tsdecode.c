@@ -39,8 +39,6 @@
 #include <math.h>
 #include <syslog.h>
 
-#define __int32 int32_t
-
 #include "dataqueue.h"
 #include "mempool.h"
 #include "fgetopt.h"
@@ -301,6 +299,8 @@ _redo_decode:
                local_count -= local_tag_size;
                local_count -= 2;
 
+               fprintf(stderr,"PMT TABLE LOCAL TAG: 0x%x  WAITING:%d\n", local_tag, waiting_for_descriptor);
+
                if (local_tag == STREAM_DESCRIPTOR_IDENTIFIER) {
                     for (h = 0; h < local_tag_size; h++) {
                          // do something with the data here
@@ -366,8 +366,16 @@ _redo_decode:
 		   backup_caller(2000, 717, local_tag, 0, 0, 0, backup_context);
 		   tag_index += local_tag_size;
                } else if (local_tag == STREAM_DESCRIPTOR_AC3) {
+		   if (waiting_for_descriptor) {
+		       waiting_for_descriptor = 0;
+		       current_pmt_table->decoded_stream_type[stream_count - 1] = STREAM_TYPE_AC3;
+                       current_pmt_table->stream_type[stream_count - 1] = 0x81;                       
+                       current_pmt_table->audio_stream_index[stream_count - 1] = current_pmt_table->audio_stream_count;
+                       current_pmt_table->audio_stream_count++;                       
+		       goto _redo_decode;
+		   }                   
 		   backup_caller(2000, 718, local_tag, 0, 0, 0, backup_context);
-		   tag_index += local_tag_size;
+		   tag_index += local_tag_size;                   
                } else if (local_tag == STREAM_DESCRIPTOR_LANGUAGE) {
 		   uint8_t l1 = *(pdata+tag_index+0);
 		   uint8_t l2 = *(pdata+tag_index+1);
@@ -388,9 +396,14 @@ _redo_decode:
 		   tag_index += local_tag_size;
                } else if (local_tag == STREAM_DESCRIPTOR_AC3_2) {
 		   if (waiting_for_descriptor) {
+                       fprintf(stderr,"status: setting decoded stream type to AC3 (stream_count:%d)\n",
+                               stream_count);
 		       waiting_for_descriptor = 0;
 		       current_pmt_table->decoded_stream_type[stream_count - 1] = STREAM_TYPE_AC3;
-		       goto _redo_decode;
+                       current_pmt_table->stream_type[stream_count - 1] = 0x81;
+                       current_pmt_table->audio_stream_index[stream_count - 1] = current_pmt_table->audio_stream_count;
+                       current_pmt_table->audio_stream_count++;                                             
+                       goto _redo_decode;
 		   }
 		   backup_caller(2000, 722, local_tag, 0, 0, 0, backup_context);
 		   tag_index += local_tag_size;
@@ -825,15 +838,16 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);
                                          } else if (stream_type == 0x86) {
-					     /*uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-					     send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_SCTE35, 1,
+					     uint8_t *scte35_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                             syslog(LOG_INFO,"sending up SCTE35 tag\n");
+					     send_frame_func(scte35_frame, video_frame_size, STREAM_TYPE_SCTE35, 1,
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
 							     0, // PCR
 							     tsdata->source,
                                                              tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-							     send_frame_context);*/
+							     send_frame_context);
 					 } else if (stream_type == 0x1b) {
 					     int vf;
 					     int nal_type;
@@ -845,7 +859,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 						     video_frame[vf+2] == 0x01) {
 						     nal_type = video_frame[vf+3] & 0x1f;
                                                      //fprintf(stderr,"nal_type:0x%x\n", nal_type);
-						     if (nal_type == 0x05) { 
+						     if (nal_type == 0x05 || nal_type == 0x07 || nal_type == 0x08) { 
 							 is_intra = 1;
 							 if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
 							     tsdata->first_frame_intra = 1;
