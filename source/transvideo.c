@@ -834,6 +834,41 @@ void *video_prepare_thread(void *context)
                                 vstream->first_timestamp,
                                 fps);
 
+                        if (deinterlaced_frame_count[current_output] - sync_frame_count < -1) {
+                            uint8_t *repeated_buffer = (uint8_t*)malloc(video_frame_size);
+                            if (repeated_buffer) {
+                                memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);
+
+                                encode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                                encode_msg->buffer = repeated_buffer;
+                                encode_msg->buffer_size = video_frame_size;
+                                encode_msg->pts = 0;
+                                encode_msg->dts = 0;
+                                encode_msg->tff = 1;
+                                encode_msg->interlaced = 0;
+                                encode_msg->fps_num = msg->fps_num;
+                                encode_msg->fps_den = msg->fps_den;
+                                encode_msg->aspect_num = msg->aspect_num;
+                                encode_msg->aspect_den = msg->aspect_den;
+                                encode_msg->width = output_width;
+                                encode_msg->height = output_height;
+                                encode_msg->stream_index = current_output;
+                                
+                                encode_msg->caption_buffer = NULL;
+                                encode_msg->caption_size = 0;
+                                                
+                                fprintf(stderr,"[%d] SENDING VIDEO FRAME TO ENCODER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
+                                        current_output,
+                                        encode_msg->pts,
+                                        encode_msg->dts,
+                                        encode_msg->aspect_num,
+                                        encode_msg->aspect_den);
+                                
+                                deinterlaced_frame_count[current_output]++;  // frames since the video start time
+                                dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);                                
+                            }
+                        }
+
                         encode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
                         encode_msg->buffer = deinterlaced_buffer;
                         encode_msg->buffer_size = video_frame_size;
@@ -871,7 +906,7 @@ void *video_prepare_thread(void *context)
                                 encode_msg->aspect_num,
                                 encode_msg->aspect_den);
 
-                        dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);
+                        dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);                        
                     }
                     if (opaque_data) {
                         free(opaque_data->caption_buffer);
