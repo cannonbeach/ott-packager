@@ -835,8 +835,9 @@ static int message_dispatch(int p1, int64_t p2, int64_t p3, int64_t p4, int64_t 
           case 806:
                //fprintf(stderr,"AC3 AUDIO STREAM FOUND ON PID:%d BELONGS TO PMT:%d\n", p3, p4);
                break;
-          case 812:
-               //fprintf(stderr,"SCTE35 SPLICE PID:%d BELONGS TO PMT:%d\n", p3, p4);
+          case 812:              
+               fprintf(stderr,"SCTE35 SPLICE PID:%ld BELONGS TO PMT:%ld\n", p3, p4);
+               syslog(LOG_INFO,"SCTE35 SPLICE PID:%ld BELONGS TO PMT:%ld\n", p3, p4);
                break;
           case 900:
           case 901:
@@ -936,8 +937,6 @@ int peek_frame(sorted_frame_struct **frame_data, int entries, int pos, int64_t *
     }
     return -1;    
 }
-
-// scrub_frames - anything older than 15 seconds gets scrubbed
 
 int use_frame(sorted_frame_struct **frame_data, int entries, int pos, int64_t *current_time, int dump_sample, sorted_frame_struct **output_frame)
 {
@@ -1215,6 +1214,10 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
 	video_synchronizer_entries = 0;
 	audio_synchronizer_entries = 0;
 	quit_sync_thread = 1;
+#if defined(ENABLE_TRANSCODE)
+        stop_video_transcode_threads(core);
+        stop_audio_transcode_threads(core);        
+#endif // ENABLE_TRANSCODE
         fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
 	pthread_join(frame_sync_thread_id, NULL);
         fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
@@ -1303,6 +1306,10 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
 	video_synchronizer_entries = 0;
 	audio_synchronizer_entries = 0;
 	quit_sync_thread = 1;
+#if defined(ENABLE_TRANSCODE)
+        stop_video_transcode_threads(core);
+        stop_audio_transcode_threads(core);        
+#endif // ENABLE_TRANSCODE        
         fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
 	pthread_join(frame_sync_thread_id, NULL);
         fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
@@ -1315,7 +1322,29 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     fillet_app_struct *core = (fillet_app_struct*)context;
     int restart_sync_thread = 0;
 
-    if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC) {
+    if (sample_type == STREAM_TYPE_SCTE35) {
+        uint8_t *scte35_buffer;
+        int scte35_size;
+
+        scte35_buffer = sample;
+        scte35_size = sample_size;
+
+        int protocol_version = scte35_buffer[0];
+        int scte35_command = scte35_buffer[11];
+
+        if (scte35_command == 0) {
+            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command null\n", pts, dts, protocol_version);
+        } else if (scte35_command == 4) {
+            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command insert\n", pts, dts, protocol_version);
+        } else if (scte35_command == 5) {
+            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command time signal\n", pts, dts, protocol_version);
+        } else if (scte35_command == 6) {
+            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command reserve\n", pts, dts, protocol_version);
+        } else {
+            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 other command: %p\n", pts, dts, protocol_version, scte35_command);
+        }
+        
+    } else if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 	sorted_frame_struct *new_frame;
 	uint8_t *new_buffer;
@@ -1606,9 +1635,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	video_synchronizer_entries = 0;
 	audio_synchronizer_entries = 0;
 	quit_sync_thread = 1;
-        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP: %d\n", sync_thread_running);
+#if defined(ENABLE_TRANSCODE)
+        stop_video_transcode_threads(core);
+        stop_audio_transcode_threads(core);        
+#endif // ENABLE_TRANSCODE        
+        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP: %d\n", sync_thread_running);        
 	pthread_join(frame_sync_thread_id, NULL);
-        sync_thread_running = 0;
         fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
     }
     return 0;
@@ -1755,6 +1787,10 @@ int main(int argc, char **argv)
              fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");             
              sync_thread_running = 1;
              core->sync_thread_restart_count++;
+#if defined(ENABLE_TRANSCODE)
+             start_video_transcode_threads(core);
+             start_audio_transcode_threads(core);        
+#endif // ENABLE_TRANSCODE             
              pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
          }
          
