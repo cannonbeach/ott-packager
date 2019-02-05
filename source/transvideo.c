@@ -447,7 +447,7 @@ void *video_encode_thread_x264(void *context)
             if (x264_data[current_queue].i_nal > 0) {
                 uint8_t *nal_buffer;
                 double output_fps = 30000.0/1001.0;
-                double ticks_per_frame = 90000.0/output_fps;
+                double ticks_per_frame_double = (double)90000.0/(double)output_fps;
                 video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream                
 
                 nal_buffer = (uint8_t*)malloc(output_size+1);
@@ -456,19 +456,23 @@ void *video_encode_thread_x264(void *context)
                 if (x264_data[current_encoder].param.i_fps_den > 0) {
                     output_fps = (double)x264_data[current_encoder].param.i_fps_num / (double)x264_data[current_encoder].param.i_fps_den;
                     if (output_fps > 0) {
-                        ticks_per_frame = 90000.0/output_fps;
+                        ticks_per_frame_double = (double)90000.0/(double)output_fps;
                     }
                 }
                 
                 fprintf(stderr,"RECEIVED ENCODED FRAME OUTPUT:%d FRAME COUNT DISPLAY ORDER:%ld  CURRENT TS:%ld\n",
                         output_size,
                         (int64_t)x264_data[current_queue].pic_out.opaque,
-                        (int64_t)x264_data[current_queue].pic_out.opaque * (int64_t)ticks_per_frame + (int64_t)vstream->first_timestamp);
+                        (int64_t)x264_data[current_queue].pic_out.opaque * (int64_t)ticks_per_frame_double + (int64_t)vstream->first_timestamp);
+
                 pts = x264_data[current_queue].pic_out.i_pts;
                 dts = x264_data[current_queue].pic_out.i_dts;
 
-                pts = (int64_t)x264_data[current_queue].pic_out.opaque * (int64_t)ticks_per_frame + (int64_t)vstream->first_timestamp;
-                dts = (int64_t)x264_data[current_queue].frame_count_dts * (int64_t)ticks_per_frame + (int64_t)vstream->first_timestamp;
+                int64_t opaque_int64 = (int64_t)x264_data[current_queue].pic_out.opaque;
+                double opaque_double = (double)opaque_int64;
+                
+                pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
+                dts = (int64_t)((double)x264_data[current_queue].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
                 x264_data[current_queue].frame_count_dts++;
                 video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_queue);
@@ -822,7 +826,7 @@ void *video_prepare_thread(void *context)
                         video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
 
                         deinterlaced_frame_count[current_output]++;  // frames since the video start time
-                        sync_frame_count = (int64_t)(((((double)deinterlaced_frame->pkt_dts-(double)vstream->first_timestamp) / (double)90000.0))*(double)fps);
+                        sync_frame_count = (int64_t)(((((double)deinterlaced_frame->pkt_pts-(double)vstream->first_timestamp) / (double)90000.0))*(double)fps);
                         av_sync_offset = (((double)deinterlaced_frame_count[current_output] - (double)sync_frame_count)/(double)fps)*(double)1000.0;
 
                         fprintf(stderr,"\n\nDEINTERLACED_FRAME_COUNT:%ld  SYNC_FRAME_COUNT:%ld   SYNC OFFSET:%ld (%.2fms)  PKT_DTS:%ld  FT:%ld  FPS:%.2f\n\n",
@@ -830,7 +834,7 @@ void *video_prepare_thread(void *context)
                                 sync_frame_count,
                                 deinterlaced_frame_count[current_output] - sync_frame_count,
                                 av_sync_offset,
-                                deinterlaced_frame->pkt_dts,
+                                deinterlaced_frame->pkt_pts,
                                 vstream->first_timestamp,
                                 fps);
 
