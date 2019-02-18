@@ -54,6 +54,7 @@ TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
        --acodec        [AUDIO CODEC - needs to be aac]
        --arate         [AUDIO BITRATES IN KBPS - formatted as: 128,96]
        --aspect        [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]
+       --scte35        [PASSTHROUGH SCTE35 TO MANIFEST]
                                                                              
 ```
 Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
