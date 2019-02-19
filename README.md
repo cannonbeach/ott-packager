@@ -55,6 +55,7 @@ TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
        --arate         [AUDIO BITRATES IN KBPS - formatted as: 128,96]
        --aspect        [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]
        --scte35        [PASSTHROUGH SCTE35 TO MANIFEST]
+       --stereo        [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]
                                                                              
 ```
 Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
