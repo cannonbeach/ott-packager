@@ -56,7 +56,14 @@ TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
        --aspect        [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]
        --scte35        [PASSTHROUGH SCTE35 TO MANIFEST]
        --stereo        [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]
-                                                                             
+       --quality       [VIDEO ENCODING QUALITY LEVEL 0-3 (0-LOW,1-MED,2-HIGH,3-CRAZY)
+                       LOADING WILL AFFECT CHANNEL DENSITY-SOME PLATFORMS MAY NOT RUN HIGHER QUALITY REAL-TIME
+
+H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)
+       --profile       [H264 ENCODING PROFILE - needs to be base,main or high]
+
+PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED                                                                      
+
 ```
 Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
 ```
@@ -83,7 +90,19 @@ curl http://10.0.0.200:18000/api/v1/status
 <br>
 
 ## Misc
-(1/12/19) This application is still in active development and I am hoping to have an official v1.0 release in the next couple of months.  I still need to tie up some loose ends on the packaging as well as complete the basic H.264 and HEVC transcoding modes.  The remaining items will be tagged in the "Issues" section.
+(02/20/19) As I mentioned in earlier posts, the application is still in active development, but I am getting closer to a v1.0 release.  This most recent update has included some significant transcoding feature improvements.
+
+- 5.1 to stereo downconversion and mono to stereo upconversion added
+- SCTE35 passthrough for HLS H.264 output mode with trancoding (added CUE-IN/CUE-OUT to manifest).  Scheduled splices with duration are supported (immediate splices are not implemented yet and will do this with API support)
+- Fixed bug where DASH manifest would not output if HLS output mode was not selected
+- Finished most of the HEVC encoding path (some minor fixes still needed in the output manifest files for profile/level reporting)
+- Fixed DASH a/v sync issue
+- Added profile selector for H264 encoding (base,main,high)
+- Added quality modes for H264 encoding (low,med,high,crazy)
+- Added notification when encoder is unable to make realtime encoding due to limited CPU resources
+- Increased internal buffer limits to support a larger number of streams being repackaged
+
+(01/12/19) This application is still in active development and I am hoping to have an official v1.0 release in the next couple of months.  I still need to tie up some loose ends on the packaging as well as complete the basic H.264 and HEVC transcoding modes.  The remaining items will be tagged in the "Issues" section.
 In order to use the optional transcoding mode, you must enable the ENABLE_TRANSCODE flag manually in the Makefile and rebuild.  You will also need to run the script setuptranscode.sh which will download and install the necessary third party packages used in the transcoding mode.
 
 See the WIKI page for more information:
