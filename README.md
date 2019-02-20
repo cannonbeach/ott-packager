@@ -65,12 +65,16 @@ H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)
 PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED                                                                      
 
 ```
-Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
+Simple Repackaging Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
 ```
 cannonbeach@insanitywave:$ sudo ./fillet --sources 2 --ip 127.0.0.1:4000,127.0.0.1:4200 --interface lo --window 5 --segment 5 --manifest /var/www/html/hls --identity 1000
 ```
 <br>
-This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.<br>
+This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.
+
+This will write the manifests into the /var/www/html/hls directory (this is a common Apache directory).  
+
+<br>
 <br>
 
 ```
@@ -88,6 +92,24 @@ curl http://10.0.0.200:18000/api/v1/status
 ```
 
 <br>
+In order to use the optional transcoding mode, you must enable the ENABLE_TRANSCODE flag manually in the Makefile and rebuild.  You will also need to run the script setuptranscode.sh which will download and install the necessary third party packages used in the transcoding mode.
+<br>
+
+## H.264 Transcoding Example
+```
+cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec h264 --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,2500 --acodec aac --arate 128 --aspect 16:9 --scte35 --quality 0 --profile base --stereo
+
+```
+
+<br>
+
+## HEVC Transcoding Example
+
+```
+cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec hevc --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,1250 --acodec aac --arate 128 --aspect 16:9 --quality 0 --stereo
+````
+
+<br>
 
 ## Misc
 (02/20/19) As I mentioned in earlier posts, the application is still in active development, but I am getting closer to a v1.0 release.  This most recent update has included some significant transcoding feature improvements.
@@ -103,7 +125,7 @@ curl http://10.0.0.200:18000/api/v1/status
 - Increased internal buffer limits to support a larger number of streams being repackaged
 
 (01/12/19) This application is still in active development and I am hoping to have an official v1.0 release in the next couple of months.  I still need to tie up some loose ends on the packaging as well as complete the basic H.264 and HEVC transcoding modes.  The remaining items will be tagged in the "Issues" section.
-In order to use the optional transcoding mode, you must enable the ENABLE_TRANSCODE flag manually in the Makefile and rebuild.  You will also need to run the script setuptranscode.sh which will download and install the necessary third party packages used in the transcoding mode.
+
 
 See the WIKI page for more information:
 https://github.com/cannonbeach/ott-packager/wiki
