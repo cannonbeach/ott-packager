@@ -148,6 +148,7 @@ I also plan to start adapting this current solution over to file version after t
 
 (01/12/19) This application is still in active development and I am hoping to have an official v1.0 release in the next couple of months.  I still need to tie up some loose ends on the packaging as well as complete the basic H.264 and HEVC transcoding modes.  The remaining items will be tagged in the "Issues" section.
 
+I do offer fee based consulting so please send me an email if you are interested in retaining me for any support issues or feature development.  I have several support models available and can provide more details upon request.  You can reach me at: cannonbeachgoonie@gmail.com
 
 See the WIKI page for more information:
 https://github.com/cannonbeach/ott-packager/wiki
