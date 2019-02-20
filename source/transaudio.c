@@ -70,6 +70,7 @@ void *audio_encode_thread(void *context)
     CHANNEL_MODE mode;
     int audio_encoder_ready = 0;
     int channels;
+    int output_channels;
     int sample_rate;
     int64_t first_pts = -1;
     int64_t current_duration = 0;
@@ -113,6 +114,11 @@ void *audio_encode_thread(void *context)
         }
 
         channels = msg->channels;
+        if (core->cd->enable_stereo) {
+            output_channels = 2;
+        } else {
+            output_channels = channels;
+        }
         sample_rate = msg->sample_rate;
         if (first_pts == -1) {
             first_pts = msg->first_pts;
@@ -123,13 +129,13 @@ void *audio_encode_thread(void *context)
 
             audio_object_type = 2; // let's set it to MPEG4 AAC Low Complexity for now
             // we can support sbr and other advanced mode later
-            aacEncOpen(&handle, 0, channels);
+            aacEncOpen(&handle, 0, output_channels);
             aacEncoder_SetParam(handle, AACENC_SAMPLERATE, sample_rate);
             aacEncoder_SetParam(handle, AACENC_AOT, audio_object_type);
             aacEncoder_SetParam(handle, AACENC_CHANNELORDER, 1); // WAV format order- this is what ffmpeg provides            
-            if (channels == 6) {
+            if (output_channels == 6) {
                 aacEncoder_SetParam(handle, AACENC_CHANNELMODE, MODE_1_2_2_1);
-            } else if (channels == 2) {
+            } else if (output_channels == 2) {
                 aacEncoder_SetParam(handle, AACENC_CHANNELMODE, MODE_2);
             } else {
                 aacEncoder_SetParam(handle, AACENC_CHANNELMODE, MODE_1);
@@ -142,7 +148,7 @@ void *audio_encode_thread(void *context)
             audio_encoder_ready = 1;
         }     
 
-        requested_length = channels * 2 * info.frameLength;
+        requested_length = output_channels * 2 * info.frameLength;
         memcpy(source_buffer + source_buffer_size, msg->buffer, msg->buffer_size);
         source_buffer_size += msg->buffer_size;
 
@@ -190,7 +196,7 @@ void *audio_encode_thread(void *context)
                 encoded_output_buffer = (uint8_t*)malloc(output_size+1);
                 memcpy(encoded_output_buffer, output_buffer, output_size);
 
-                fprintf(stderr,"status: encoded audio!  output_size:%d   pts:%ld\n", output_size, first_pts + current_duration);
+                //fprintf(stderr,"status: encoded audio!  output_size:%d   pts:%ld\n", output_size, first_pts + current_duration);
                 audio_sink_frame_callback(core, encoded_output_buffer, output_size, first_pts + current_duration);
 
                 current_duration = (int64_t)encoded_frame_count * (int64_t)sample_duration;
@@ -239,6 +245,7 @@ void *audio_decode_thread(void *context)
     int source_stride = 0;
     int source_samples = 0;
     int output_samples = 0;
+    int output_channels;
 
     // we need to build the structure to create multiple decode threads to deal
     // with more than one audio stream... something to do after we get the base
@@ -324,6 +331,12 @@ void *audio_decode_thread(void *context)
                     if (retcode == AVERROR(EAGAIN) || retcode == AVERROR_EOF) {
                         break;
                     }
+
+                    if (core->cd->enable_stereo) {
+                        output_channels = 2;
+                    } else {
+                        output_channels = decode_avctx->channels;
+                    }                    
                     
                     audio_frame_size = av_samples_get_buffer_size(NULL,
                                                                   decode_avctx->channels,
@@ -331,13 +344,12 @@ void *audio_decode_thread(void *context)
                                                                   decode_avctx->sample_fmt,
                                                                   1);
 
-                    ticks_per_sample = (double)(((double)decode_avctx->sample_rate / (double)100000.0)) * (double)2.0 * (double)decode_avctx->channels;                   
-
-                    fprintf(stderr,"decoded audio_frame_size:%d  channels:%d  samplerate:%d  samplefmt:%s\n",
+                    ticks_per_sample = (double)(((double)decode_avctx->sample_rate / (double)100000.0)) * (double)2.0 * (double)output_channels;
+                    /*fprintf(stderr,"decoded audio_frame_size:%d  channels:%d  samplerate:%d  samplefmt:%s\n",
                             audio_frame_size,
                             decode_avctx->channels,
                             decode_avctx->sample_rate,
-                            av_get_sample_fmt_name(decode_avctx->sample_fmt));
+                            av_get_sample_fmt_name(decode_avctx->sample_fmt));*/
                     
                     // the ffmpeg decoder should be providing the WAV format order for 5.1- FrontLeft, FrontRight, Center, LFE, Side/BackLeft, Side/BackRight                    
                     decode_frame_count++;
@@ -356,9 +368,15 @@ void *audio_decode_thread(void *context)
                     if (!swr) {
                         swr = avresample_alloc_context();
                         //we can do 5.1 to 2.0 conversion here
-                        if (decode_avctx->channels == 6) {
+                        if (decode_avctx->channels == 6 && output_channels == 6) {
                             av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_5POINT1,0);
                             av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_5POINT1,0);
+                        } else if (decode_avctx->channels == 6 && output_channels == 2) {
+                            av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_5POINT1,0);
+                            av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
+                        } else if (decode_avctx->channels == 1 && output_channels == 2) {
+                            av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_MONO,0);
+                            av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);                            
                         } else if (decode_avctx->channels == 2) {
                             av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_STEREO,0);
                             av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
@@ -397,8 +415,11 @@ void *audio_decode_thread(void *context)
                                                         &decode_av_frame->data[0],
                                                         source_stride,
                                                         source_samples);
-
-                    updated_output_buffer_size = output_samples * 2 * decode_avctx->channels;                    
+                    if (core->cd->enable_stereo) {                     
+                        updated_output_buffer_size = output_samples * 2 * output_channels;
+                    } else {
+                        updated_output_buffer_size = output_samples * 2 * decode_avctx->channels;
+                    }
                     delta_time = (double)full_time - (double)first_decoded_pts;
 
                     if (current_sample_out == 0) {

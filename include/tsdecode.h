@@ -82,6 +82,18 @@
 #define STREAM_DESCRIPTOR_MPEGAUDIO    0x03
 #define STREAM_DESCRIPTOR_AC3_2        0x6a
 
+typedef struct _scte35_data_struct_ {
+    int             splice_command_type;
+    int64_t         splice_event_id;
+    int64_t         pts_time;
+    int64_t         pts_duration;
+    int64_t         pts_adjustment;
+    int             splice_immediate;
+    int             program_id;
+    int             cancel;
+    int             out_of_network_indicator;
+} scte35_data_struct;    
+
 typedef struct _packet_table_struct_ {
      int            pid;
      int64_t        input_packets;

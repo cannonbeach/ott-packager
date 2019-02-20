@@ -307,7 +307,8 @@ void *client_thread(void *context)
                                      "            \"segment-length\": %d,\n"
                                      "            \"youtube-active\": %d,\n"
                                      "            \"hls-active\": %d,\n"
-                                     "            \"dash-fmp4-active\": %d\n"
+                                     "            \"dash-fmp4-active\": %d,\n"
+                                     "            \"scte35\": %d\n"
                                      "        },\n"
                                      "        \"source\": {\n"
                                      "            \"inputs\": %d,\n"
@@ -336,6 +337,7 @@ void *client_thread(void *context)
                                      core->cd->enable_youtube_output,
                                      core->cd->enable_ts_output,
                                      core->cd->enable_fmp4_output,
+                                     core->cd->enable_scte35,
                                      core->cd->active_sources,
                                      core->cd->active_interface,
                                      input_streams,

@@ -52,8 +52,8 @@
 #define MAX_AUDIO_SOURCES          5
 #define MAX_AUDIO_STREAMS          5
 #define MAX_VIDEO_SOURCES          8
-#define MAX_FRAME_DATA_SYNC_AUDIO  512
-#define MAX_FRAME_DATA_SYNC_VIDEO  256
+#define MAX_FRAME_DATA_SYNC_AUDIO  2048
+#define MAX_FRAME_DATA_SYNC_VIDEO  1024
 #define MAX_MUX_SOURCES            10
 #define MAX_TRANS_OUTPUTS          MAX_VIDEO_SOURCES
 #define MAX_VIDEO_MUX_BUFFER       1024*1024*4
@@ -83,6 +83,15 @@
 #define MSG_PING                   0xb1
 #define MSG_STATUS                 0xb2
 
+#define ENCODER_QUALITY_LOW        0x00
+#define ENCODER_QUALITY_MEDIUM     0x01
+#define ENCODER_QUALITY_HIGH       0x02
+#define ENCODER_QUALITY_CRAZY      0x03
+
+#define ENCODER_PROFILE_BASE       66
+#define ENCODER_PROFILE_MAIN       77
+#define ENCODER_PROFILE_HIGH       100
+
 #if defined(ENABLE_TRANSCODE)
 typedef struct _trans_video_output_struct_ {
     int                    video_codec;
@@ -91,6 +100,8 @@ typedef struct _trans_video_output_struct_ {
     int                    video_bitrate;
     int                    aspect_num;
     int                    aspect_den;
+    int                    encoder_quality;
+    int                    encoder_profile;
 } trans_video_output_struct;
 
 typedef struct _trans_audio_output_struct_ {
@@ -146,8 +157,10 @@ typedef struct _config_options_struct_ {
     int              enable_youtube_output;
     int              audio_source_index;
 
+    int              enable_scte35;
+    int              enable_stereo;
 #if defined(ENABLE_TRANSCODE)
-    int                           num_outputs;    
+    int                           num_outputs;
     trans_video_output_struct     transvideo_info[MAX_TRANS_OUTPUTS];
     trans_audio_output_struct     transaudio_info[MAX_AUDIO_SOURCES];
 #endif // ENABLE_TRANSCODE    
@@ -208,6 +221,9 @@ typedef struct _sorted_frame_struct_
     int                    sync_frame;
     int                    frame_type;
     int                    media_type;
+    int                    splice_point;
+    int64_t                splice_duration;
+    int64_t                splice_duration_remaining;
     int64_t                time_received;
     char                   lang_tag[4];
 } sorted_frame_struct;
@@ -295,6 +311,13 @@ typedef struct _fillet_app_struct_
     int                           input_signal;
     int                           source_interruptions;
     int                           sync_thread_restart_count;
+
+    int                           scte35_ready;
+    int                           scte35_triggered;
+    int64_t                       scte35_pts;
+    int64_t                       scte35_duration;
+    int64_t                       scte35_duration_remaining;
+    int64_t                       scte35_last_pts_diff;
 
 #if defined(ENABLE_TRANSCODE)    
     preparevideo_internal_struct  *preparevideo;

@@ -71,6 +71,8 @@ static int sync_thread_running = 0;
 static pthread_t frame_sync_thread_id;
 static int enable_verbose = 0;
 static int enable_transcode = 0;
+static int enable_scte35 = 0;
+static int enable_stereo = 0;
 static int enable_fmp4 = 0;
 static int enable_youtube = 0;
 static int enable_ts = 0;
@@ -102,7 +104,11 @@ static struct option long_options[] = {
      {"vrate", required_argument, 0, 'v'},                // the video bitrates (kbps)  --vrate 800,1250,2500,5000
      {"acodec", required_argument, 0, 'a'},               // audio output codec used    --acodec aac or --acodec ac3
      {"arate", required_argument, 0, 't'},                // the audio bitrates (kbps)  --arate 128,96
-     {"aspect", required_argument, 0, 'A'},                // force the aspect ratio (16:9,4:3, or other)
+     {"aspect", required_argument, 0, 'A'},               // force the aspect ratio (16:9,4:3, or other)
+     {"scte35", no_argument, &enable_scte35, '3'},        // enable scte35 passthrough
+     {"stereo", no_argument, &enable_stereo, '2'},
+     {"quality", required_argument, 0, 'q'},              // set the quality level
+     {"profile", required_argument, 0, 'p'},              // set the encoder profile level
 #endif // ENABLE_TRANSCODE
      {"youtube", required_argument, 0, 'C'},              // the youtube cid
      {0, 0, 0, 0}
@@ -304,7 +310,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F",
+                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F:3:2:q:p",
                            long_options,
                            &option_index);
 
@@ -328,6 +334,55 @@ static int parse_input_options(int argc, char **argv)
               fprintf(stderr,"STATUS: Number of transcoded outputs: %d\n", config_data.num_outputs);
 #endif // ENABLE_TRANSCODE              
               break;
+          case 'p':
+#if defined(ENABLE_TRANSCODE)
+              if (optarg) {
+                  int c;                  
+                  // eventually add combined h264/hevc encoding
+                  if (strncmp(optarg,"base",4)==0) {
+                      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                          config_data.transvideo_info[c].encoder_profile = ENCODER_PROFILE_BASE;
+                      }
+                  } else if (strncmp(optarg,"main",4)==0) {
+                      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                          config_data.transvideo_info[c].encoder_profile = ENCODER_PROFILE_MAIN;
+                      }
+                  } else if (strncmp(optarg,"high",4)==0) {
+                      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                          config_data.transvideo_info[c].encoder_profile = ENCODER_PROFILE_HIGH;
+                      }                      
+                  } else {
+                      fprintf(stderr,"ERROR: Invalid video codec was selected\n");
+                      return -1;
+                  }
+              } else {
+                  int c;
+                  for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                      config_data.transvideo_info[c].encoder_profile = ENCODER_PROFILE_MAIN;
+                  }                                        
+              }
+#endif // ENABLE_TRANSCODE              
+              break;
+          case 'q':
+#if defined(ENABLE_TRANSCODE)
+              if (optarg) {
+                  int c;
+                  for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                      config_data.transvideo_info[c].encoder_quality = atoi(optarg);
+                      if (config_data.transvideo_info[c].encoder_quality < ENCODER_QUALITY_LOW ||
+                          config_data.transvideo_info[c].encoder_quality > ENCODER_QUALITY_CRAZY) {
+                          config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_MEDIUM;
+                          fprintf(stderr,"ERROR: Unknown quality provided- defaulting to MEDIUM\n");
+                      }
+                  }
+              } else {
+                  int c;
+                  for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+                      config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_MEDIUM;
+                  }
+              }
+#endif // ENABLE_TRANSCODE
+              break;
           case 'c':
 #if defined(ENABLE_TRANSCODE)              
               if (optarg) {
@@ -338,7 +393,7 @@ static int parse_input_options(int argc, char **argv)
                       for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
                           config_data.transvideo_info[c].video_codec = STREAM_TYPE_HEVC;
                       }
-                  } else if (strncmp(optarg,"h264",3)==0) {
+                  } else if (strncmp(optarg,"h264",4)==0) {
                       // h264 selected as output codec
                       for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
                           config_data.transvideo_info[c].video_codec = STREAM_TYPE_H264;
@@ -512,12 +567,10 @@ static int parse_input_options(int argc, char **argv)
                   int c;                  
                   // eventually add combined h264/hevc encoding
                   if (strncmp(optarg,"ac3",3)==0) {
-                      // hevc selected as output codec
                       for (c = 0; c < MAX_AUDIO_SOURCES; c++) {
                           config_data.transaudio_info[c].audio_codec = STREAM_TYPE_AC3;
                       }
                   } else if (strncmp(optarg,"aac",3)==0) {
-                      // h264 selected as output codec
                       for (c = 0; c < MAX_AUDIO_SOURCES; c++) {
                           config_data.transaudio_info[c].audio_codec = STREAM_TYPE_AAC;
                       }
@@ -780,7 +833,7 @@ const float framerate_lut[9] = {0.000f,
 
 static int message_dispatch(int p1, int64_t p2, int64_t p3, int64_t p4, int64_t p5, int source, void *context)
 {
-    //fillet_app_struct *core = (fillet_app_struct*)context;
+     //fillet_app_struct *core = (fillet_app_struct*)context;
      int message_handled = 1;
 
      if (p1 == 2000) {
@@ -1036,6 +1089,7 @@ static void *frame_sync_thread(void *context)
     int source_discontinuity = 1;
     int print_entries = 0;
     int print_current_time = 0;
+    int active_sources;
 
     fprintf(stderr,"SESSION:%d (MAIN) STATUS: STARTING NEW SYNC THREAD\n", core->session_id);
     while (1) {
@@ -1072,8 +1126,18 @@ static void *frame_sync_thread(void *context)
             }
             print_entries++;
         }
+
+#if defined(ENABLE_TRANSCODE)
+        if (core->transcode_enabled) {
+            active_sources = config_data.num_outputs;
+        } else {
+            active_sources = config_data.active_sources;            
+        }
+#else
+        active_sources = config_data.active_sources;
+#endif        
             
-	if (audio_synchronizer_entries > config_data.active_sources && video_synchronizer_entries > config_data.active_sources) {
+	if (audio_synchronizer_entries > active_sources && video_synchronizer_entries > active_sources) {
 	    output_frame = NULL;
 	    
 	    pthread_mutex_lock(&sync_lock);	
@@ -1094,7 +1158,7 @@ static void *frame_sync_thread(void *context)
             
 	    if (current_audio_time <= current_video_time) {
 		no_grab = 0;
-		while (current_audio_time < current_video_time && audio_synchronizer_entries > config_data.active_sources && !quit_sync_thread) {
+		while (current_audio_time < current_video_time && audio_synchronizer_entries > active_sources && !quit_sync_thread) {
 		    pthread_mutex_lock(&sync_lock);
 		    audio_synchronizer_entries = use_frame(core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
 		    pthread_mutex_unlock(&sync_lock);
@@ -1114,13 +1178,13 @@ static void *frame_sync_thread(void *context)
 			current_video_time - current_audio_time,
 			current_video_time,
 			current_audio_time,
-			config_data.active_sources,
+			active_sources,
 			audio_synchronizer_entries,
 			video_synchronizer_entries);
 		first_grab = 0;
-
+                
 		no_grab++;
-		if (no_grab >= 15) {
+		if (no_grab >= 300) {  // was 15
 		    quit_sync_thread = 1;
 		    continue;
 		}		
@@ -1226,7 +1290,8 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     return 0;
 }
 
-int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source)
+#if defined(ENABLE_TRANSCODE)
+int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source, int splice_point, int64_t splice_duration, int64_t splice_duration_remaining)
 {
     sorted_frame_struct *new_frame;
     video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
@@ -1239,8 +1304,20 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     new_frame->buffer_size = sample_size;
     new_frame->pts = pts;
     new_frame->dts = dts;
-    new_frame->full_time = dts;// + vstream->overflow_dts;    
+    new_frame->full_time = dts;// + vstream->overflow_dts;
 
+    if (splice_point > 0 || splice_duration > 0 || splice_duration_remaining > 0) {
+        syslog(LOG_INFO,"SCTE35: VIDEO SINK CALLBACK:  SPLICE:%d  DURATION:%ld  REMAINING:%ld (%ld seconds)\n",
+               splice_point, splice_duration, splice_duration_remaining, splice_duration_remaining / 90000);
+        new_frame->splice_duration_remaining = splice_duration_remaining;
+        new_frame->splice_duration = splice_duration;
+        new_frame->splice_point = splice_point;
+    } else {
+        new_frame->splice_duration_remaining = 0;
+        new_frame->splice_duration = 0;
+        new_frame->splice_point = 0;
+    }
+    
     /*if (dts > 0) {
         new_frame->full_time = dts;// + vstream->overflow_dts;
     } else {
@@ -1260,24 +1337,42 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
 
     vstream->last_full_time = new_frame->full_time; 
 
-    for (i = 0; i < sample_size - 4; i++) {
-        if (new_buffer[i] == 0x00 &&
-            new_buffer[i+1] == 0x00 &&
-            new_buffer[i+2] == 0x00 &&
-            new_buffer[i+3] == 0x01) {
-            int nal_type = new_buffer[i+4] & 0x1f;
-            if (nal_type == 7 ||
-                nal_type == 8 ||
-                nal_type == 5) {
-                sync_frame = 1;
-                break;
+    new_frame->frame_type = FRAME_TYPE_VIDEO;
+    if (config_data.transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
+        for (i = 0; i < sample_size - 3; i++) {
+            if (new_buffer[i] == 0x00 &&
+                new_buffer[i+1] == 0x00 &&
+                new_buffer[i+2] == 0x01) {
+                int nal_type = (new_buffer[i+3] & 0x7f) >> 1;
+                if (nal_type == 19 ||
+                    nal_type == 20) {   // IDR
+                    fprintf(stderr,"\n\nHEVC SYNC FRAME FOUND\n\n");
+                    sync_frame = 1;
+                    break;
+                }
+                fprintf(stderr,"\n\n\n\nNAL TYPE: %d\n\n\n\n", nal_type);
             }
-        }
+        }           
+        new_frame->media_type = MEDIA_TYPE_HEVC;
+    } else {
+        for (i = 0; i < sample_size - 4; i++) {
+            if (new_buffer[i] == 0x00 &&
+                new_buffer[i+1] == 0x00 &&
+                new_buffer[i+2] == 0x00 &&
+                new_buffer[i+3] == 0x01) {
+                int nal_type = new_buffer[i+4] & 0x1f;
+                if (nal_type == 7 ||
+                    nal_type == 8 ||
+                    nal_type == 5) {   // IDR
+                    sync_frame = 1;
+                    break;
+                }
+            }
+        }   
+        new_frame->media_type = MEDIA_TYPE_H264;
     }
+    new_frame->sync_frame = sync_frame;   
     
-    new_frame->sync_frame = sync_frame;
-    new_frame->frame_type = FRAME_TYPE_VIDEO;    
-    new_frame->media_type = MEDIA_TYPE_H264;
     new_frame->time_received = 0;
     //if (lang_tag) {
     //        new_frame->lang_tag[0] = lang_tag[0];
@@ -1306,16 +1401,15 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
 	video_synchronizer_entries = 0;
 	audio_synchronizer_entries = 0;
 	quit_sync_thread = 1;
-#if defined(ENABLE_TRANSCODE)
         stop_video_transcode_threads(core);
         stop_audio_transcode_threads(core);        
-#endif // ENABLE_TRANSCODE        
         fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP\n");      
 	pthread_join(frame_sync_thread_id, NULL);
         fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
     }
     return 0;
 }
+#endif // ENABLE_TRANSCODE        
 
 static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint32_t sample_flags, int64_t pts, int64_t dts, int64_t last_pcr, int source, int sub_source, char *lang_tag, void *context)
 {
@@ -1323,27 +1417,47 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     int restart_sync_thread = 0;
 
     if (sample_type == STREAM_TYPE_SCTE35) {
-        uint8_t *scte35_buffer;
-        int scte35_size;
+        if (core->cd->enable_scte35) {
+            scte35_data_struct *scte35_data = (scte35_data_struct*)sample;
 
-        scte35_buffer = sample;
-        scte35_size = sample_size;
-
-        int protocol_version = scte35_buffer[0];
-        int scte35_command = scte35_buffer[11];
-
-        if (scte35_command == 0) {
-            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command null\n", pts, dts, protocol_version);
-        } else if (scte35_command == 4) {
-            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command insert\n", pts, dts, protocol_version);
-        } else if (scte35_command == 5) {
-            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command time signal\n", pts, dts, protocol_version);
-        } else if (scte35_command == 6) {
-            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 command reserve\n", pts, dts, protocol_version);
+            fprintf(stderr,"STATUS: RECEIVE_FRAME: (SCTE35): SPLICE-TYPE:%x PTS:%ld DURATION:%ld PTSADJ:%ld IMMEDIATE:%d PROGRAMID:%d CANCEL:%d OUTOFNETWORK:%d\n",
+                    scte35_data->splice_command_type,
+                    scte35_data->pts_time,
+                    scte35_data->pts_duration,
+                    scte35_data->pts_adjustment,
+                    scte35_data->splice_immediate,
+                    scte35_data->program_id,                
+                    scte35_data->cancel,
+                    scte35_data->out_of_network_indicator);
+            
+            syslog(LOG_INFO,"STATUS: RECEIVE_FRAME: (SCTE35): SPLICE-TYPE:0x%x EVENT:%ld PTS:%ld DURATION:%ld PTSADJ:%ld IMMEDIATE:%d PROGRAMID:%d CANCEL:%d OUTOFNETWORK:%d\n",
+                   scte35_data->splice_command_type,
+                   scte35_data->splice_event_id,
+                   scte35_data->pts_time,
+                   scte35_data->pts_duration,
+                   scte35_data->pts_adjustment,
+                   scte35_data->splice_immediate,
+                   scte35_data->program_id,                
+                   scte35_data->cancel,
+                   scte35_data->out_of_network_indicator);
+            
+            if (scte35_data->splice_command_type == 0x05) {
+                if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
+                    core->scte35_ready = 1;
+                    core->scte35_pts = scte35_data->pts_time;
+                    core->scte35_duration = scte35_data->pts_duration;
+                    core->scte35_duration_remaining = scte35_data->pts_duration;
+                    core->scte35_triggered = 0;
+                    //pts_adjustment- non-zero
+                } else {
+                    core->scte35_ready = 0;
+                }
+            } else {
+                core->scte35_ready = 0;
+            }
         } else {
-            syslog(LOG_INFO,"status: pts:%ld dts:%ld v:%d SCTE35 other command: %p\n", pts, dts, protocol_version, scte35_command);
+            core->scte35_ready = 0;
         }
-        
     } else if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC) {
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 	sorted_frame_struct *new_frame;
@@ -1434,6 +1548,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
 	new_frame->buffer = new_buffer;
 	new_frame->buffer_size = sample_size;
+
 	new_frame->pts = pts;
 	new_frame->dts = dts;
 	if (dts > 0) {
@@ -1441,6 +1556,68 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	} else {
 	    new_frame->full_time = pts + vstream->overflow_dts;
 	}
+
+        new_frame->splice_point = 0;
+        new_frame->splice_duration = 0;
+        new_frame->splice_duration_remaining = 0;
+        
+        if (core->scte35_ready) {
+            int64_t scte35_time_diff;
+            int64_t anchor_time = new_frame->full_time % 8589934592;
+            scte35_time_diff = core->scte35_pts - anchor_time;
+            fprintf(stderr,"SCTE35 TIME DIFF:%ld\n", scte35_time_diff);
+            syslog(LOG_INFO,"SCTE35 TIME DIFF:%ld    PTS:%ld    SCTE35PTS:%ld   DURATION:%ld   REMAINING:%ld  TRIGGERED:%d\n",
+                   scte35_time_diff,
+                   anchor_time,
+                   core->scte35_pts,
+                   core->scte35_duration,
+                   core->scte35_duration_remaining,
+                   core->scte35_triggered);
+
+            if (core->scte35_triggered) {
+                core->scte35_duration_remaining = core->scte35_duration - abs(scte35_time_diff);
+                new_frame->splice_duration_remaining = core->scte35_duration_remaining;
+                if (new_frame->splice_duration_remaining < 0) {
+                    new_frame->splice_duration_remaining = 0;
+                    core->scte35_duration_remaining = 0;
+                    core->scte35_triggered = 0;
+                    core->scte35_duration = 0;
+                    new_frame->splice_point = 2; // splice back point
+                    core->scte35_ready = 0;
+                    core->scte35_last_pts_diff = 0;
+                } else {
+                    new_frame->splice_point = 0;
+                    core->scte35_last_pts_diff = scte35_time_diff;
+                }
+                fprintf(stderr,"SCTE35 TIME REMAINING:%ld\n", new_frame->splice_duration_remaining);
+                syslog(LOG_INFO,"SCTE35 TIME REMAINING:%ld\n", new_frame->splice_duration_remaining);
+                new_frame->splice_duration = core->scte35_duration;               
+            } else if (scte35_time_diff < 0 && core->scte35_last_pts_diff >= 0) {
+                core->scte35_last_pts_diff = 0;
+                new_frame->splice_point = 1;
+                new_frame->splice_duration = core->scte35_duration;
+                new_frame->splice_duration_remaining = core->scte35_duration;
+                core->scte35_triggered = 1;
+                syslog(LOG_INFO,"SCTE35 - SETTING IT TO TRIGGERED\n");
+                //trigger point
+            } else if (scte35_time_diff < 0) {
+                //it's already too late- not sure what happened
+                core->scte35_ready = 0;
+                core->scte35_last_pts_diff = 0;
+                core->scte35_duration = 0;
+                core->scte35_duration_remaining = 0;
+                core->scte35_last_pts_diff = 0;
+                new_frame->splice_point = 0;
+                new_frame->splice_duration = 0;
+                new_frame->splice_duration_remaining = 0;
+            } else {
+                core->scte35_last_pts_diff = scte35_time_diff;
+                new_frame->splice_point = 0;
+                new_frame->splice_duration = 0;
+                new_frame->splice_duration_remaining = 0;                
+            }
+        }
+        
 	new_frame->duration = new_frame->full_time - vstream->last_full_time;
         if (!enable_transcode) {            
             vstream->last_full_time = new_frame->full_time;
@@ -1652,6 +1829,8 @@ int main(int argc, char **argv)
      int i;
      fillet_app_struct *core;
      pthread_t client_thread_id;
+     int c;
+     int loop_count = 0;
 
      signal(SIGSEGV, crash_handler);
 
@@ -1664,6 +1843,13 @@ int main(int argc, char **argv)
      config_data.enable_ts_output = 0;
      config_data.enable_fmp4_output = 0;
      config_data.audio_source_index = 0;
+
+#if defined(ENABLE_TRANSCODE)     
+     for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
+         config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_MEDIUM;
+         config_data.transvideo_info[c].encoder_profile = ENCODER_PROFILE_MAIN;
+     }
+#endif // ENABLE_TRANSCODE     
      
      memset(config_data.youtube_cid,0,sizeof(config_data.youtube_cid));
      
@@ -1704,6 +1890,13 @@ int main(int argc, char **argv)
          fprintf(stderr,"       --acodec      [AUDIO CODEC - needs to be aac, ac3 or pass]\n");
          fprintf(stderr,"       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96]\n");
          fprintf(stderr,"       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]\n");
+         fprintf(stderr,"       --scte35      [PASSTHROUGH SCTE35 TO MANIFEST (still finishing up)]\n");
+         fprintf(stderr,"       --stereo      [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]\n");
+         fprintf(stderr,"       --quality     [VIDEO ENCODING QUALITY LEVEL 0-3 (0-LOW,1-MED,2-HIGH,3-CRAZY)\n");
+         fprintf(stderr,"                      LOADING WILL AFFECT CHANNEL DENSITY-SOME PLATFORMS MAY NOT RUN HIGHER QUALITY REAL-TIME\n");
+         fprintf(stderr,"\n");
+         fprintf(stderr,"H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)\n");
+         fprintf(stderr,"       --profile     [H264 ENCODING PROFILE - needs to be base,main or high]\n");
          fprintf(stderr,"\n");
          fprintf(stderr,"PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED\n");
          fprintf(stderr,"\n");
@@ -1725,7 +1918,15 @@ int main(int argc, char **argv)
      config_data.enable_ts_output = !!enable_ts;
      config_data.enable_fmp4_output = !!enable_fmp4;
 
-#if defined(ENABLE_TRANSCODE)     
+#if defined(ENABLE_TRANSCODE)
+     if (enable_transcode && config_data.transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
+         if (config_data.enable_ts_output) {
+             fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- TS output enabled with HEVC encoding\n");
+             fprintf(stderr,"\n");
+             return 1;
+         }
+     }   
+     
      if (enable_transcode && config_data.num_outputs == 0) {
          fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- Transcoding enabled but no outputs were selected\n");
          fprintf(stderr,"\n");
@@ -1739,10 +1940,13 @@ int main(int argc, char **argv)
      core->session_id = 1;
      core->transcode_enabled = !!enable_transcode;
      core->sync_thread_restart_count = 0;
+     core->cd->enable_scte35 = !!enable_scte35;
+     core->cd->enable_stereo = !!enable_stereo;
      
      register_message_callback(message_dispatch, (void*)core);
      register_frame_callback(receive_frame, (void*)core);
      hlsmux_create(core);
+
      for (i = 0; i < config_data.active_sources; i++) {
          struct in_addr addr;	     
          snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
@@ -1793,8 +1997,82 @@ int main(int argc, char **argv)
 #endif // ENABLE_TRANSCODE             
              pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
          }
+
+         loop_count++;
+#if defined(ENABLE_TRANSCODE)
+#define WAIT_THRESHOLD_WARNING 3
+#define WAIT_THRESHOLD_ERROR   10
+#define WAIT_THRESHOLD_FAIL    30        
+#define LEVEL_CHECK_THRESHOLD  500
+         if (core->transcode_enabled) {
+             if (loop_count >= LEVEL_CHECK_THRESHOLD) {
+                 int n;                 
+
+                 int video_decode_frames_waiting;
+                 int video_deinterlace_frames_waiting;
+
+                 video_decode_frames_waiting = dataqueue_get_size(core->transvideo->input_queue);
+                 if (video_decode_frames_waiting > WAIT_THRESHOLD_ERROR) {
+                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                            core->session_id,
+                            n,
+                            video_decode_frames_waiting);                                              
+                 } else if (video_decode_frames_waiting > WAIT_THRESHOLD_WARNING) {
+                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                            core->session_id,
+                            n,
+                            video_decode_frames_waiting);                    
+                 } 
+
+                 video_deinterlace_frames_waiting = dataqueue_get_size(core->preparevideo->input_queue);
+                 if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_ERROR) {
+                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                            core->session_id,
+                            n,
+                            video_deinterlace_frames_waiting);                                              
+                 } else if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_WARNING) {
+                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                            core->session_id,
+                            n,
+                            video_deinterlace_frames_waiting);                    
+                 }                 
+                 
+                 for (n = 0; n < core->cd->num_outputs; n++) {
+                     int video_encode_frames_waiting;
+                     
+                     video_encode_frames_waiting = dataqueue_get_size(core->encodevideo->input_queue[n]);
+
+                     // these are good numbers to start raising the alarm
+                     if (video_encode_frames_waiting > WAIT_THRESHOLD_FAIL) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!! UNRECOVERABLE!!!)\n",
+                                core->session_id,
+                                n,
+                                video_encode_frames_waiting);
+                         fprintf(stderr,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!! UNRECOVERABLE!!!)\n",
+                                 core->session_id,
+                                 n,
+                                 video_encode_frames_waiting);
+                         exit(0);
+                     } else if (video_encode_frames_waiting > WAIT_THRESHOLD_ERROR) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                                core->session_id,
+                                n,
+                                video_encode_frames_waiting);                         
+                     } else if (video_encode_frames_waiting > WAIT_THRESHOLD_WARNING) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                                core->session_id,
+                                n,
+                                video_encode_frames_waiting);
+                     }
+                 }
+                 loop_count = 0;
+             }
+         }
+#endif // ENABLE_TRANSCODE         
          
          int msgid;
+
+         usleep(1000);
          
          msgid = wait_for_event(core);
          if (msgid == -1) {

@@ -47,7 +47,10 @@ typedef struct _dataqueue_message_struct_ {
         int             channels;
         int             sample_rate;
         int64_t         first_pts;
-        int             caption_size;    
+        int             caption_size;
+        int             splice_point;
+        int64_t         splice_duration;
+        int64_t         splice_duration_remaining;
         uint8_t         *caption_buffer;
     	void            *buffer;
 } dataqueue_message_struct;
@@ -58,6 +61,7 @@ extern "C" {
 
     void *dataqueue_create();
     int dataqueue_destroy(void *queue);
+    int dataqueue_get_size(void *queue);
     int dataqueue_put_front(void *queue, dataqueue_message_struct *message);
     dataqueue_message_struct *dataqueue_take_back(void *queue);
 	

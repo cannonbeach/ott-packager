@@ -162,7 +162,11 @@ static int output_fmp4_ftyp(fragment_file_struct *fmp4, int is_video)
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
     if (is_video) {
-        buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+        if (fmp4->video_media_type == MEDIA_TYPE_H264) {
+            buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+        } else {
+            buffer_offset += output_fmp4_4cc(fmp4,"hvc1");         
+        }
     }
     buffer_offset += output_fmp4_4cc(fmp4,"cmfc");    
 
@@ -187,7 +191,11 @@ static int output_fmp4_styp(fragment_file_struct *fmp4, int fragment_type)
     buffer_offset += output_fmp4_4cc(fmp4,"mp41");
     buffer_offset += output_fmp4_4cc(fmp4,"dash");
     if (fragment_type == VIDEO_FRAGMENT) {
-        buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+        if (fmp4->video_media_type == MEDIA_TYPE_H264) {
+            buffer_offset += output_fmp4_4cc(fmp4,"avc1");
+        } else {
+            buffer_offset += output_fmp4_4cc(fmp4,"hvc1");         
+        }
     }
     buffer_offset += output_fmp4_4cc(fmp4,"cmfc");
     
@@ -531,6 +539,52 @@ static int output_fmp4_dinf(fragment_file_struct *fmp4)
     return buffer_offset;
 }
 
+static int output_fmp4_hvcc(fragment_file_struct *fmp4)
+{
+    uint8_t *data;
+    int buffer_offset;
+
+    data = fmp4->buffer + fmp4->buffer_offset;
+
+    buffer_offset = output32(fmp4, 0);
+    buffer_offset += output_fmp4_4cc(fmp4,"hvcC");
+    buffer_offset += output8(fmp4, 0x01); // version
+    buffer_offset += output8(fmp4, 0x00); // profile
+    
+    // need to grab these from the bitstream and/or encoder
+    buffer_offset += output32(fmp4, 0x60000000);  // profile compatibility
+    buffer_offset += output16(fmp4, 0x9000);      // constraint indicator
+    buffer_offset += output32(fmp4, 0x00000000);
+    buffer_offset += output8(fmp4, 0x3f); // level_idc
+    buffer_offset += output16(fmp4, 0xf000); // spatial_segmentation
+    buffer_offset += output8(fmp4, 0xfc); // parallelism type
+    buffer_offset += output8(fmp4, 0xfd); // chroma format
+    buffer_offset += output8(fmp4, 0xf8); // bit depth luma - 8
+    buffer_offset += output8(fmp4, 0xf8); // bit depth chroma - 8
+    buffer_offset += output16(fmp4, 0x0000); // framerate
+    buffer_offset += output8(fmp4, 0x0f); // lengthsize -1
+    buffer_offset += output8(fmp4, 0x03);  // 3 tables
+    
+    buffer_offset += output8(fmp4, 0x20);
+    buffer_offset += output16(fmp4, 0x0001);
+    buffer_offset += output16(fmp4, fmp4->video_vps_size);
+    buffer_offset += output_raw_data(fmp4, fmp4->video_vps, fmp4->video_vps_size);
+
+    buffer_offset += output8(fmp4, 0x21);
+    buffer_offset += output16(fmp4, 0x0001);
+    buffer_offset += output16(fmp4, fmp4->video_sps_size);
+    buffer_offset += output_raw_data(fmp4, fmp4->video_sps, fmp4->video_sps_size);
+
+    buffer_offset += output8(fmp4, 0x22);
+    buffer_offset += output16(fmp4, 0x0001);
+    buffer_offset += output16(fmp4, fmp4->video_pps_size);
+    buffer_offset += output_raw_data(fmp4, fmp4->video_pps, fmp4->video_pps_size);
+    
+    output32_raw(data, buffer_offset);
+
+    return buffer_offset;    
+}
+
 static int output_fmp4_avcc(fragment_file_struct *fmp4)
 {
     uint8_t *data;
@@ -605,8 +659,7 @@ static int output_fmp4_vse(fragment_file_struct *fmp4)
     if (fmp4->video_media_type == MEDIA_TYPE_H264) {
 	buffer_offset += output_fmp4_avcc(fmp4);
     } else {
-	// TODO
-	//buffer_offset += output_fmp4_hvcc(fmp4);
+	buffer_offset += output_fmp4_hvcc(fmp4);
     }
 
     output32_raw(data, buffer_offset);
@@ -1383,7 +1436,117 @@ int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int 
     return 0;
 }
 
-static int replace_startcode_with_size(uint8_t *input_buffer, int input_buffer_size, uint8_t *output_buffer, int max_output_buffer_size)
+static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buffer_size, uint8_t *output_buffer, int max_output_buffer_size)
+{
+    int i;
+    int parsing_sample = 0;
+    uint8_t *sample_buffer = output_buffer;
+    int saved_position = 0;
+    int sample_size;
+    int read_pos = 0;
+    int write_pos = 0;
+
+    for (i = 0; i < input_buffer_size; i++) {
+        if (input_buffer[read_pos+0] == 0x00 &&
+            input_buffer[read_pos+1] == 0x00 &&
+            input_buffer[read_pos+2] == 0x00 &&
+            input_buffer[read_pos+3] == 0x01) {
+
+	    int nal_type = (input_buffer[read_pos+3] & 0x7f) >> 1;
+	    if (parsing_sample) {
+		sample_size = write_pos - saved_position - 4;
+		/*fprintf(stderr,"DONE PARSING SAMPLE: %d  SAVED_POS:%d\n",
+			sample_size,
+			saved_position);*/
+		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
+		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
+		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
+		*(sample_buffer+saved_position+3) = sample_size & 0xff;
+	    }
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34) {  // nal_type == 20
+                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+            }
+            
+	    saved_position = write_pos;
+	    *(sample_buffer+write_pos+0) = 0xf0;
+	    *(sample_buffer+write_pos+1) = 0x0d;
+	    *(sample_buffer+write_pos+2) = 0xf0;
+	    *(sample_buffer+write_pos+3) = 0x0d;	    
+	    parsing_sample = 1;
+	    read_pos += 4;
+	    write_pos += 4;            
+        } else if (input_buffer[read_pos+0] == 0x00 &&
+                   input_buffer[read_pos+1] == 0x00 &&
+                   input_buffer[read_pos+2] == 0x01) {
+            
+	    int nal_type = (input_buffer[read_pos+3] & 0x7f) >> 1;
+	    if (parsing_sample) {
+		sample_size = write_pos - saved_position - 4;
+		/*fprintf(stderr,"DONE PARSING SAMPLE: %d  SAVED_POS:%d\n",
+			sample_size,
+			saved_position);*/
+		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
+		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
+		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
+		*(sample_buffer+saved_position+3) = sample_size & 0xff;
+	    }
+            /*
+	    if (nal_type == 6) {
+		int sei_type = input_buffer[read_pos+4];
+		if (sei_type != 4) {
+		    parsing_sample = 0;
+		    read_pos += 3;
+		    continue;
+		}		    
+	    }
+	    if (nal_type == 9 || nal_type == 12) {
+		parsing_sample = 0;
+		read_pos += 3;	     
+		continue;
+	    }
+            */
+            
+            // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there            
+            /*if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
+                parsing_sample = 0;
+                read_pos += 3;
+                continue;
+            }*/
+            
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34) {  // nal_type == 20
+                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+            }
+	    saved_position = write_pos;
+	    *(sample_buffer+write_pos+0) = 0xf0;
+	    *(sample_buffer+write_pos+1) = 0x0d;
+	    *(sample_buffer+write_pos+2) = 0xf0;
+	    *(sample_buffer+write_pos+3) = 0x0d;	    
+	    parsing_sample = 1;
+	    read_pos += 3;
+	    write_pos += 4;
+	} else {
+	    if (parsing_sample) {
+		sample_buffer[write_pos] = input_buffer[read_pos];
+		write_pos++;
+	    }
+	    read_pos++;	    
+	}
+	if (read_pos == i) {
+	    break;
+	}
+    }
+    if (parsing_sample) {
+	sample_size = write_pos - saved_position - 4;
+	//fprintf(stderr,"DONE PARSING LAST SAMPLE: %d  SAVED_POS:%d\n", sample_size, sample_size);
+	*(sample_buffer+saved_position+0) = ((uint32_t)sample_size >> 24) & 0xff;
+	*(sample_buffer+saved_position+1) = ((uint32_t)sample_size >> 16) & 0xff;
+	*(sample_buffer+saved_position+2) = ((uint32_t)sample_size >> 8) & 0xff;
+	*(sample_buffer+saved_position+3) = (uint32_t)sample_size & 0xff;
+    }    
+    return write_pos;
+}
+
+static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buffer_size, uint8_t *output_buffer, int max_output_buffer_size)
 {
     int i;
     int parsing_sample = 0;
@@ -1486,7 +1649,11 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 
     new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
 
-    updated_fragment_buffer_size = replace_startcode_with_size(fragment_buffer, fragment_buffer_size, new_frag, fragment_buffer_size*2);
+    if (fmp4->video_media_type == MEDIA_TYPE_HEVC) {
+        updated_fragment_buffer_size = replace_startcode_with_size_hevc(fragment_buffer, fragment_buffer_size, new_frag, fragment_buffer_size*2);        
+    } else {
+        updated_fragment_buffer_size = replace_startcode_with_size_h264(fragment_buffer, fragment_buffer_size, new_frag, fragment_buffer_size*2);
+    }
 
     //uint32_t *fragsize = (uint32_t*)new_frag;
     /*fprintf(stderr,"new frag size: %u   0x%x 0x%x 0x%x 0x%x\n", ntohl(*fragsize),

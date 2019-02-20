@@ -271,7 +271,7 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
 	      backup_caller(2000, 811, current_stream_pid, current_pid, 0, 0, backup_context);
           } else if (current_stream_type == 0x86) { // scte35
 	      backup_caller(2000, 812, current_stream_pid, current_pid, 0, 0, backup_context);
-              current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_SCTE35;
+              current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_SCTE35;             
           } else if (current_stream_type == 0xC0) {
 	      backup_caller(2000, 813, current_stream_pid, current_pid, 0, 0, backup_context);
           }
@@ -549,6 +549,182 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                if (afc & 1) {
 		   if (pusi) {
 		       int pid_count = 0;
+                       int scte35_pid = 0;
+                       int pid_loop;
+
+                       if (tsdata->pmt_pid_count > 0) {
+                           pmt_table_struct *current_pmt_table = (pmt_table_struct *)&tsdata->master_pmt_table[0];
+                           for (pid_loop = 0; pid_loop < current_pmt_table->stream_count; pid_loop++) {
+                               if (current_pmt_table->decoded_stream_type[pid_loop] == STREAM_TYPE_SCTE35) {
+                                   scte35_pid = current_pmt_table->stream_pid[pid_loop];
+                                   break;
+                               }
+                           }
+                           if (current_pid == scte35_pid && scte35_pid != 0) {
+                               int acquired_data_so_far = pdata - pdata_initial;
+                               unsigned short section_size = ((*(pdata+2) << 8) + *(pdata+3)) & 0x0fff;
+                               unsigned char table_id = pdata[1];
+                               int protocol_version = pdata[4];
+                               
+                               int64_t pts_adjustment = ((int64_t)(pdata[5] & 0x01) << 32) | (int64_t)(pdata[6] << 24) | (int64_t)(pdata[7] << 16) | (int64_t)(pdata[8] << 8) | (int64_t)pdata[9];
+                               int cw_index = pdata[10];
+                               int tier = ((*(pdata+11) << 4) | ((*(pdata+12) & 0xf0) >> 4)) & 0x0fff;
+                               int splice_command_length = (((*(pdata+12) & 0x0f) << 8) + *(pdata+13)) & 0x0fff;
+                               int splice_command_type = pdata[14];
+                               int64_t pts_time = 0;
+                               int64_t pts_duration = 0;
+                               int auto_return = 0;
+                               int splice_immediate_flag = 0;
+                               int unique_program_id = 0;
+                               int cancel_indicator = 0;
+                               int out_of_network_indicator = 0;
+                               int64_t splice_event_id = 0;
+                               /*
+                               syslog(LOG_INFO,"SCTE35 TABLE ID: 0x%x  SECTIONSIZE:%d  VERSION:%d CW:%d TIER:%d CMDLEN:%d TYPE:0x%x  PTS-ADJUSTMENT:%ld\n",
+                                      table_id,
+                                      section_size, protocol_version,
+                                      cw_index,
+                                      tier,
+                                      splice_command_length,
+                                      splice_command_type,
+                                      pts_adjustment);
+                               */
+
+                               if (splice_command_type == 0x05) {  // splice insert
+                                   uint8_t *splice = (uint8_t*)pdata+15;
+                                   splice_event_id = (int64_t)(splice[0] << 24) |
+                                       (int64_t)(splice[1] << 16) |
+                                       (int64_t)(splice[2] << 8) |
+                                       (int64_t)splice[3];
+                                   cancel_indicator = !!(splice[4] & 0x80);       // cancel_indicator- bottom 7-bits reserved
+                                   syslog(LOG_INFO,"SCTE35: splice_event_id: %ld  0x%x   CANCEL:%d\n",
+                                          splice_event_id, splice_event_id, cancel_indicator);
+                                   splice += 5;
+                                   if (!cancel_indicator) {
+                                       out_of_network_indicator = !!(splice[0] & 0x80);
+                                       int program_splice_flag = !!(splice[0] & 0x40);
+                                       int duration_flag = !!(splice[0] & 0x20);
+                                       splice_immediate_flag = !!(splice[0] & 0x10);
+                                       // next 4-bits are reserved
+                                       /*syslog(LOG_INFO,"SCTE35: out_of_network_indicator:%d program_splice_flag:%d duration_flag:%d splice_immediate_flag:%d\n",
+                                              out_of_network_indicator,
+                                              program_splice_flag,
+                                              duration_flag,
+                                              splice_immediate_flag);
+                                       if (out_of_network_indicator) {
+                                           syslog(LOG_INFO,"SCTE35: opportunity to exit from the network feed!\n");
+                                       } else {
+                                           syslog(LOG_INFO,"SCTE35: let's get back to the program - pts_adjustment is the intended point to head back!\n");
+                                       }
+                                       */
+                                       splice++;
+                                       if (program_splice_flag == 1 && splice_immediate_flag == 0) {
+                                           // splice time table
+                                           int time_specified_flag = !!(splice[0] & 0x80);
+                                           if (time_specified_flag) {
+                                               pts_time = ((int64_t)(splice[0] & 0x01) << 32) +
+                                                   (int64_t)(splice[1] << 24) +
+                                                   (int64_t)(splice[2] << 16) +
+                                                   (int64_t)(splice[3] << 8) +
+                                                   (int64_t)splice[4];
+                                               pts_time = pts_time & 0x1ffffffff;
+                                               //syslog(LOG_INFO,"SCTE35: PTS TIME (1/0): %ld\n", pts_time);
+                                               splice += 5;
+                                           } else {
+                                               // next 7-bits are reserved
+                                               splice++;
+                                           }                                           
+                                       } else if (program_splice_flag == 0) {
+                                           // component_count
+                                           int component_count = splice[0];
+                                           int c;
+                                           syslog(LOG_INFO,"SCTE35: COMPONENT COUNT: %d\n", component_count);
+                                           splice++;
+                                           for (c = 0; c < component_count; c++) {
+                                               int component_tag = splice[0];
+                                               splice++;
+                                               if (splice_immediate_flag == 0) {
+                                                   int time_specified_flag = !!(splice[0] & 0x80);
+                                                   if (time_specified_flag) {
+                                                       int64_t pts_time;
+                                                       pts_time = ((int64_t)(splice[0] & 0x01) << 32) |
+                                                           (int64_t)(splice[1] << 24) |
+                                                           (int64_t)(splice[2] << 16) |
+                                                           (int64_t)(splice[3] << 8) |
+                                                           (int64_t)splice[4];
+                                                       syslog(LOG_INFO,"SCTE35: PTS TIME (0/0): %ld\n", pts_time);
+                                                       splice += 5;
+                                                   } else {
+                                                       // next 7-bits are reserved
+                                                       splice++;
+                                                   }                                                   
+                                               }
+                                           }
+                                       }
+                                       if (duration_flag) {
+                                           // break_duration()
+                                           auto_return = !!(splice[0] & 0x80);
+                                           pts_duration = ((int64_t)(splice[0] & 0x01) << 32) |
+                                               (int64_t)(splice[1] << 24) |
+                                               (int64_t)(splice[2] << 16) |
+                                               (int64_t)(splice[3] << 8) |
+                                               (int64_t)splice[4];
+                                           splice += 5;
+
+                                           // when auto_return is 1- safety mechanism
+                                           /*syslog(LOG_INFO,"SCTE35: auto_return:%d  pts_duration:%ld\n",
+                                                  auto_return,
+                                                  pts_duration);*/
+                                       }
+                                       int avail_num;
+                                       int avails_expected;
+                                       unique_program_id = (int)(splice[0] << 8) | (int)(splice[1]);
+                                       avail_num = splice[2];
+                                       avails_expected = splice[3];
+                                       /*syslog(LOG_INFO,"SCTE35: unique program id: %d  avail: %d avails_expected:%d\n",
+                                         unique_program_id, avail_num, avails_expected);*/
+                                   }
+
+                                   /*typedef struct _scte35_data_struct_ {
+                                       int splice_command_type;
+                                       int64_t pts_time;
+                                       int64_t pts_duration;
+                                       int64_t pts_adjustment;
+                                       int splice_immediate;
+                                       int program_id;
+                                       int cancel;
+                                       
+                                   }*/
+                                   
+                                   scte35_data_struct *scte35_data;
+                                   scte35_data = (scte35_data_struct*)malloc(sizeof(scte35_data_struct));
+                                   if (scte35_data) {
+                                       scte35_data->splice_command_type = 0x05;
+                                       scte35_data->splice_event_id = splice_event_id;
+                                       scte35_data->pts_time = pts_time;
+                                       scte35_data->pts_duration = pts_duration;
+                                       scte35_data->pts_adjustment = pts_adjustment;
+                                       scte35_data->splice_immediate = splice_immediate_flag;
+                                       scte35_data->program_id = unique_program_id;
+                                       scte35_data->cancel = cancel_indicator;
+                                       scte35_data->out_of_network_indicator = out_of_network_indicator;
+                                   
+                                       send_frame_func((uint8_t*)scte35_data, sizeof(scte35_data_struct), STREAM_TYPE_SCTE35, 1,
+                                                       0, //pts
+                                                       0, //dts
+                                                       0, // PCR
+                                                       tsdata->source,
+                                                       0,
+                                                       NULL,
+                                                       send_frame_context);
+                                       
+                                       free(scte35_data);
+                                       scte35_data = NULL;
+                                   }
+                               } // splice_command_type == 0x05
+                           }
+                       }
+                       
 		       if (current_pid == 7680) {
 			   if (!tsdata->eit0_present) {
 			       backup_caller(2000, 850, current_pid, current_pid, 0, 0, backup_context);
@@ -838,8 +1014,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);
                                          } else if (stream_type == 0x86) {
-					     uint8_t *scte35_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             syslog(LOG_INFO,"sending up SCTE35 tag\n");
+					     /*uint8_t *scte35_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
 					     send_frame_func(scte35_frame, video_frame_size, STREAM_TYPE_SCTE35, 1,
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
@@ -847,7 +1022,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 							     tsdata->source,
                                                              tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-							     send_frame_context);
+							     send_frame_context);*/
 					 } else if (stream_type == 0x1b) {
 					     int vf;
 					     int nal_type;

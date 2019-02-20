@@ -122,6 +122,21 @@ int dataqueue_destroy(void *queue)
     return 0;
 }
 
+int dataqueue_get_size(void *queue)
+{
+    queue_struct *message_queue = (queue_struct *)queue;
+    int got_size = 0;
+    
+    if (!message_queue) {
+        return -1;
+    }
+    pthread_mutex_lock(message_queue->reflock);
+    got_size = message_queue->count;
+    pthread_mutex_unlock(message_queue->reflock);   
+    
+    return got_size;
+}
+
 int dataqueue_put_back(void *queue, dataqueue_message_struct *message)
 {
     queue_struct *message_queue = (queue_struct *)queue;
