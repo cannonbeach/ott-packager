@@ -65,12 +65,16 @@ H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)
 PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED                                                                      
 
 ```
-Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
+Simple Repackaging Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
 ```
 cannonbeach@insanitywave:$ sudo ./fillet --sources 2 --ip 127.0.0.1:4000,127.0.0.1:4200 --interface lo --window 5 --segment 5 --manifest /var/www/html/hls --identity 1000
 ```
 <br>
-This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.<br>
+This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.
+
+This will write the manifests into the /var/www/html/hls directory (this is a common Apache directory).  
+
+<br>
 <br>
 
 ```
@@ -89,7 +93,41 @@ curl http://10.0.0.200:18000/api/v1/status
 
 <br>
 
-## Misc
+## Packager Operation
+
+The packager has several different optional modes:
+- Standard Packaging (H.264/AAC and/or HEVC/AAC)
+- Transcoding+Packaging Mode 1 (H.264/AAC) - HLS(TS,fMP4) and DASH(fMP4)
+- Transcoding+Packaging Mode 2 (HEVC/AAC) - HLS(fMP4) and DASH(fMP4) - NO TS MODE FOR HEVC
+In the transcoding modes, the packaging is bundled together with the transcoding, but I am exploring options to separate the two for a post v1.0 release.
+
+This is a budget friendly packaging/transcoding solution with the expectation of it being simple to setup, use and deploy.  The solution is very flexible and even allows you to run several instances of the application with different parameters and output stream combinations (i.e., have a mobile stream set and a set top box stream set).  If you do run multiple instances using the same source content, you will want to receive the streams from a multicast source instead of unicast.  The simplicity of the deployment model also provides a means for fault tolerant setups.
+
+A key value add to this packager is that source discontinuities are handled quite well (in standard packaging mode as well as the transcoding modes).  The manifests are setup to be continuous even in periods of discontinuity such that the player experiences as minimal of an interruption as possible.  The manifest does not start out in a clean state unless you remove the local cache files during the fast restart (located in /var/tmp/hlsmux...).  This applies to both HLS (handled by discontinuity tags) and DASH outputs (handled by clever timeline stitching the manifest).  Many of the other packagers available on the market did not handle discontinuties well and so I wanted to raise the bar with regards to handling signal interruptions (we don't like them, but yes they happen and the better you handle them the happier your customers will be).
+
+Another differentiator (which is a bit more common practice now) is that the segments are written out to separate audio and video files instead of a single multiplexed output file containing both audio and video.  This provides additional degrees of freedom when selecting different audio and video streams for playback (it does make testing a bit more difficult though).
+
+<br>
+In order to use the optional transcoding mode, you must enable the ENABLE_TRANSCODE flag manually in the Makefile and rebuild.  You will also need to run the script setuptranscode.sh which will download and install the necessary third party packages used in the transcoding mode.
+<br>
+
+## H.264 Transcoding Example
+```
+cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec h264 --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,2500 --acodec aac --arate 128 --aspect 16:9 --scte35 --quality 0 --profile base --stereo
+
+```
+
+<br>
+
+## HEVC Transcoding Example
+
+```
+cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec hevc --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,1250 --acodec aac --arate 128 --aspect 16:9 --quality 0 --stereo
+````
+
+<br>
+
+## Current Status
 (02/20/19) As I mentioned in earlier posts, the application is still in active development, but I am getting closer to a v1.0 release.  This most recent update has included some significant transcoding feature improvements.
 
 - 5.1 to stereo downconversion and mono to stereo upconversion added
@@ -102,8 +140,15 @@ curl http://10.0.0.200:18000/api/v1/status
 - Added notification when encoder is unable to make realtime encoding due to limited CPU resources
 - Increased internal buffer limits to support a larger number of streams being repackaged
 
+And finally, I am also thinking of putting together a "Pro" version to help me fund the development of this project.  It'll be based on a reasonable yearly fee and provide access to an additional repository that contains a full NodeJS web interface, a more complete Docker integration, benchmarks, cloud deployment examples, deployment/installation scripts, priority support, fully documented API (along with scripts), SNMP traps, and active/passive failover support.
+
+But for those of you that don't wish to take advantage of things like support, the source code for the core application will remain available in the existing repository.  
+
+I also plan to start adapting this current solution over to file version after the v1.0 has been finished and released.
+
 (01/12/19) This application is still in active development and I am hoping to have an official v1.0 release in the next couple of months.  I still need to tie up some loose ends on the packaging as well as complete the basic H.264 and HEVC transcoding modes.  The remaining items will be tagged in the "Issues" section.
-In order to use the optional transcoding mode, you must enable the ENABLE_TRANSCODE flag manually in the Makefile and rebuild.  You will also need to run the script setuptranscode.sh which will download and install the necessary third party packages used in the transcoding mode.
+
+I do offer fee based consulting so please send me an email if you are interested in retaining me for any support issues or feature development.  I have several support models available and can provide more details upon request.  You can reach me at: cannonbeachgoonie@gmail.com
 
 See the WIKI page for more information:
 https://github.com/cannonbeach/ott-packager/wiki
