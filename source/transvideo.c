@@ -127,7 +127,9 @@ void *video_encode_thread_x265(void *context)
             //with extensive use of yuv scaling and memcpy.
             int current_encoder = current_queue;
             int output_width = core->cd->transvideo_info[current_encoder].width;
-            int output_height = core->cd->transvideo_info[current_encoder].height;            
+            int output_height = core->cd->transvideo_info[current_encoder].height;
+            uint32_t sar_width;
+            uint32_t sar_height;            
             
             if (!x265_data[current_encoder].encoder) {
                 x265_data[current_encoder].api = x265_api_get(8); // only 8-bit for now
@@ -197,10 +199,20 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->maxNumReferences = 1;
 
                 // vui factors
-                x265_data[current_encoder].param->vui.aspectRatioIdc = 0;
-                x265_data[current_encoder].param->vui.videoFormat = 5;                
-                x265_data[current_encoder].param->vui.sarWidth = output_width;
-                x265_data[current_encoder].param->vui.sarHeight = output_height;
+                x265_data[current_encoder].param->vui.aspectRatioIdc = X265_EXTENDED_SAR;
+                x265_data[current_encoder].param->vui.videoFormat = 5;
+
+                if (core->cd->transvideo_info[0].aspect_num > 0 &&
+                    core->cd->transvideo_info[0].aspect_den > 0) {
+                    sar_width = output_height*core->cd->transvideo_info[0].aspect_num;
+                    sar_height = output_width*core->cd->transvideo_info[0].aspect_den;      
+                } else {
+                    sar_width = output_height*msg->aspect_num;
+                    sar_height = output_width*msg->aspect_den;
+                }
+
+                x265_data[current_encoder].param->vui.sarWidth = sar_width;
+                x265_data[current_encoder].param->vui.sarHeight = sar_height;
                 x265_data[current_encoder].param->vui.transferCharacteristics = 2;
                 x265_data[current_encoder].param->vui.matrixCoeffs = 2;                
                 x265_data[current_encoder].param->vui.bEnableOverscanAppropriateFlag = 0;
@@ -326,6 +338,11 @@ void *video_encode_thread_x265(void *context)
                 for (nal_idx = 0; nal_idx < nal_count; nal_idx++) {
                     int nocopy = 0;
 
+                    if (nalout->type == 35) {  // AUD-not needed right now
+                        nocopy = 1;
+                    }
+
+#if defined(DEBUG_NALTYPE)                    
                     if (nalout->type == 32) {
                         syslog(LOG_INFO,"HEVC VIDEO FRAME: VPS\n");
                     } else if (nalout->type == 33) {
@@ -340,6 +357,7 @@ void *video_encode_thread_x265(void *context)
                     } else {
                         syslog(LOG_INFO,"HEVC VIDEO FRAME: 0x%x (SIZE:%d)\n", nalout->type, nalout->sizeBytes);
                     }
+#endif // DEBUG_NALTYPE                    
 
                     if (!nocopy) {
                         memcpy(nal_buffer + pos, nalout->payload, nalout->sizeBytes);
@@ -382,9 +400,12 @@ void *video_encode_thread_x265(void *context)
                 splice_duration = 0;
                 splice_duration_remaining = 0;
                 output_size = nalsize;
+
+#if defined(DEBUG_NALTYPE)                
                 syslog(LOG_INFO,"DELIVERING HEVC ENCODED VIDEO FRAME: %d   PTS:%ld  DTS:%ld\n",
                        output_size,
                        pts, dts);
+#endif                
                 
                 video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_queue, splice_point, splice_duration, splice_duration_remaining);
             }
