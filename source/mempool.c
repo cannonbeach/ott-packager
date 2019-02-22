@@ -110,25 +110,32 @@ void *memory_create(int count, int size)
 	free(memory_pool->refs);
 	free(memory_pool);
 	return NULL;
-    }    
-    memory_pool->data = (uint8_t*)malloc(chunk_size);
-    if (!memory_pool->data) {
-	free(memory_pool->refs);
-	free(memory_pool->reflock);
-	free(memory_pool);
-	return NULL;
     }
-    
-    memset(memory_pool->data, 0, chunk_size);
+    if (size > 0) {
+        memory_pool->data = (uint8_t*)malloc(chunk_size);
+        if (!memory_pool->data) {
+            free(memory_pool->refs);
+            free(memory_pool->reflock);
+            free(memory_pool);
+            return NULL;
+        }    
+        memset(memory_pool->data, 0, chunk_size);        
+    } else {
+        memory_pool->data = NULL;
+    }
 
     pthread_mutex_init(memory_pool->reflock, NULL);
-    
+
     magicptr8 = memory_pool->data;
     for (i = 0; i < count; i++) {
-        magicptr32 = (uint32_t*)magicptr8;	
-        *magicptr32 = i;
-        memory_pool->refs[i].memory = (uint8_t*)magicptr8;
-        magicptr8 += (size+MEMORY_RESERVED);    
+        if (size > 0) {
+            magicptr32 = (uint32_t*)magicptr8;	
+            *magicptr32 = i;
+            memory_pool->refs[i].memory = (uint8_t*)magicptr8;
+            magicptr8 += (size+MEMORY_RESERVED);
+        } else {
+            memory_pool->refs[i].memory = NULL;
+        }
         memory_pool->refs[i].disponible = 1;
     }
     
@@ -148,10 +155,13 @@ int memory_destroy(void *pool)
     pthread_mutex_destroy(memory_pool->reflock);
     free(memory_pool->reflock);
     memory_pool->reflock = NULL;
-
+   
     for (i = 0; i < memory_pool->count; i++)
-    {       
-        memory_pool->refs[i].memory = NULL;
+    {
+        if (memory_pool->size > 0) {
+            free(memory_pool->refs[i].memory);
+        }
+        memory_pool->refs[i].memory = NULL;        
     }
 
     free(memory_pool->refs);
@@ -182,9 +192,14 @@ void *memory_take(void *pool, int owner)
             memory_pool->pos = (memory_pool->pos + 1) % count;
 	    memory_pool->refs[pos].owner = owner;
 
-	    taken = memory_pool->refs[pos].memory + MEMORY_RESERVED;           
+            if (memory_pool->size > 0) {
+                taken = memory_pool->refs[pos].memory + MEMORY_RESERVED;
+            } else {
+                taken = (uint8_t*)malloc(owner);
+                memory_pool->refs[pos].memory = taken;
+            }
 	    pthread_mutex_unlock(memory_pool->reflock);
-	    
+            
 	    return taken;
         }
 	memory_pool->pos = (memory_pool->pos + 1) % count;
@@ -209,24 +224,43 @@ int memory_return(void *pool, void *memory)
         return -1;
     }
 
-    returned = (uint8_t*)memory - MEMORY_RESERVED;
-    magicptr32 = (uint32_t*)returned;
-    idx = *magicptr32; 
-
-    pthread_mutex_lock(memory_pool->reflock);
-    if (idx > memory_pool->count) {
-	pthread_mutex_unlock(memory_pool->reflock);
-	return -1;
-    }
-    
-    if (memory_pool->refs[idx].disponible != 0) {
-	pthread_mutex_unlock(memory_pool->reflock);
-	return -1;
+    if (memory_pool->size > 0) {
+        returned = (uint8_t*)memory - MEMORY_RESERVED;
+        magicptr32 = (uint32_t*)returned;
+        idx = *magicptr32; 
+        
+        pthread_mutex_lock(memory_pool->reflock);
+        if (idx > memory_pool->count) {
+            pthread_mutex_unlock(memory_pool->reflock);
+            return -1;
+        }
+        
+        if (memory_pool->refs[idx].disponible != 0) {
+            pthread_mutex_unlock(memory_pool->reflock);
+            return -1;
+        } else {
+            memory_pool->refs[idx].disponible = 1;
+        }
+        
+        pthread_mutex_unlock(memory_pool->reflock);
     } else {
-	memory_pool->refs[idx].disponible = 1;
+        int found_buffer = 0;
+        pthread_mutex_lock(memory_pool->reflock);                    
+        for (idx = 0; idx < memory_pool->count; idx++) {
+            if (memory_pool->refs[idx].memory == memory) {
+                free(memory);
+                memory_pool->refs[idx].memory = NULL;
+                memory_pool->refs[idx].disponible = 1;
+                found_buffer = 1;
+                break;
+            }
+        }
+        pthread_mutex_unlock(memory_pool->reflock);        
+        if (!found_buffer) {
+            fprintf(stderr,"FATAL ERROR: returning invalid buffer to pool!\n");
+            exit(0);
+        }
     }
-    
-    pthread_mutex_unlock(memory_pool->reflock);
 
     return 0;
 }

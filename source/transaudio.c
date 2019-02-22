@@ -49,18 +49,24 @@
 #include "../cbffmpeg/libavutil/channel_layout.h"
 #include "aacenc_lib.h"
 
+typedef struct _startup_buffer_struct_ {
+    fillet_app_struct *core;
+    int               instance;
+} startup_buffer_struct;
+
 static volatile int audio_decode_thread_running = 0;
 static volatile int audio_encode_thread_running = 0;
-static pthread_t audio_decode_thread_id;
-static pthread_t audio_encode_thread_id;
+static pthread_t audio_decode_thread_id[MAX_AUDIO_SOURCES];
+static pthread_t audio_encode_thread_id[MAX_AUDIO_SOURCES];
 
-int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts);
+int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int sub_stream);
 
 void *audio_encode_thread(void *context)
 {
-    fillet_app_struct *core = (fillet_app_struct*)context;
+    startup_buffer_struct *startup = (startup_buffer_struct*)context;    
+    fillet_app_struct *core = (fillet_app_struct*)startup->core;
+    int audio_stream = startup->instance;    
     dataqueue_message_struct *msg;
-    int audio_stream = 0;
     AACENC_InfoStruct info;
     AACENC_BufDesc source_buf;
     AACENC_BufDesc output_buf;
@@ -90,6 +96,9 @@ void *audio_encode_thread(void *context)
 #define MAX_SOURCE_BUFFER_SIZE 65535
 #define MAX_OUTPUT_BUFFER_SIZE 65535
 
+    free(startup);
+    startup = NULL;
+    
     fprintf(stderr,"status: starting audio encode thread: %d\n", audio_encode_thread_running);
 
     source_buffer = (uint8_t*)malloc(MAX_SOURCE_BUFFER_SIZE);
@@ -104,8 +113,10 @@ void *audio_encode_thread(void *context)
         if (!audio_encode_thread_running) {
             while (msg) {
                 if (msg) {
-                    free(msg->buffer);
-                    free(msg);
+                    memory_return(core->raw_audio_pool, msg->buffer);
+                    msg->buffer = NULL;
+                    memory_return(core->fillet_msg_pool, msg);
+                    msg = NULL;
                 }
                 msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodeaudio[audio_stream]->input_queue);
             }
@@ -193,20 +204,24 @@ void *audio_encode_thread(void *context)
                 sample_duration = 1024 * 90000 / sample_rate;
                 encoded_frame_count++;
                 
-                encoded_output_buffer = (uint8_t*)malloc(output_size+1);
+                encoded_output_buffer = (uint8_t*)memory_take(core->compressed_audio_pool, output_size);
+                if (!encoded_output_buffer) {
+                    // handle this
+                }
                 memcpy(encoded_output_buffer, output_buffer, output_size);
 
                 //fprintf(stderr,"status: encoded audio!  output_size:%d   pts:%ld\n", output_size, first_pts + current_duration);
-                audio_sink_frame_callback(core, encoded_output_buffer, output_size, first_pts + current_duration);
+                audio_sink_frame_callback(core, encoded_output_buffer, output_size, first_pts + current_duration, audio_stream);
 
                 current_duration = (int64_t)encoded_frame_count * (int64_t)sample_duration;
             }
         }
               
         if (msg) {
-            free(msg->buffer);
+            memory_return(core->raw_audio_pool, msg->buffer);
             msg->buffer = NULL;
-            free(msg);
+            memory_return(core->fillet_msg_pool, msg);
+            msg = NULL;            
         }
     }
 cleanup_audio_encode_thread:
@@ -223,7 +238,9 @@ cleanup_audio_encode_thread:
 
 void *audio_decode_thread(void *context)
 {
-    fillet_app_struct *core = (fillet_app_struct*)context;
+    startup_buffer_struct *startup = (startup_buffer_struct*)context;    
+    fillet_app_struct *core = (fillet_app_struct*)startup->core;
+    int audio_stream = startup->instance;        
     AVCodecContext *decode_avctx = NULL;
     AVCodec *decode_codec = NULL;
     AVPacket *decode_pkt = NULL;
@@ -246,12 +263,12 @@ void *audio_decode_thread(void *context)
     int source_samples = 0;
     int output_samples = 0;
     int output_channels;
-
-    // we need to build the structure to create multiple decode threads to deal
-    // with more than one audio stream... something to do after we get the base
-    // case working well
-    int audio_stream = 0;  // fix to one audio stream for now
-
+    int64_t last_audio_pts = -1;
+    int64_t last_data_amount = 0;
+    
+    free(startup);
+    startup = NULL;
+    
     fprintf(stderr,"status: starting audio decode thread: %d\n", audio_decode_thread_running);
 
     while (audio_decode_thread_running) {
@@ -265,10 +282,12 @@ void *audio_decode_thread(void *context)
             if (msg) {
                 sorted_frame_struct *frame = (sorted_frame_struct*)msg->buffer;
                 if (frame) {
-                    free(frame->buffer);
+                    memory_return(core->compressed_audio_pool, frame->buffer);
                     frame->buffer = NULL;
+                    memory_return(core->frame_msg_pool, frame);
+                    frame = NULL;                    
                 }
-                free(msg);
+                memory_return(core->fillet_msg_pool, msg);
                 msg = NULL;
             }
             goto cleanup_audio_decoder_thread;
@@ -424,9 +443,12 @@ void *audio_decode_thread(void *context)
 
                     if (current_sample_out == 0) {
                         if (previous_delta_time != -1 && ticks_per_sample != 0) {
+                            int64_t diff_audio;
+                            
                             expected_audio_data = (int64_t)((double)delta_time / (double)0.9 * (double)ticks_per_sample);
+                            diff_audio = expected_audio_data - actual_audio_data;                            
                             fprintf(stderr,"expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld\n",
-                                    expected_audio_data, actual_audio_data, full_time, expected_audio_data - actual_audio_data);
+                                    expected_audio_data, actual_audio_data, full_time, diff_audio);
                             //check how much source audio we have vs. how much we should have
                             //if audio is missing, then there could be some missing data
                             //that would throw off the a/v sync for the mp4 file output mode
@@ -434,6 +456,13 @@ void *audio_decode_thread(void *context)
                             //and if things are just really bad and unrecoverable for some unknown reason
                             //then we'll just have the application quit out based on some threshold
                             //and rely on the docker container to restart the application in a known healthy state
+
+                            if (diff_audio > 32768 ||
+                                diff_audio < -32768) {
+                                fprintf(stderr,"fatal error: a/v sync is off - too much or too little audio is present - %d\n", diff_audio);
+                                syslog(LOG_ERR,"fatal error: a/v sync is off - too much or too little audio is present - %d\n", diff_audio);
+                                exit(0);                                
+                            }                            
                         }
                     }
                     previous_delta_time = delta_time;                    
@@ -445,10 +474,32 @@ void *audio_decode_thread(void *context)
                         updated_output_buffer_size = 65535;
                     }
                     
-                    decoded_audio_buffer = (uint8_t*)malloc(updated_output_buffer_size+1);
+                    decoded_audio_buffer = (uint8_t*)memory_take(core->raw_audio_pool, updated_output_buffer_size);
+                    if (!decoded_audio_buffer) {
+                        //do something
+                    }
+                    //check size
                     memcpy(decoded_audio_buffer, swr_output_buffer, updated_output_buffer_size);
 
-                    encode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                    if (current_sample_out == 0) {
+                        if (last_audio_pts != -1) {
+                            int64_t diff = decode_av_frame->pkt_dts - last_audio_pts;
+                            int64_t correct_data;
+                            
+                            correct_data = (int64_t)((double)diff / (double)0.9 * (double)ticks_per_sample);
+
+                            fprintf(stderr,"\n\n\nAUDIO DECODED: SIZE:%d CORRECT:%d  DIFF:%ld\n\n\n",
+                                    last_data_amount,
+                                    correct_data,
+                                    diff);                            
+                        }
+                        last_audio_pts = decode_av_frame->pkt_dts;
+                        last_data_amount = updated_output_buffer_size;
+                    } else {
+                        last_data_amount += updated_output_buffer_size;
+                    }
+
+                    encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                     if (encode_msg) {
                         encode_msg->buffer = decoded_audio_buffer;
                         encode_msg->buffer_size = updated_output_buffer_size;
@@ -460,14 +511,14 @@ void *audio_decode_thread(void *context)
                         dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
                     }
                     current_sample_out++;
-                }
-                free(frame->buffer);
-                frame->buffer = NULL;
-            }
-            free(msg->buffer);
-            msg->buffer = NULL;
-            free(msg);
-            msg = NULL;            
+                } // while (retcode >= 0) 
+                memory_return(core->compressed_audio_pool, frame->buffer);
+                frame->buffer = NULL;                            
+                memory_return(core->frame_msg_pool, frame);
+                frame = NULL;
+            } // if frame
+            memory_return(core->fillet_msg_pool, msg);
+            msg = NULL;
         } else {
             //report error condition!
         }
@@ -489,22 +540,42 @@ cleanup_audio_decoder_thread:
 
 int start_audio_transcode_threads(fillet_app_struct *core)
 {
+    int current_audio;  
     audio_encode_thread_running = 1;
-    pthread_create(&audio_encode_thread_id, NULL, audio_encode_thread, (void*)core);
+
+    for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
+        startup_buffer_struct *startup;
+        startup = (startup_buffer_struct*)malloc(sizeof(startup_buffer_struct));
+        startup->instance = current_audio;
+        startup->core = core;
+        pthread_create(&audio_encode_thread_id[current_audio], NULL, audio_encode_thread, (void*)startup);
+    }
     
     audio_decode_thread_running = 1;
-    pthread_create(&audio_decode_thread_id, NULL, audio_decode_thread, (void*)core);
+    for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
+        startup_buffer_struct *startup;
+        startup = (startup_buffer_struct*)malloc(sizeof(startup_buffer_struct));
+        startup->instance = current_audio;
+        startup->core = core;        
+        pthread_create(&audio_decode_thread_id[current_audio], NULL, audio_decode_thread, (void*)startup);
+    }
 
     return 0;
 }
 
 int stop_audio_transcode_threads(fillet_app_struct *core)
 {
+    int current_audio;
+    
     audio_decode_thread_running = 0;
-    pthread_join(audio_decode_thread_id, NULL);
+    for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
+        pthread_join(audio_decode_thread_id[current_audio], NULL);
+    }
 
     audio_encode_thread_running = 0;
-    pthread_join(audio_encode_thread_id, NULL);
+    for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
+        pthread_join(audio_encode_thread_id[current_audio], NULL);
+    }
 
     return 0;
 }

@@ -70,6 +70,18 @@
 #define OVERFLOW_DTS               8589100000
 #define MAX_SESSIONS               5
 #define MAX_SOURCES                8
+#define TBD                        0xff
+
+#define MAX_MSG_BUFFERS                   8192
+#define MAX_FRAME_BUFFERS                 (MAX_FRAME_DATA_SYNC_VIDEO+MAX_FRAME_DATA_SYNC_AUDIO)*2
+#define MAX_VIDEO_COMPRESSED_BUFFERS      4096
+#define MAX_VIDEO_COMPRESSED_BUFFER_SIZE  0 
+#define MAX_AUDIO_COMPRESSED_BUFFERS      4096
+#define MAX_AUDIO_COMPRESSED_BUFFER_SIZE  0
+#define MAX_VIDEO_RAW_BUFFERS             512
+#define MAX_VIDEO_RAW_BUFFER_SIZE         0
+#define MAX_AUDIO_RAW_BUFFERS             2048
+#define MAX_AUDIO_RAW_BUFFER_SIZE         0
 
 #define FRAME_TYPE_VIDEO           0x01
 #define FRAME_TYPE_AUDIO           0x02
@@ -102,6 +114,8 @@ typedef struct _trans_video_output_struct_ {
     int                    aspect_den;
     int                    encoder_quality;
     int                    encoder_profile;
+    int                    encoder_level;
+    char                   encoder_string[MAX_STR_SIZE]; // this is the avc1/hvc1... 
 } trans_video_output_struct;
 
 typedef struct _trans_audio_output_struct_ {
@@ -279,6 +293,15 @@ typedef struct _input_struct_ {
     int                    udp_source_port;
 } input_struct;
 
+typedef struct _decoded_source_info_struct_ {
+    int                    decoded_width;
+    int                    decoded_height;
+    int                    decoded_fps_num;
+    int                    decoded_fps_den;
+    int                    decoded_aspect_num;
+    int                    decoded_aspect_den;    
+} decoded_source_info_struct;
+
 typedef struct _fillet_app_struct_
 {
     int                           session_id;
@@ -286,6 +309,8 @@ typedef struct _fillet_app_struct_
     int                           num_sources;
     source_stream_struct          *source_stream;
     int                           source_running;
+
+    decoded_source_info_struct    decoded_source_info;  // only valid on transcode mode
     
     void                          *video_frame_pool;
     void                          *audio_frame_pool;    
@@ -319,6 +344,13 @@ typedef struct _fillet_app_struct_
     int64_t                       scte35_duration_remaining;
     int64_t                       scte35_last_pts_diff;
 
+    void                          *fillet_msg_pool;
+    void                          *frame_msg_pool;
+    void                          *compressed_video_pool;
+    void                          *compressed_audio_pool;
+    void                          *raw_video_pool;
+    void                          *raw_audio_pool;
+    
 #if defined(ENABLE_TRANSCODE)    
     preparevideo_internal_struct  *preparevideo;
     transvideo_internal_struct    *transvideo;

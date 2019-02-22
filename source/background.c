@@ -49,7 +49,8 @@ int wait_for_event(fillet_app_struct *core)
     msg = (dataqueue_message_struct*)dataqueue_take_back(core->event_queue);
     if (msg) {
         msgid = msg->flags;
-        free(msg);
+        memory_return(core->fillet_msg_pool, msg);
+        msg = NULL;
     } else {
         msgid = 0;
     }
@@ -250,39 +251,7 @@ void *client_thread(void *context)
                                 } else {
                                     snprintf(scratch,MAX_STR_SIZE-1,"            },\n");                                    
                                 }
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
-
-                                /*                                typedef struct _audio_stream_struct_
-                                {
-                                    int64_t                current_receive_count;
-                                    int64_t                first_timestamp;
-                                    int64_t                last_timestamp_pts;
-                                    int64_t                last_full_time;
-                                    int64_t                overflow_pts;
-                                    int64_t                audio_bitrate;
-                                    int64_t                total_audio_bytes;
-                                    int                    audio_samples_to_add;
-                                    int                    audio_samples_to_drop;
-                                    struct timespec        audio_clock_start;
-                                    int                    audio_channels;
-                                    int                    audio_object_type;
-                                    int                    audio_samplerate;
-                                    void                   *audio_queue;
-                                } audio_stream_struct;
-
-                                typedef struct _video_stream_struct_
-                                {
-                                    int64_t                current_receive_count;
-                                    int64_t                last_intra_count;
-                                    int                    found_key_frame;
-                                    int64_t                first_timestamp;
-                                    int64_t                last_timestamp_pts;
-                                    int64_t                last_timestamp_dts;
-                                    int                    last_full_time;
-                                    int64_t                overflow_pts;
-                                    int64_t                overflow_dts;
-                                    int64_t                video_bitrate;
-                                    int64_t                total_video_bytes;*/                               
+                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);
                             }
 
                             current = time(NULL);
@@ -408,7 +377,7 @@ void *client_thread(void *context)
 
                     if (respawn_event || restart_event || start_event || stop_event) {
                         //post to main thread something is ready
-                        msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                        msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (msg) {
                             memset(msg, 0, sizeof(dataqueue_message_struct));
                             if (start_event) {

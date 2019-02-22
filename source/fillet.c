@@ -230,6 +230,13 @@ static int destroy_fillet_core(fillet_app_struct *core)
     }
     dataqueue_destroy(core->event_queue);
     core->event_queue = NULL;
+    memory_destroy(core->fillet_msg_pool);
+    memory_destroy(core->frame_msg_pool);
+    memory_destroy(core->compressed_video_pool);
+    memory_destroy(core->compressed_audio_pool);
+    memory_destroy(core->raw_video_pool);
+    memory_destroy(core->raw_audio_pool);
+    
     free(core);
 
     return 0;
@@ -254,6 +261,21 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->event_queue = (void*)dataqueue_create();
     
     memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
+
+#if defined(ENABLE_TRANSCODE)
+    // pre-allocate these for the transcode
+    core->fillet_msg_pool = memory_create(MAX_MSG_BUFFERS, sizeof(dataqueue_message_struct));
+    core->frame_msg_pool = memory_create(MAX_FRAME_BUFFERS, sizeof(sorted_frame_struct));
+#else
+    core->fillet_msg_pool = memory_create(MAX_MSG_BUFFERS, 0);
+    core->frame_msg_pool = memory_create(MAX_FRAME_BUFFERS, 0);
+#endif
+    // this will limit memory usage for transcode so that it never turns into a
+    // neverending malloc causing other instances of the app to fail
+    core->compressed_video_pool = memory_create(MAX_VIDEO_COMPRESSED_BUFFERS, 0);
+    core->compressed_audio_pool = memory_create(MAX_AUDIO_COMPRESSED_BUFFERS, 0);
+    core->raw_video_pool = memory_create(MAX_VIDEO_RAW_BUFFERS, 0);
+    core->raw_audio_pool = memory_create(MAX_AUDIO_RAW_BUFFERS, 0);
 
     for (current_source = 0; current_source < num_sources; current_source++) {
 	video_stream_struct *vstream;
@@ -991,12 +1013,12 @@ int peek_frame(sorted_frame_struct **frame_data, int entries, int pos, int64_t *
     return -1;    
 }
 
-int use_frame(sorted_frame_struct **frame_data, int entries, int pos, int64_t *current_time, int dump_sample, sorted_frame_struct **output_frame)
+int use_frame(fillet_app_struct *core, sorted_frame_struct **frame_data, int entries, int pos, int64_t *current_time, int dump_sample, sorted_frame_struct **output_frame)
 {
     int i;
     sorted_frame_struct *get_frame;
 
-    // start from the top?
+    // start from the top
     pos = 0;
     get_frame = (sorted_frame_struct*)frame_data[pos];
     for (i = pos; i < entries; i++) {	
@@ -1018,7 +1040,9 @@ int use_frame(sorted_frame_struct **frame_data, int entries, int pos, int64_t *c
 	*output_frame = get_frame;
     } else {
 	*output_frame = NULL;
-	free(get_frame);
+        //possibility for orphaned pool memory here- not using this right now
+        memory_return(core->frame_msg_pool, (void*)get_frame);
+        get_frame = NULL;
     }
  
     return entries - 1;
@@ -1043,7 +1067,7 @@ int add_frame(sorted_frame_struct **frame_data, int entries, sorted_frame_struct
     return new_count;
 }
 
-int dump_frames(sorted_frame_struct **frame_data, int max)
+int dump_frames(fillet_app_struct *core, sorted_frame_struct **frame_data, int max)
 {
     int i;
 
@@ -1055,18 +1079,18 @@ int dump_frames(sorted_frame_struct **frame_data, int max)
 			i,
 			frame_data[i]->source,
 			frame_data[i]->full_time);
-		free(frame_data[i]->buffer);
+                memory_return(core->compressed_video_pool, frame_data[i]->buffer);
 		frame_data[i]->buffer = NULL;
-		free(frame_data[i]);
+                memory_return(core->frame_msg_pool, frame_data[i]);
 		frame_data[i] = NULL;	    	    
 	    } else {	    
 		fprintf(stderr,"[I:%4d] AUDIO:  SOURCE:%d PTS:%ld\n",
 			i,
 			frame_data[i]->source,
 			frame_data[i]->full_time);
-		free(frame_data[i]->buffer);
+                memory_return(core->compressed_audio_pool, frame_data[i]->buffer);
 		frame_data[i]->buffer = NULL;
-		free(frame_data[i]);
+                memory_return(core->frame_msg_pool, frame_data[i]);
 		frame_data[i] = NULL;
 	    }
 	} else {
@@ -1098,8 +1122,8 @@ static void *frame_sync_thread(void *context)
 
 	if (quit_sync_thread) {
 	    pthread_mutex_lock(&sync_lock);		    	    
-	    dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
-	    dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
+	    dump_frames(core, core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
+	    dump_frames(core, core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
 	    pthread_mutex_unlock(&sync_lock);
 	    video_synchronizer_entries = 0;
 	    audio_synchronizer_entries = 0;	    
@@ -1160,18 +1184,25 @@ static void *frame_sync_thread(void *context)
 		no_grab = 0;
 		while (current_audio_time < current_video_time && audio_synchronizer_entries > active_sources && !quit_sync_thread) {
 		    pthread_mutex_lock(&sync_lock);
-		    audio_synchronizer_entries = use_frame(core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
+		    audio_synchronizer_entries = use_frame(core, core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
 		    pthread_mutex_unlock(&sync_lock);
 		    if (output_frame) {
 			dataqueue_message_struct *msg;			
-			msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+			msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
 			if (msg) {
 			    msg->buffer = output_frame;
 			    msg->source_discontinuity = source_discontinuity;
 			    source_discontinuity = 0;
-			}
-			dataqueue_put_front(core->hlsmux->input_queue, msg);
-		    }
+                            dataqueue_put_front(core->hlsmux->input_queue, msg);
+                            output_frame = NULL;
+                        } else {
+                            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                                    core->session_id);
+                            exit(0);
+                        }
+		    } else {
+                        usleep(1000);
+                    }
 		}
 	    } else {
 		fprintf(stderr,"NOT GRABBING AUDIO: DELTA:%ld (CVT:%ld CAT:%ld) AS:%d ASE:%d VSE:%d\n",
@@ -1187,7 +1218,7 @@ static void *frame_sync_thread(void *context)
 		if (no_grab >= 300) {  // was 15
 		    quit_sync_thread = 1;
 		    continue;
-		}		
+		}
 	    }
 
             if (quit_sync_thread) {
@@ -1196,19 +1227,26 @@ static void *frame_sync_thread(void *context)
 			
 	    if (!first_grab) {
 		pthread_mutex_lock(&sync_lock);
-		video_synchronizer_entries = use_frame(core->video_frame_data, video_synchronizer_entries, 0, &current_video_time, first_grab, &output_frame);
+		video_synchronizer_entries = use_frame(core, core->video_frame_data, video_synchronizer_entries, 0, &current_video_time, first_grab, &output_frame);
 		pthread_mutex_unlock(&sync_lock);
 
 		if (output_frame) {
 		    dataqueue_message_struct *msg;
-		    msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                    msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
 		    if (msg) {
 			msg->buffer = output_frame;
 			msg->source_discontinuity = source_discontinuity;
-			source_discontinuity = 0;
-		    }
-		    dataqueue_put_front(core->hlsmux->input_queue, msg);
-		}
+			source_discontinuity = 0;		    
+                        dataqueue_put_front(core->hlsmux->input_queue, msg);
+                        output_frame = NULL;
+                    } else {
+                        fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                                core->session_id);
+                        exit(0);
+                    }
+		} else {
+                    usleep(1000);
+                }
 	    }
 	} else {
 	    usleep(5000);
@@ -1237,22 +1275,30 @@ static int64_t time_difference(struct timespec *now, struct timespec *start)
     return ((tnsec / 1000) + (tsec * 1000000));
 }
 
-int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts)
+int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int sub_stream)
 {
     sorted_frame_struct *new_frame;
-    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[0];
+    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[sub_stream];
     int restart_sync_thread = 0;
 
-    new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
+    new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
+    if (!new_frame) {
+        fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                core->session_id);
+        exit(0);
+    }
+    
     new_frame->buffer = new_buffer;
     new_frame->buffer_size = sample_size;
     new_frame->pts = pts;
     new_frame->dts = pts;
     new_frame->full_time = pts;
+    //new_frame->duration = 1920; // single aac frame
+    // duration should be 1920 for single aac frame
     new_frame->duration = new_frame->full_time - astream->last_full_time;
     new_frame->first_timestamp = 0;
     new_frame->source = 0;
-    new_frame->sub_stream = 0;
+    new_frame->sub_stream = sub_stream;
     astream->last_full_time = new_frame->full_time;
 
     new_frame->frame_type = FRAME_TYPE_AUDIO;
@@ -1271,8 +1317,8 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     if (restart_sync_thread) {
         fprintf(stderr,"GETTING SYNC LOCK\n");
 	pthread_mutex_lock(&sync_lock);
-	dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
-	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
+	dump_frames(core, core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
+	dump_frames(core, core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
 	pthread_mutex_unlock(&sync_lock);
         fprintf(stderr,"DONE WITH SYNC LOCK\n");
 	video_synchronizer_entries = 0;
@@ -1299,7 +1345,12 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     int i;
     int sync_frame = 0;
 
-    new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
+    new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
+    if (!new_frame) {
+        fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                core->session_id);
+        exit(0);
+    }  
     new_frame->buffer = new_buffer;
     new_frame->buffer_size = sample_size;
     new_frame->pts = pts;
@@ -1350,7 +1401,6 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
                     sync_frame = 1;
                     break;
                 }
-                fprintf(stderr,"\n\n\n\nNAL TYPE: %d\n\n\n\n", nal_type);
             }
         }           
         new_frame->media_type = MEDIA_TYPE_HEVC;
@@ -1394,8 +1444,8 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     if (restart_sync_thread) {
         fprintf(stderr,"GETTING SYNC LOCK\n");
 	pthread_mutex_lock(&sync_lock);
-	dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
-	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
+	dump_frames(core, core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
+	dump_frames(core, core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
 	pthread_mutex_unlock(&sync_lock);
         fprintf(stderr,"DONE WITH SYNC LOCK\n");
 	video_synchronizer_entries = 0;
@@ -1467,7 +1517,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	int64_t diff;
 
         if (enable_verbose || sample_flags) {
-            fprintf(stderr,"STATUS: RECEIVE_FRAME (H264 :%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d\n",
+            fprintf(stderr,"STATUS: RECEIVE_FRAME (H264/HEVC :%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d\n",
                     source,
                     sample_type,
                     pts,
@@ -1542,10 +1592,20 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    return 0;
 	}
 
-	new_buffer = (uint8_t*)malloc(sample_size+1);
+	new_buffer = (uint8_t*)memory_take(core->compressed_video_pool, sample_size);
+        if (!new_buffer) {
+            fprintf(stderr,"SESSION:%d (MAIN) STATUS: unable to obtain compressed video buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }
 	memcpy(new_buffer, sample, sample_size);
 	
-	new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
+	new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
+        if (!new_frame) {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);          
+        }      
 	new_frame->buffer = new_buffer;
 	new_frame->buffer_size = sample_size;
 
@@ -1648,12 +1708,16 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 #if defined(ENABLE_TRANSCODE)            
             dataqueue_message_struct *decode_msg;
 
-            decode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+            decode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
             if (decode_msg) {
                 decode_msg->buffer = new_frame;
                 decode_msg->buffer_size = sizeof(sorted_frame_struct);
                 dataqueue_put_front(core->transvideo->input_queue, decode_msg);
                 decode_msg = NULL;
+            } else {
+                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                        core->session_id);
+                exit(0);
             }
 #endif // ENABLE_TRANSCODE            
         } else {
@@ -1665,7 +1729,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 }
                 pthread_mutex_unlock(&sync_lock);
             } else {
-                // return new_frame - free()
+                memory_return(core->compressed_video_pool, new_frame->buffer);
+                new_frame->buffer = NULL;
+                memory_return(core->frame_msg_pool, new_frame);
+                new_frame = NULL;
             }
         }
     } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3) {
@@ -1694,6 +1761,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             return 0;
         }
 
+        /*if (sub_source != 0) {
+            return 0;
+        }*/
+
         if (!vstream->found_key_frame) {
 	    return 0;
 	}
@@ -1710,7 +1781,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	    astream->audio_bitrate = br * 1000;
 	}
 
-	new_buffer = (uint8_t*)malloc(sample_size+1);
+	new_buffer = (uint8_t*)memory_take(core->compressed_audio_pool, sample_size);
+        if (!new_buffer) {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain compressed audio buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }        
 	memcpy(new_buffer, sample, sample_size);
 	
 	if (astream->last_timestamp_pts != -1) {
@@ -1746,15 +1822,25 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 
 	astream->last_timestamp_pts = pts + astream->overflow_pts;
 	
-	new_frame = (sorted_frame_struct*)malloc(sizeof(sorted_frame_struct));
-
+	new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
+        if (!new_frame) {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }
 	new_frame->buffer = new_buffer;
 	new_frame->buffer_size = sample_size;
 	new_frame->pts = pts;
 	new_frame->dts = dts;
 	new_frame->full_time = pts + astream->overflow_pts;
 	new_frame->duration = new_frame->full_time - astream->last_full_time;
-	astream->last_full_time = new_frame->full_time;
+#if defined(ENABLE_TRANSCODE)
+        if (!enable_transcode) {            // gets set in audio_sink_frame_callback
+            astream->last_full_time = new_frame->full_time;
+        }
+#else // ENABLE_TRANSCODE
+        astream->last_full_time = new_frame->full_time;
+#endif        
 	new_frame->first_timestamp = 0;
 	new_frame->source = source;
         new_frame->sub_stream = sub_source;
@@ -1778,12 +1864,16 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 #if defined(ENABLE_TRANSCODE)            
             dataqueue_message_struct *decode_msg;
 
-            decode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+            decode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
             if (decode_msg) {
                 decode_msg->buffer = new_frame;
                 decode_msg->buffer_size = sizeof(sorted_frame_struct);
                 dataqueue_put_front(core->transaudio[sub_source]->input_queue, decode_msg);
                 decode_msg = NULL;
+            } else {
+                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                        core->session_id);
+                exit(0);
             }
 #endif // ENABLE_TRANSCODE
         } else {
@@ -1795,7 +1885,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 }
                 pthread_mutex_unlock(&sync_lock);
             } else {
-                // return new_frame - free()
+                memory_return(core->compressed_audio_pool, new_frame->buffer);
+                new_frame->buffer = NULL;
+                memory_return(core->frame_msg_pool, new_frame);
+                new_frame = NULL;                
             }
         }
     } else {
@@ -1805,8 +1898,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     if (restart_sync_thread) {
         fprintf(stderr,"GETTING SYNC LOCK\n");
 	pthread_mutex_lock(&sync_lock);
-	dump_frames(core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
-	dump_frames(core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
+	dump_frames(core, core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
+	dump_frames(core, core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);        
 	pthread_mutex_unlock(&sync_lock);
         fprintf(stderr,"DONE WITH SYNC LOCK\n");
 	video_synchronizer_entries = 0;
@@ -2010,6 +2103,23 @@ int main(int argc, char **argv)
 
                  int video_decode_frames_waiting;
                  int video_deinterlace_frames_waiting;
+
+                 syslog(LOG_INFO,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
+                        core->session_id,
+                        memory_unused(core->fillet_msg_pool),
+                        memory_unused(core->frame_msg_pool),
+                        memory_unused(core->compressed_video_pool),
+                        memory_unused(core->compressed_audio_pool),
+                        memory_unused(core->raw_video_pool),
+                        memory_unused(core->raw_audio_pool));
+                 fprintf(stderr,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
+                         core->session_id,
+                         memory_unused(core->fillet_msg_pool),
+                         memory_unused(core->frame_msg_pool),
+                         memory_unused(core->compressed_video_pool),
+                         memory_unused(core->compressed_audio_pool),
+                         memory_unused(core->raw_video_pool),
+                         memory_unused(core->raw_audio_pool));                 
 
                  video_decode_frames_waiting = dataqueue_get_size(core->transvideo->input_queue);
                  if (video_decode_frames_waiting > WAIT_THRESHOLD_ERROR) {

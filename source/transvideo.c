@@ -264,8 +264,10 @@ void *video_encode_thread_x265(void *context)
             if (!video_encode_thread_running) {
                 while (msg) {
                     if (msg) {
-                        free(msg->buffer);
-                        free(msg);
+                        memory_return(core->raw_video_pool, msg->buffer);
+                        msg->buffer = NULL;
+                        memory_return(core->fillet_msg_pool, msg);
+                        msg = NULL;
                     }
                     msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
                 }
@@ -334,7 +336,11 @@ void *video_encode_thread_x265(void *context)
                 }
 
                 nalout = x265_data[current_encoder].p_nal;
-                nal_buffer = (uint8_t*)malloc(nalsize+1);
+                nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, nalsize);
+                if (!nal_buffer) {
+                    fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
+                    exit(0);                    
+                }
                 for (nal_idx = 0; nal_idx < nal_count; nal_idx++) {
                     int nocopy = 0;
 
@@ -411,16 +417,19 @@ void *video_encode_thread_x265(void *context)
             }
                    
             if (msg) {
-                free(msg->buffer);
-                free(msg);
+                memory_return(core->raw_video_pool, msg->buffer);
+                msg->buffer = NULL;
+                memory_return(core->fillet_msg_pool, msg);
+                msg = NULL;                
             }                        
         }
     }
 
 cleanup_video_encode_thread:
 
-    //x265_data[current_encoder].api->encoder_close();
-
+    for (current_encoder = 0; current_encoder < num_outputs; current_encoder++) {
+        //x265_data[current_encoder].api->encoder_close();        
+    }
     
     return NULL;
 }
@@ -607,8 +616,10 @@ void *video_encode_thread_x264(void *context)
             if (!video_encode_thread_running) {
                 while (msg) {
                     if (msg) {
-                        free(msg->buffer);
-                        free(msg);
+                        memory_return(core->raw_video_pool, msg->buffer);
+                        msg->buffer = NULL;
+                        memory_return(core->fillet_msg_pool, msg);
+                        msg = NULL;                                        
                     }
                     msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
                 }
@@ -660,6 +671,7 @@ void *video_encode_thread_x264(void *context)
                    x264_data[current_queue].uv_size);
 
             if (msg->caption_buffer) {
+#define DISABLE_CAPTIONS                
 #if !defined(DISABLE_CAPTIONS)                
                 uint8_t *caption_buffer;
                 caption_buffer = (uint8_t*)malloc(MAX_SEI_PAYLOAD_SIZE);
@@ -724,7 +736,11 @@ void *video_encode_thread_x264(void *context)
                 double ticks_per_frame_double = (double)90000.0/(double)output_fps;
                 video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream                
 
-                nal_buffer = (uint8_t*)malloc(output_size+1);
+                nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, output_size);
+                if (!nal_buffer) {
+                    fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
+                    exit(0);                                                            
+                }
                 memcpy(nal_buffer, x264_data[current_queue].nal->p_payload, output_size);
                 
                 if (x264_data[current_encoder].param.i_fps_den > 0) {
@@ -763,8 +779,11 @@ void *video_encode_thread_x264(void *context)
             }            
                    
             if (msg) {
-                free(msg->buffer);
-                free(msg);
+                //check for orphaned caption buffer
+                memory_return(core->raw_video_pool, msg->buffer);
+                msg->buffer = NULL;
+                memory_return(core->fillet_msg_pool, msg);
+                msg = NULL;                                                        
             }            
         }
     }
@@ -881,8 +900,10 @@ void *video_prepare_thread(void *context)
         if (!video_prepare_thread_running) {
             while (msg) {
                 if (msg) {
-                    free(msg->buffer);
-                    free(msg);
+                    memory_return(core->raw_video_pool, msg->buffer);
+                    msg->buffer = NULL;
+                    memory_return(core->fillet_msg_pool, msg);
+                    msg = NULL;
                 }
                 msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);                            
             }
@@ -1056,7 +1077,7 @@ void *video_prepare_thread(void *context)
                         if (output_scaler[current_output] == NULL) {
                             output_scaler[current_output] = sws_getContext(width, height, AV_PIX_FMT_YUV420P,
                                                                            output_width, output_height, AV_PIX_FMT_YUV420P,
-                                                                           SWS_BICUBIC, NULL, NULL, NULL); 
+                                                                           SWS_LANCZOS, NULL, NULL, NULL); 
                             av_image_alloc(scaled_output[current_output].output_data,
                                            scaled_output[current_output].output_stride,
                                            output_width, output_height, AV_PIX_FMT_YUV420P, 1);
@@ -1086,7 +1107,11 @@ void *video_prepare_thread(void *context)
                         int whalf = output_width/2;
                         int hhalf = output_height/2;
                         
-                        deinterlaced_buffer = (uint8_t*)malloc(video_frame_size);
+                        deinterlaced_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
+                        if (!deinterlaced_buffer) {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain deinterlaced_buffer!!\n");
+                            exit(0);                                                
+                        }
                         sourcey = (uint8_t*)scaled_output[current_output].output_data[0];
                         sourceu = (uint8_t*)scaled_output[current_output].output_data[1];
                         sourcev = (uint8_t*)scaled_output[current_output].output_data[2];
@@ -1134,11 +1159,15 @@ void *video_prepare_thread(void *context)
                                 fps);
 
                         if (deinterlaced_frame_count[current_output] - sync_frame_count < -1) {
-                            uint8_t *repeated_buffer = (uint8_t*)malloc(video_frame_size);
+                            uint8_t *repeated_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                             if (repeated_buffer) {
                                 memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);
 
-                                encode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                                encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                                if (!encode_msg) {
+                                    fprintf(stderr,"FATAL ERROR: unable to obtain encode_msg!!\n");
+                                    exit(0);                                                                                            
+                                }
                                 encode_msg->buffer = repeated_buffer;
                                 encode_msg->buffer_size = video_frame_size;
                                 encode_msg->pts = 0;
@@ -1165,10 +1194,17 @@ void *video_prepare_thread(void *context)
                                 
                                 deinterlaced_frame_count[current_output]++;  // frames since the video start time
                                 dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);                                
+                            } else {
+                                fprintf(stderr,"FATAL ERROR: unable to obtain repeated_buffer!!\n");
+                                exit(0);
                             }
                         }
 
-                        encode_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                        encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                        if (!encode_msg) {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain encode_msg!!\n");
+                            exit(0);                            
+                        }
                         encode_msg->buffer = deinterlaced_buffer;
                         encode_msg->buffer_size = video_frame_size;
                         encode_msg->pts = deinterlaced_frame->pkt_pts;  // or pkt_pts?
@@ -1231,10 +1267,10 @@ void *video_prepare_thread(void *context)
                 av_frame_unref(deinterlaced_frame);
             }
 
-            free(msg->buffer);
+            memory_return(core->raw_video_pool, msg->buffer);
             msg->buffer = NULL;
-            free(msg);
-            msg = NULL;
+            memory_return(core->fillet_msg_pool, msg);
+            msg = NULL;                                                                            
         }
     }
     
@@ -1304,10 +1340,12 @@ void *video_decode_thread(void *context)
             if (msg) {
                 sorted_frame_struct *frame = (sorted_frame_struct*)msg->buffer;
                 if (frame) {
-                    free(frame->buffer);
+                    memory_return(core->compressed_video_pool, frame->buffer);
                     frame->buffer = NULL;
+                    memory_return(core->frame_msg_pool, frame);
+                    frame = NULL;
                 }
-                free(msg);
+                memory_return(core->fillet_msg_pool, msg);
                 msg = NULL;               
             }
             goto cleanup_video_decoder_thread;
@@ -1393,7 +1431,7 @@ void *video_decode_thread(void *context)
                     is_frame_tff = decode_av_frame->top_field_first;
                     source_format = decode_av_frame->format;
                     frame_height = decode_avctx->height;
-                    frame_width = decode_avctx->width;
+                    frame_width = decode_avctx->width;                 
 
                     fprintf(stderr,"STATUS: %ld:DECODED VIDEO FRAME: %dx%d (%d:%d) INTERLACED:%d (TFF:%d)\n",
                             decoder_frame_count,
@@ -1421,7 +1459,11 @@ void *video_decode_thread(void *context)
                     }
                     last_video_frame_size = video_frame_size;
 
-                    output_video_frame = (uint8_t*)malloc(video_frame_size);
+                    output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
+                    if (!output_video_frame) {
+                        fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
+                        exit(0);
+                    }
 
                     //422 to 420 conversion if needed
                     //10 to 8 bit conversion if needed
@@ -1512,7 +1554,7 @@ void *video_decode_thread(void *context)
                         }                        
                     }
                     
-                    prepare_msg = (dataqueue_message_struct*)malloc(sizeof(dataqueue_message_struct));
+                    prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct)); 
                     if (prepare_msg) {
                         prepare_msg->buffer = output_video_frame;
                         prepare_msg->buffer_size = video_frame_size;
@@ -1554,21 +1596,29 @@ void *video_decode_thread(void *context)
                         prepare_msg->splice_duration = splice_duration;
                         prepare_msg->splice_duration_remaining = splice_duration_remaining;
 
-                        dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);
-                        //
+                        core->decoded_source_info.decoded_width = frame_width;
+                        core->decoded_source_info.decoded_height = frame_height;
+                        core->decoded_source_info.decoded_fps_num = prepare_msg->fps_num;
+                        core->decoded_source_info.decoded_fps_den = prepare_msg->fps_den;
+                        core->decoded_source_info.decoded_aspect_num = prepare_msg->aspect_num;
+                        core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
+
+                        dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);                        
                     } else {
-                        // serious error!
+                        fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
+                        exit(0);                                               
                     }
                 }
-                free(frame->buffer);
+                memory_return(core->compressed_video_pool, frame->buffer);
                 frame->buffer = NULL;
             } else {
                 //report error condition
             }
-            free(msg->buffer);
-            msg->buffer = NULL;
-            free(msg);
-            msg = NULL;            
+
+            memory_return(core->frame_msg_pool, frame);
+            frame = NULL;
+            memory_return(core->fillet_msg_pool, msg);
+            msg = NULL;
         } else {
             //report error condition
         }

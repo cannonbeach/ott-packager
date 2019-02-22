@@ -33,7 +33,7 @@ extern "C" {
     void *memory_take(void *pool, int owner);
     int memory_return(void *pool, void *buffer);
     int memory_reset(void *pool);
-    int memory_count(void *pool);
+    int memory_unused(void *pool);
 
 #if defined(__cplusplus)
 }

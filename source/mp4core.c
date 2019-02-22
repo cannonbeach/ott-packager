@@ -1436,33 +1436,34 @@ int fmp4_audio_track_create(fragment_file_struct *fmp4, int audio_channels, int 
     return 0;
 }
 
+#define NALSIZE_SIZE 4    
+
 static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buffer_size, uint8_t *output_buffer, int max_output_buffer_size)
 {
-    int i;
     int parsing_sample = 0;
     uint8_t *sample_buffer = output_buffer;
     int saved_position = 0;
     int sample_size;
     int read_pos = 0;
-    int write_pos = 0;
+    int write_pos = 0;    
+    int nal_type;
 
-    for (i = 0; i < input_buffer_size; i++) {
+    while (read_pos < input_buffer_size) {        
         if (input_buffer[read_pos+0] == 0x00 &&
             input_buffer[read_pos+1] == 0x00 &&
             input_buffer[read_pos+2] == 0x00 &&
             input_buffer[read_pos+3] == 0x01) {
 
-	    int nal_type = (input_buffer[read_pos+3] & 0x7f) >> 1;
+	    nal_type = (input_buffer[read_pos+4] & 0x7f) >> 1;
 	    if (parsing_sample) {
-		sample_size = write_pos - saved_position - 4;
-		/*fprintf(stderr,"DONE PARSING SAMPLE: %d  SAVED_POS:%d\n",
-			sample_size,
-			saved_position);*/
+		sample_size = write_pos - saved_position - NALSIZE_SIZE;
 		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
 		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
 		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
 		*(sample_buffer+saved_position+3) = sample_size & 0xff;
+                parsing_sample = 0;
 	    }
+            
             if (nal_type == 32 || nal_type == 33 || nal_type == 34) {  // nal_type == 20
                 fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
             }
@@ -1474,46 +1475,22 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
 	    *(sample_buffer+write_pos+3) = 0x0d;	    
 	    parsing_sample = 1;
 	    read_pos += 4;
-	    write_pos += 4;            
+	    write_pos += NALSIZE_SIZE;
         } else if (input_buffer[read_pos+0] == 0x00 &&
                    input_buffer[read_pos+1] == 0x00 &&
                    input_buffer[read_pos+2] == 0x01) {
             
-	    int nal_type = (input_buffer[read_pos+3] & 0x7f) >> 1;
+	    nal_type = (input_buffer[read_pos+3] & 0x7f) >> 1;
 	    if (parsing_sample) {
-		sample_size = write_pos - saved_position - 4;
-		/*fprintf(stderr,"DONE PARSING SAMPLE: %d  SAVED_POS:%d\n",
-			sample_size,
-			saved_position);*/
+		sample_size = write_pos - saved_position - NALSIZE_SIZE;
 		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
 		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
 		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
 		*(sample_buffer+saved_position+3) = sample_size & 0xff;
-	    }
-            /*
-	    if (nal_type == 6) {
-		int sei_type = input_buffer[read_pos+4];
-		if (sei_type != 4) {
-		    parsing_sample = 0;
-		    read_pos += 3;
-		    continue;
-		}		    
-	    }
-	    if (nal_type == 9 || nal_type == 12) {
-		parsing_sample = 0;
-		read_pos += 3;	     
-		continue;
-	    }
-            */
-            
-            // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there            
-            /*if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
                 parsing_sample = 0;
-                read_pos += 3;
-                continue;
-            }*/
+	    }
             
-            if (nal_type == 32 || nal_type == 33 || nal_type == 34) {  // nal_type == 20
+            if (nal_type == 32 || nal_type == 33 || nal_type == 34) {
                 fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
             }
 	    saved_position = write_pos;
@@ -1523,21 +1500,17 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
 	    *(sample_buffer+write_pos+3) = 0x0d;	    
 	    parsing_sample = 1;
 	    read_pos += 3;
-	    write_pos += 4;
+	    write_pos += NALSIZE_SIZE;
 	} else {
-	    if (parsing_sample) {
-		sample_buffer[write_pos] = input_buffer[read_pos];
-		write_pos++;
-	    }
+            if (parsing_sample) {
+                sample_buffer[write_pos] = input_buffer[read_pos];
+                write_pos++;
+            }            
 	    read_pos++;	    
-	}
-	if (read_pos == i) {
-	    break;
 	}
     }
     if (parsing_sample) {
-	sample_size = write_pos - saved_position - 4;
-	//fprintf(stderr,"DONE PARSING LAST SAMPLE: %d  SAVED_POS:%d\n", sample_size, sample_size);
+	sample_size = write_pos - saved_position - NALSIZE_SIZE;
 	*(sample_buffer+saved_position+0) = ((uint32_t)sample_size >> 24) & 0xff;
 	*(sample_buffer+saved_position+1) = ((uint32_t)sample_size >> 16) & 0xff;
 	*(sample_buffer+saved_position+2) = ((uint32_t)sample_size >> 8) & 0xff;
@@ -1548,7 +1521,6 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
 
 static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buffer_size, uint8_t *output_buffer, int max_output_buffer_size)
 {
-    int i;
     int parsing_sample = 0;
     uint8_t *sample_buffer = output_buffer;
     int saved_position = 0;
@@ -1556,34 +1528,62 @@ static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buf
     int read_pos = 0;
     int write_pos = 0;
 
-    for (i = 0; i < input_buffer_size; i++) {
+    while (read_pos < input_buffer_size) {
 	if (input_buffer[read_pos+0] == 0x00 &&
 	    input_buffer[read_pos+1] == 0x00 &&
-	    input_buffer[read_pos+2] == 0x01) {	    
-	    int nal_type = input_buffer[read_pos+3] & 0x1f;
+            input_buffer[read_pos+2] == 0x00 &&
+	    input_buffer[read_pos+3] == 0x01) {	    
+	    int nal_type = input_buffer[read_pos+4] & 0x1f;
 	    if (parsing_sample) {
-		sample_size = write_pos - saved_position - 4;
-		/*fprintf(stderr,"DONE PARSING SAMPLE: %d  SAVED_POS:%d\n",
-			sample_size,
-			saved_position);*/
+		sample_size = write_pos - saved_position - NALSIZE_SIZE;
 		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
 		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
 		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
 		*(sample_buffer+saved_position+3) = sample_size & 0xff;
+                parsing_sample = 0;
 	    }
-	    if (nal_type == 6) {
-		int sei_type = input_buffer[read_pos+4];
-		if (sei_type != 4) {
-		    parsing_sample = 0;
-		    read_pos += 3;
-		    continue;
-		}		    
+	    if (nal_type == 9) {
+		parsing_sample = 0;
+		read_pos += 4;	     
+		continue;
 	    }
-	    if (nal_type == 9 || nal_type == 12) {
+                        
+            // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there            
+            /*if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
+                parsing_sample = 0;
+                read_pos += 4;
+                continue;
+            }*/
+            
+            if (nal_type == 7 || nal_type == 8 || nal_type == 5) {
+                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+            }
+	    saved_position = write_pos;
+	    *(sample_buffer+write_pos+0) = 0x00;
+	    *(sample_buffer+write_pos+1) = 0x00;
+	    *(sample_buffer+write_pos+2) = 0x00;
+	    *(sample_buffer+write_pos+3) = 0x01;	    
+	    parsing_sample = 1;
+	    read_pos += 4;
+	    write_pos += NALSIZE_SIZE;            
+        } else if (input_buffer[read_pos+0] == 0x00 &&
+                   input_buffer[read_pos+1] == 0x00 &&
+                   input_buffer[read_pos+2] == 0x01) {	    
+	    int nal_type = input_buffer[read_pos+3] & 0x1f;
+	    if (parsing_sample) {
+		sample_size = write_pos - saved_position - NALSIZE_SIZE;
+		*(sample_buffer+saved_position+0) = (sample_size >> 24) & 0xff;
+		*(sample_buffer+saved_position+1) = (sample_size >> 16) & 0xff;
+		*(sample_buffer+saved_position+2) = (sample_size >> 8) & 0xff;
+		*(sample_buffer+saved_position+3) = sample_size & 0xff;
+                parsing_sample = 0;
+	    }
+
+	    if (nal_type == 9) {
 		parsing_sample = 0;
 		read_pos += 3;	     
 		continue;
-	    }
+	    }           
             
             // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there            
             /*if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
@@ -1596,32 +1596,28 @@ static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buf
                 fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
             }
 	    saved_position = write_pos;
-	    *(sample_buffer+write_pos+0) = 0xf0;
-	    *(sample_buffer+write_pos+1) = 0x0d;
-	    *(sample_buffer+write_pos+2) = 0xf0;
-	    *(sample_buffer+write_pos+3) = 0x0d;	    
+	    *(sample_buffer+write_pos+0) = 0x00;
+	    *(sample_buffer+write_pos+1) = 0x00;
+	    *(sample_buffer+write_pos+2) = 0x00;
+	    *(sample_buffer+write_pos+3) = 0x01;	    
 	    parsing_sample = 1;
 	    read_pos += 3;
-	    write_pos += 4;
+	    write_pos += NALSIZE_SIZE;            
 	} else {
-	    if (parsing_sample) {
-		sample_buffer[write_pos] = input_buffer[read_pos];
-		write_pos++;
-	    }
+            if (parsing_sample) {
+                sample_buffer[write_pos] = input_buffer[read_pos];
+                write_pos++;
+            }
 	    read_pos++;	    
-	}
-	if (read_pos == i) {
-	    break;
 	}
     }
     if (parsing_sample) {
-	sample_size = write_pos - saved_position - 4;
-	//fprintf(stderr,"DONE PARSING LAST SAMPLE: %d  SAVED_POS:%d\n", sample_size, sample_size);
+	sample_size = write_pos - saved_position - NALSIZE_SIZE;
 	*(sample_buffer+saved_position+0) = ((uint32_t)sample_size >> 24) & 0xff;
 	*(sample_buffer+saved_position+1) = ((uint32_t)sample_size >> 16) & 0xff;
 	*(sample_buffer+saved_position+2) = ((uint32_t)sample_size >> 8) & 0xff;
 	*(sample_buffer+saved_position+3) = (uint32_t)sample_size & 0xff;
-    }    
+    }
     return write_pos;
 }
 
@@ -1640,7 +1636,7 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 
     if (frag >= MAX_FRAGMENTS) {
 	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF VIDEO FRAGMENTS: %d!  VTID:%d\n", frag, vtid);
-	return -1;
+        exit(0);
     }    
     
     if (frag == 0) {
@@ -1649,16 +1645,26 @@ int fmp4_video_fragment_add(fragment_file_struct *fmp4,
 
     new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
 
+    memset(new_frag,0,fragment_buffer_size*2); // debugging
+    
     if (fmp4->video_media_type == MEDIA_TYPE_HEVC) {
         updated_fragment_buffer_size = replace_startcode_with_size_hevc(fragment_buffer, fragment_buffer_size, new_frag, fragment_buffer_size*2);        
     } else {
         updated_fragment_buffer_size = replace_startcode_with_size_h264(fragment_buffer, fragment_buffer_size, new_frag, fragment_buffer_size*2);
     }
 
-    //uint32_t *fragsize = (uint32_t*)new_frag;
-    /*fprintf(stderr,"new frag size: %u   0x%x 0x%x 0x%x 0x%x\n", ntohl(*fragsize),
-      new_frag[0], new_frag[1], new_frag[2], new_frag[3]);*/
-    
+    /*
+    static FILE *temp = NULL;
+    if (!temp) {
+        temp = fopen("debug.264","w");
+    }
+    if (temp) {
+        fwrite(new_frag, 1, updated_fragment_buffer_size, temp);
+        //fwrite(fragment_buffer, 1, fragment_buffer_size, temp);
+        fflush(temp);
+    }
+    */
+
     track_data->fragments[frag].fragment_buffer = new_frag;
     track_data->fragments[frag].fragment_buffer_size = updated_fragment_buffer_size;
     track_data->fragments[frag].fragment_duration = fragment_duration;
@@ -1682,11 +1688,11 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
 
     int atid = fmp4->audio_track_id-1;
     track_struct *track_data = (track_struct*)&fmp4->track_data[atid];
-    int frag = track_data->fragment_count; 
-    
+    int frag = track_data->fragment_count;
+
     if (frag >= MAX_FRAGMENTS) {
 	fprintf(stderr,"MP4CORE: ERROR - EXCEEDED NUMBER OF AUDIO FRAGMENTS: %d!  ATID:%d\n", frag, atid);
-	return -1;
+        exit(0);
     }    
     
     if (frag == 0) {
@@ -1695,6 +1701,8 @@ int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
 
     new_frag = (uint8_t*)malloc(fragment_buffer_size*2);
 
+    memset(new_frag,0,fragment_buffer_size*2);  // debugging
+    
     header_size = ADTS_HEADER_SIZE + ((fragment_buffer[1] & 0x01) ? 0 : 2);  // check for crc
 
     fragment_buffer_size -= header_size;

@@ -30,7 +30,7 @@
 #define MAX_TRACKS          2
 
 #define MAX_NAME_SIZE       512
-#define MAX_MP4_SIZE        16384*1024   //16mb
+#define MAX_MP4_SIZE        16*1024*1024   //16mb
 
 #define MEDIA_TYPE_AAC      0x01
 #define MEDIA_TYPE_AC3      0x02

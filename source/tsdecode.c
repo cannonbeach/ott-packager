@@ -240,6 +240,9 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           } else if (current_stream_type == 0x1b) {
 	      backup_caller(2000, 801, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_H264;
+          } else if (current_stream_type == 0x24) {
+	      backup_caller(2000, 814, current_stream_pid, current_pid, 0, 0, backup_context);
+	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_HEVC;
           } else if (current_stream_type == 0x01) {
 	      backup_caller(2000, 802, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_MPEG;
@@ -1023,7 +1026,38 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                                              tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);*/
-					 } else if (stream_type == 0x1b) {
+                                         } else if (stream_type == 0x24) {
+					     int vf;
+					     int nal_type;
+					     int is_intra = 0;
+					     video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+					     for (vf = 0; vf < video_frame_size - 4; vf++) {
+						 if (video_frame[vf] == 0x00 &&
+						     video_frame[vf+1] == 0x00 &&
+						     video_frame[vf+2] == 0x01) {
+						     nal_type = (video_frame[vf+3] & 0x7f) >> 1;
+						     if (nal_type == 20 || nal_type == 19) { 
+							 is_intra = 1;
+							 if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
+							     tsdata->first_frame_intra = 1;
+							     is_intra = 1;                                                             
+							 }
+                                                         break;
+						     }
+						 }
+					     }
+					     
+					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
+
+					     send_frame_func(video_frame, video_frame_size, STREAM_TYPE_HEVC, is_intra,
+							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+							     0, // PCR
+							     tsdata->source,
+                                                             0, // sub-source is 0 for video                                                             
+							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+							     send_frame_context);			 
+                                         } else if (stream_type == 0x1b) {
 					     int vf;
 					     int nal_type;
 					     int is_intra = 0;
