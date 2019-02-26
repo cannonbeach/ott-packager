@@ -325,6 +325,7 @@ void *audio_decode_thread(void *context)
                 int64_t last_full_time = 0;
                 uint8_t *incoming_audio_buffer = frame->buffer;
                 int incoming_audio_buffer_size = frame->buffer_size;
+
                 //sometimes the audio frames are concatenated, especially coming from
                 //an mpeg2 transport stream
 
@@ -345,6 +346,10 @@ void *audio_decode_thread(void *context)
                     int64_t pts;
                     int updated_output_buffer_size;
                     uint8_t *decoded_audio_buffer = NULL;
+                    int64_t output_pts_full_time;
+                    int64_t output_pts;
+                    int64_t total_audio_time_output = 0;
+                    int64_t diff_audio = 0;                                               
                     
                     retcode = avcodec_receive_frame(decode_avctx, decode_av_frame);
                     if (retcode == AVERROR(EAGAIN) || retcode == AVERROR_EOF) {
@@ -441,10 +446,9 @@ void *audio_decode_thread(void *context)
                     }
                     delta_time = (double)full_time - (double)first_decoded_pts;
 
+                    diff_audio = 0;
                     if (current_sample_out == 0) {
                         if (previous_delta_time != -1 && ticks_per_sample != 0) {
-                            int64_t diff_audio;
-                            
                             expected_audio_data = (int64_t)((double)delta_time / (double)0.9 * (double)ticks_per_sample);
                             diff_audio = expected_audio_data - actual_audio_data;                            
                             fprintf(stderr,"expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld\n",
@@ -456,29 +460,31 @@ void *audio_decode_thread(void *context)
                             //and if things are just really bad and unrecoverable for some unknown reason
                             //then we'll just have the application quit out based on some threshold
                             //and rely on the docker container to restart the application in a known healthy state
-
-                            if (diff_audio > 32768 ||
-                                diff_audio < -32768) {
-                                fprintf(stderr,"fatal error: a/v sync is off - too much or too little audio is present - %d\n", diff_audio);
-                                syslog(LOG_ERR,"fatal error: a/v sync is off - too much or too little audio is present - %d\n", diff_audio);
-                                exit(0);                                
-                            }                            
+                            int quit_threshold = 16384*output_channels;
+                            if (diff_audio > quit_threshold ||
+                                diff_audio < -quit_threshold) {
+                                fprintf(stderr,"fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
+                                syslog(LOG_ERR,"fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
+                                exit(0);
+                            }
                         }
                     }
-                    previous_delta_time = delta_time;                    
+                    previous_delta_time = delta_time;
                     actual_audio_data += updated_output_buffer_size;
 
-                        // check size of updated_output_buffer_size+1
+                    // check size of updated_output_buffer_size+1
                     if (updated_output_buffer_size > 65535 || updated_output_buffer_size < 0) {
-                        fprintf(stderr,"warning: output buffer size is excessively large or malformed: %d\n", updated_output_buffer_size); 
+                        fprintf(stderr,"warning: output buffer size is excessively large or malformed: %d \n", updated_output_buffer_size); 
                         updated_output_buffer_size = 65535;
                     }
                     
                     decoded_audio_buffer = (uint8_t*)memory_take(core->raw_audio_pool, updated_output_buffer_size);
                     if (!decoded_audio_buffer) {
-                        //do something
+                        fprintf(stderr,"fatal error: unable to obtain decoded_audio_buffer from pool!\n");
+                        syslog(LOG_ERR,"fatal error: unable to obtain decoded_audio_buffer from pool!\n");
+                        exit(0);
                     }
-                    //check size
+                    // check size
                     memcpy(decoded_audio_buffer, swr_output_buffer, updated_output_buffer_size);
 
                     if (current_sample_out == 0) {
@@ -488,7 +494,7 @@ void *audio_decode_thread(void *context)
                             
                             correct_data = (int64_t)((double)diff / (double)0.9 * (double)ticks_per_sample);
 
-                            fprintf(stderr,"\n\n\nAUDIO DECODED: SIZE:%d CORRECT:%d  DIFF:%ld\n\n\n",
+                            fprintf(stderr,"\n\n\nAUDIO DECODED: SIZE:%d CORRECT:%ld  DIFF:%ld\n\n\n",
                                     last_data_amount,
                                     correct_data,
                                     diff);                            
@@ -499,18 +505,64 @@ void *audio_decode_thread(void *context)
                         last_data_amount += updated_output_buffer_size;
                     }
 
-                    encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
-                    if (encode_msg) {
-                        encode_msg->buffer = decoded_audio_buffer;
-                        encode_msg->buffer_size = updated_output_buffer_size;
-                        encode_msg->pts = decode_av_frame->pts;
-                        encode_msg->dts = decode_av_frame->pkt_dts; //full time
-                        encode_msg->channels = decode_avctx->channels;
-                        encode_msg->sample_rate = decode_avctx->sample_rate;
-                        encode_msg->first_pts = first_decoded_pts;
-                        dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
+                    total_audio_time_output = (int64_t)((double)ticks_per_sample * (double)actual_audio_data);
+                    output_pts_full_time = (int64_t)first_decoded_pts + (int64_t)total_audio_time_output;
+                    output_pts = output_pts_full_time % (int64_t)8589934592;
+                    
+                    // 30720
+                    // 6144
+                    while (diff_audio >= updated_output_buffer_size) {
+                        uint8_t *filler_decoded_audio_buffer;
+                        filler_decoded_audio_buffer = (uint8_t*)memory_take(core->raw_audio_pool, updated_output_buffer_size);
+                        if (!filler_decoded_audio_buffer) {
+                            fprintf(stderr,"fatal error: unable to obtain filler_decoded_audio_buffer from pool!\n");
+                            syslog(LOG_ERR,"fatal error: unable to obtain filler_decoded_audio_buffer from pool!\n");
+                            exit(0);                            
+                        }
+                        memset(filler_decoded_audio_buffer, 0, updated_output_buffer_size);
+                        encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                        if (encode_msg) {
+                            encode_msg->buffer = filler_decoded_audio_buffer;
+                            encode_msg->buffer_size = updated_output_buffer_size;
+                            encode_msg->pts = output_pts;//decode_av_frame->pts;
+                            encode_msg->dts = output_pts_full_time; //decode_av_frame->pkt_dts; //full time
+                            encode_msg->channels = decode_avctx->channels;
+                            encode_msg->sample_rate = decode_avctx->sample_rate;
+                            encode_msg->first_pts = first_decoded_pts;
+                            dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
+                        }
+                        current_sample_out++;
+                        actual_audio_data += updated_output_buffer_size;
+                        diff_audio -= updated_output_buffer_size;
+
+                        syslog(LOG_INFO,"SILENCE INSERTION-MISSING AUDIO!! MAINTAINING A/V SYNC\n");
+                        fprintf(stderr,"SILENCE INSERTION-MISSING AUDIO!! MAINTAINING A/V SYNC\n");
+
+                        total_audio_time_output = (int64_t)((double)ticks_per_sample * (double)actual_audio_data);
+                        output_pts_full_time = (int64_t)first_decoded_pts + (int64_t)total_audio_time_output;
+                        output_pts = output_pts_full_time % (int64_t)8589934592;                        
                     }
-                    current_sample_out++;
+                    if (diff_audio <= -updated_output_buffer_size) {
+                        syslog(LOG_INFO,"AUDIO DROPPED-GETTING AHEAD-TOO MUCH AUDIO!! MAINTAINING A/V SYNC\n");
+                        fprintf(stderr,"AUDIO DROPPED-GETTING AHEAD-TOO MUCH AUDIO!! MAINTAINING A/V SYNC\n");
+                        memory_return(core->raw_audio_pool, decoded_audio_buffer);
+                        decoded_audio_buffer = NULL;
+                        actual_audio_data -= updated_output_buffer_size;
+                        diff_audio += updated_output_buffer_size;
+                    } else {                                            
+                        encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                        if (encode_msg) {
+                            encode_msg->buffer = decoded_audio_buffer;
+                            encode_msg->buffer_size = updated_output_buffer_size;
+                            encode_msg->pts = output_pts; //decode_av_frame->pts;
+                            encode_msg->dts = output_pts_full_time; //decode_av_frame->pkt_dts; //full time
+                            encode_msg->channels = decode_avctx->channels;
+                            encode_msg->sample_rate = decode_avctx->sample_rate;
+                            encode_msg->first_pts = first_decoded_pts;
+                            dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
+                        }
+                        current_sample_out++;
+                    }
                 } // while (retcode >= 0) 
                 memory_return(core->compressed_audio_pool, frame->buffer);
                 frame->buffer = NULL;                            
