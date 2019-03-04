@@ -35,6 +35,7 @@
 #define MEDIA_TYPE_AAC      0x01
 #define MEDIA_TYPE_AC3      0x02
 #define MEDIA_TYPE_EAC3     0x03
+#define MEDIA_TYPE_MPEG     0x04
 
 #define MEDIA_TYPE_H264     0x10
 #define MEDIA_TYPE_HEVC     0x11

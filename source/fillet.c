@@ -1735,7 +1735,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 new_frame = NULL;
             }
         }
-    } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3) {
+    } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3 || sample_type == STREAM_TYPE_MPEG) {
 	audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
 	video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
 	uint8_t *new_buffer;
@@ -1754,16 +1754,16 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     sub_source);
         }
 
+        if (sub_source < 0 || sub_source > MAX_AUDIO_SOURCES) {
+            //error            
+        }
+
         if (source != core->cd->audio_source_index && core->cd->audio_source_index != -1) {
             // take audio only from the specified stream
             // if we are being fed with multiple spts of audio then we should just grab the first set
             // this should be made configurable
             return 0;
         }
-
-        /*if (sub_source != 0) {
-            return 0;
-        }*/
 
         if (!vstream->found_key_frame) {
 	    return 0;
@@ -1788,7 +1788,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             exit(0);
         }        
 	memcpy(new_buffer, sample, sample_size);
-	
+
 	if (astream->last_timestamp_pts != -1) {
 	    int64_t delta_pts = pts + astream->overflow_pts - astream->last_timestamp_pts;
 	    int64_t mod_overflow = astream->last_timestamp_pts % 8589934592;
@@ -1848,8 +1848,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 	new_frame->frame_type = FRAME_TYPE_AUDIO;
         if (sample_type == STREAM_TYPE_AAC) {
             new_frame->media_type = MEDIA_TYPE_AAC;
-        } else {
+        } else if (sample_type == STREAM_TYPE_AC3) {
             new_frame->media_type = MEDIA_TYPE_AC3;
+        } else if (sample_type == STREAM_TYPE_MPEG) {
+            new_frame->media_type = MEDIA_TYPE_MPEG;
         }
 	new_frame->time_received = 0;
 	if (lang_tag) {

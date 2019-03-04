@@ -1,6 +1,6 @@
 CC=gcc
 CXX=g++
-CFLAGS=-g -c -O0 -m64 -Wall -Wfatal-errors -funroll-loops
+CFLAGS=-g -c -O2 -m64 -Wall -Wfatal-errors -funroll-loops -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function
 SRC=./source
 INC=-I./include
 OBJS=crc.o tsdecode.o fgetopt.o mempool.o transvideo.o transaudio.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o

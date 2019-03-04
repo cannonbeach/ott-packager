@@ -594,7 +594,7 @@ void *video_encode_thread_x264(void *context)
 #endif
 
                 if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {                    
-                    x264_param_apply_profile(&x264_data[current_encoder].param,"base");
+                    x264_param_apply_profile(&x264_data[current_encoder].param,"baseline");
                     x264_data[current_encoder].param.b_cabac = 0;
                     x264_data[current_encoder].param.i_cqm_preset = X264_CQM_FLAT;
                     x264_data[current_encoder].param.i_bframe = 0;
@@ -671,7 +671,7 @@ void *video_encode_thread_x264(void *context)
                    x264_data[current_queue].uv_size);
 
             if (msg->caption_buffer) {
-#define DISABLE_CAPTIONS                
+//#define DISABLE_CAPTIONS
 #if !defined(DISABLE_CAPTIONS)                
                 uint8_t *caption_buffer;
                 caption_buffer = (uint8_t*)malloc(MAX_SEI_PAYLOAD_SIZE);
@@ -807,7 +807,7 @@ typedef struct _scale_struct_
     int output_stride[4];
 } scale_struct;
 
-void copy_image_to_ffmpeg(uint8_t *source, int source_width, int source_height, AVFrame *source_frame)
+void copy_image_data_to_ffmpeg(uint8_t *source, int source_width, int source_height, AVFrame *source_frame)
 {    
     int row;
     uint8_t *ysrc = source;
@@ -888,7 +888,9 @@ void *video_prepare_thread(void *context)
     
 #define MAX_SETTINGS_SIZE 256    
     char settings[MAX_SETTINGS_SIZE];
-    const char *filter = "yadif=0:-1:0";
+    //const char *filter = "yadif=0:-1:0";
+    //const char *filter = "w3fdif=1:1";
+    const char *filter = "bwdif=0:-1:0";
     
     while (video_prepare_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);
@@ -1018,6 +1020,8 @@ void *video_prepare_thread(void *context)
             source_frame->pkt_pts = msg->pts;
             source_frame->width = width;
             source_frame->height = height;
+            source_frame->interlaced_frame = msg->interlaced;
+            source_frame->top_field_first = msg->tff;
 
             if (!opaque_data && (msg->caption_buffer || msg->splice_point)) {
                 opaque_data = (opaque_struct*)malloc(sizeof(opaque_struct));
@@ -1044,7 +1048,7 @@ void *video_prepare_thread(void *context)
                 opaque_data = NULL;                
             }
 
-            copy_image_to_ffmpeg(msg->buffer, width, height, source_frame);
+            copy_image_data_to_ffmpeg(msg->buffer, width, height, source_frame);
 
             ready = av_buffersrc_add_frame_flags(deinterlacer_source,
                                                  source_frame,
@@ -1144,10 +1148,12 @@ void *video_prepare_thread(void *context)
                         //fprintf(stderr,"[%d] FPS:%f\n", current_output, fps);
 
                         video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
+                        int64_t sync_diff;
 
                         deinterlaced_frame_count[current_output]++;  // frames since the video start time
                         sync_frame_count = (int64_t)(((((double)deinterlaced_frame->pkt_pts-(double)vstream->first_timestamp) / (double)90000.0))*(double)fps);
                         av_sync_offset = (((double)deinterlaced_frame_count[current_output] - (double)sync_frame_count)/(double)fps)*(double)1000.0;
+                        sync_diff = (int64_t)deinterlaced_frame_count[current_output] - (int64_t)sync_frame_count;
 
                         fprintf(stderr,"DEINTERLACED_FRAME_COUNT:%ld  SYNC_FRAME_COUNT:%ld   SYNC OFFSET:%ld (%.2fms)  PKT_DTS:%ld  FT:%ld  FPS:%.2f\n",
                                 deinterlaced_frame_count[current_output],
@@ -1158,7 +1164,14 @@ void *video_prepare_thread(void *context)
                                 vstream->first_timestamp,
                                 fps);
 
-                        if (deinterlaced_frame_count[current_output] - sync_frame_count < -1) {
+                        if (sync_diff > fps ||
+                            sync_diff < -fps) {
+                            syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
+                            fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
+                            exit(0);                                                                                                                        
+                        }
+
+                        if (sync_diff < -1) {
                             uint8_t *repeated_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                             if (repeated_buffer) {
                                 memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);
@@ -1208,9 +1221,9 @@ void *video_prepare_thread(void *context)
                         encode_msg->buffer = deinterlaced_buffer;
                         encode_msg->buffer_size = video_frame_size;
                         encode_msg->pts = deinterlaced_frame->pkt_pts;  // or pkt_pts?
-                        encode_msg->dts = deinterlaced_frame->pkt_dts;
-                        encode_msg->tff = 1;
+                        encode_msg->dts = deinterlaced_frame->pkt_dts;                        
                         encode_msg->interlaced = 0;
+                        encode_msg->tff = 1;
                         encode_msg->fps_num = msg->fps_num;
                         encode_msg->fps_den = msg->fps_den;
                         encode_msg->aspect_num = msg->aspect_num;
@@ -1564,7 +1577,11 @@ void *video_decode_thread(void *context)
                                 decode_av_frame->pts,
                                 decode_av_frame->pkt_dts,
                                 decode_av_frame->pkt_pts);*/
-                        prepare_msg->tff = is_frame_tff;
+                        if (!is_frame_interlaced) {
+                            prepare_msg->tff = 1;
+                        } else {
+                            prepare_msg->tff = is_frame_tff;
+                        }                        
                         prepare_msg->interlaced = is_frame_interlaced;
                         prepare_msg->caption_buffer = caption_buffer;
                         prepare_msg->caption_size = caption_size;

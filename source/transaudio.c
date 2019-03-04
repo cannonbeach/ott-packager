@@ -262,6 +262,7 @@ void *audio_decode_thread(void *context)
     int source_stride = 0;
     int source_samples = 0;
     int output_samples = 0;
+    int last_decode_channels = -1;
     int output_channels;
     int64_t last_audio_pts = -1;
     int64_t last_data_amount = 0;
@@ -305,9 +306,8 @@ void *audio_decode_thread(void *context)
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_AC3);
                     } else if (frame->media_type == MEDIA_TYPE_EAC3) {
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_EAC3);
-                    // to be added MPEG audio
-                    //} else if (frame->media_type == MEDIA_TYPE_MPEG) {
-                    //decode_codec = avcodec_find_decoder(AV_CODEC_ID_MP3);
+                    } else if (frame->media_type == MEDIA_TYPE_MPEG) {
+                        decode_codec = avcodec_find_decoder(AV_CODEC_ID_MP3);
                     } else {
                         //unknown media type- report error and quit!
                         fprintf(stderr,"error: unknown media type - unable to process sample\n");
@@ -388,6 +388,15 @@ void *audio_decode_thread(void *context)
                     if (first_decoded_pts == -1) {
                         first_decoded_pts = pts;
                     }
+
+                    if (swr) {
+                        if (decode_avctx->channels != last_decode_channels && last_decode_channels != -1) {
+                            avresample_close(swr);
+                            avresample_free(&swr);
+                            swr = NULL;
+                        }
+                    }
+                    last_decode_channels = decode_avctx->channels;                    
                     
                     if (!swr) {
                         swr = avresample_alloc_context();
@@ -398,6 +407,7 @@ void *audio_decode_thread(void *context)
                         } else if (decode_avctx->channels == 6 && output_channels == 2) {
                             av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_5POINT1,0);
                             av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
+                            //"pan=stereo|FL=FC+0.30*FL+0.30*BL|FR=FC+0.30*FR+0.30*BR"                            
                         } else if (decode_avctx->channels == 1 && output_channels == 2) {
                             av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_MONO,0);
                             av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);                            
@@ -494,10 +504,10 @@ void *audio_decode_thread(void *context)
                             
                             correct_data = (int64_t)((double)diff / (double)0.9 * (double)ticks_per_sample);
 
-                            fprintf(stderr,"\n\n\nAUDIO DECODED: SIZE:%d CORRECT:%ld  DIFF:%ld\n\n\n",
+                            /*fprintf(stderr,"\n\n\nAUDIO DECODED: SIZE:%d CORRECT:%ld  DIFF:%ld\n\n\n",
                                     last_data_amount,
                                     correct_data,
-                                    diff);                            
+                                    diff);*/
                         }
                         last_audio_pts = decode_av_frame->pkt_dts;
                         last_data_amount = updated_output_buffer_size;
@@ -583,7 +593,7 @@ cleanup_audio_decoder_thread:
     avcodec_close(decode_avctx);
     avcodec_free_context(&decode_avctx);
     avresample_close(swr);
-    avresample_free(swr);
+    avresample_free(&swr);
     av_freep(&swr_output_buffer);
     // others?
         

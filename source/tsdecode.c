@@ -246,12 +246,18 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
           } else if (current_stream_type == 0x01) {
 	      backup_caller(2000, 802, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_MPEG;
+              current_pmt_table->audio_stream_index[stream_count] = current_pmt_table->audio_stream_count;
+              current_pmt_table->audio_stream_count++;              
           } else if (current_stream_type == 0x03) {
 	      backup_caller(2000, 803, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_MPEG;
+              current_pmt_table->audio_stream_index[stream_count] = current_pmt_table->audio_stream_count;
+              current_pmt_table->audio_stream_count++;              
           } else if (current_stream_type == 0x04) {
 	      backup_caller(2000, 804, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_MPEG;
+              current_pmt_table->audio_stream_index[stream_count] = current_pmt_table->audio_stream_count;
+              current_pmt_table->audio_stream_count++;              
           } else if (current_stream_type == 0x0f) {
 	      backup_caller(2000, 805, current_stream_pid, current_pid, 0, 0, backup_context);
 	      current_pmt_table->decoded_stream_type[stream_count] = STREAM_TYPE_AAC;
@@ -446,7 +452,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                int pcr_flag = 0;
 
                int discontinuity_flag;
-               int random_access_point;
+               int random_access_point = 0;
                int pid_counter;
                int64_t current_ext;
                int64_t current_pcr;
@@ -600,8 +606,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                        (int64_t)(splice[2] << 8) |
                                        (int64_t)splice[3];
                                    cancel_indicator = !!(splice[4] & 0x80);       // cancel_indicator- bottom 7-bits reserved
-                                   syslog(LOG_INFO,"SCTE35: splice_event_id: %ld  0x%x   CANCEL:%d\n",
-                                          splice_event_id, splice_event_id, cancel_indicator);
+                                   //syslog(LOG_INFO,"SCTE35: splice_event_id: %ld  0x%x   CANCEL:%d\n",
+                                   //       splice_event_id, splice_event_id, cancel_indicator);
                                    splice += 5;
                                    if (!cancel_indicator) {
                                        out_of_network_indicator = !!(splice[0] & 0x80);
@@ -728,90 +734,6 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                            }
                        }
                        
-		       if (current_pid == 7680) {
-			   if (!tsdata->eit0_present) {
-			       backup_caller(2000, 850, current_pid, current_pid, 0, 0, backup_context);
-			       tsdata->eit0_present = 1;
-			   }
-		       } else if (current_pid == 7681) {
-			   if (!tsdata->eit1_present) {
-			       backup_caller(2000, 851, current_pid, current_pid, 0, 0, backup_context);
-			       tsdata->eit1_present = 1;
-			   }
-		       } else if (current_pid == 7682) {
-			   if (!tsdata->eit2_present) {
-			       backup_caller(2000, 852, current_pid, current_pid, 0, 0, backup_context);
-			       tsdata->eit2_present = 1;
-			   }
-		       } else if (current_pid == 7683) {
-			   if (!tsdata->eit3_present) {
-			       backup_caller(2000, 853, current_pid, current_pid, 0, 0, backup_context);
-			       tsdata->eit3_present = 1;
-			   }
-		       } else if (current_pid == 0x1ffb) {
-			   int acquired_data_so_far = pdata - pdata_initial;
-			   unsigned short section_size = ((*(pdata+2) << 8) + *(pdata+3)) & 0x0fff;
-			   unsigned char table_id = pdata[1];
-			   
-			   if (table_id == TABLE_ID_TVCT) {
-			       tsdata->tvct_table_acquired = 184 - acquired_data_so_far;
-			       tsdata->tvct_table_expected = section_size;
-			       
-			       if ((section_size+4) > tsdata->tvct_table_acquired) {
-				   if (tsdata->tvct_table_acquired < 0 ||
-				       tsdata->tvct_table_acquired > MAX_TABLE_SIZE ||
-				       tsdata->tvct_table_expected > MAX_TABLE_SIZE ||
-				       tsdata->tvct_table_expected < 0) {
-				       
-				       tsdata->tvct_table_acquired = 0;
-				       tsdata->tvct_table_expected = 0;
-				   } else {
-				       memcpy(tsdata->tvct_data, pdata, tsdata->tvct_table_acquired);
-				   }
-			       } else {
-				   if (tsdata->tvct_table_acquired < 0 ||
-				       tsdata->tvct_table_acquired > MAX_TABLE_SIZE ||
-				       tsdata->tvct_table_expected > MAX_TABLE_SIZE ||
-				       tsdata->tvct_table_expected < 0) {
-				       tsdata->tvct_table_acquired = 0;
-				       tsdata->tvct_table_expected = 0;
-				   } else {
-				       unsigned short crc_position;
-				       unsigned long crc32_length;
-				       unsigned long *tvct_crc1;
-				       unsigned long calculated_crc;
-				       
-				       memcpy(tsdata->tvct_data, pdata, tsdata->tvct_table_acquired);
-				       
-				       tsdata->tvct_data_size = tsdata->tvct_table_expected;
-				       crc_position = ((tsdata->tvct_data[2] << 8) + tsdata->tvct_data[3]) & 0x0fff;
-				       crc32_length = crc_position - 1;
-				       if (crc_position > 4 && crc_position < 1020) {
-					   unsigned long tvct_crc2;
-					   tvct_crc1 = (unsigned long*)&tsdata->tvct_data[crc_position];
-					   calculated_crc = getcrc32(&tsdata->tvct_data[1], crc32_length);
-					   calculated_crc ^= 0xffffffff;
-					   calculated_crc = htonl(calculated_crc);
-					   tvct_crc2 = (unsigned long)*tvct_crc1;
-					   tvct_crc2 ^= 0xffffffff;
-					   
-					   if (tvct_crc2 == calculated_crc) {
-					       if (!tsdata->tvct_decoded) {
-						   decode_tvct_table(tsdata->tvct_data, tsdata->tvct_data_size, current_pid);
-						   backup_caller(2000, 854, current_pid, current_pid, 0, 0, backup_context);
-					       }
-					       tsdata->tvct_decoded = 1;
-					   } else {
-					       //backup_caller(2000, 201, calculated_crc, 0, 0, backup_context);
-					   }
-				       }
-				       tsdata->tvct_table_acquired = 0;
-				       tsdata->tvct_table_expected = 0;
-				   }
-			       }
-			   }
-		       }
-		       
 		       for (pid_count = 0; pid_count < tsdata->pmt_pid_count; pid_count++) {
 			   if (tsdata->pmt_pid_index[pid_count] == current_pid) {
 			       int acquired_data_so_far = pdata - pdata_initial;
@@ -928,9 +850,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 				 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_count] == current_pid) {
 				     int last_cc;
 				     int pes_length;
-				     int cp;
-				     int id0 = *(pdata+6);
-				     int id1 = *(pdata+7);
+				     int check0 = *(pdata+6);
+				     int check1 = *(pdata+7);
 				     
 				     if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index > 0) {
 					 unsigned char *video_frame;
@@ -938,10 +859,10 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 					 int core_modified = 0;
 					 int video_frame_size = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index;
 					 int video_bitrate = 0;
-					 int video_framerate;
-					 int stream_type;
-					 int aspect_ratio;
-					 int seqtype;
+					 int video_framerate = 0;
+					 int stream_type = 0;
+					 int aspect_ratio = 0;
+					 int seqtype = 0;
 					 
 					 stream_type = tsdata->master_pmt_table[each_pmt].stream_type[pid_count];
 
@@ -1016,16 +937,18 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                                              tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
 							     send_frame_context);
-                                         } else if (stream_type == 0x86) {
-					     /*uint8_t *scte35_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-					     send_frame_func(scte35_frame, video_frame_size, STREAM_TYPE_SCTE35, 1,
+                                         } else if (stream_type == 0x04) {
+					     uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+					     send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_MPEG, 1,
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
 							     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
 							     0, // PCR
 							     tsdata->source,
                                                              tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
 							     (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-							     send_frame_context);*/
+							     send_frame_context);                                                                                      
+                                         } else if (stream_type == 0x86) {
+                                             // do nothing- scte35 handled elsewhere
                                          } else if (stream_type == 0x24) {
 					     int vf;
 					     int nal_type;
@@ -1122,130 +1045,125 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 				     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].flags = 0;
 				     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = 0;
 
-				     cp = 1;  // force
-
-				     if (cp == 1) {
-					 int pes_header_size;
-					 int pes_aligned;
-					 int timestamp_present;
-					 int remaining_samples = 0;
-					 
-					 pes_header_size = *(pdata+8);
-					 if (pes_header_size > 184) {
-					     backup_caller(2000, 916, current_pid, 0, 0, 0, backup_context);
-					     goto continue_packet_processing;
-					 }
-					 pes_aligned = (id0 & 0x04) >> 3;
-					 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = pes_aligned;
-					 pdata += 9;
-					 timestamp_present = (id1 & 0xc0) >> 6;
-					 if (timestamp_present == 1) {
-					     backup_caller(2000, 917, current_pid, 0, 0, 0, backup_context);
-					     goto continue_packet_processing;
-					 } else if (timestamp_present == 2) {
-					     int64_t current_pts;
-					     int stream_count;
-					     int pid_index;
-					     
-					     current_pts = (*(pdata+0) >> 1) & 0x07;
-					     current_pts <<= 8;
-					     current_pts |= *(pdata+1);
-					     current_pts <<= 7;
-					     current_pts |= (*(pdata+2) >> 1) & 0x7f;
-					     current_pts <<= 8;
-					     current_pts |= *(pdata+3);
-					     current_pts <<= 7;
-					     current_pts |= (*(pdata+4) >> 1) & 0x7f;
-					     
-					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
-
-					     stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
-					     for (pid_index = 0; pid_index < stream_count; pid_index++) {
-						 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
-						     tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
-						     if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
-							 tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
-							 break;
-						     }
-						 }
-					     }
-					     //backup_caller(2000, 919, current_pts, current_pid, 0, backup_context);
-					 } else if (timestamp_present == 3) {
-					     int64_t current_pts;
-					     int64_t current_dts;
-					     int stream_count;
-					     int pid_index;
-					     
-					     current_pts = (*(pdata+0) >> 1) & 0x07;
-					     current_pts <<= 8;
-					     current_pts |= *(pdata+1);
-					     current_pts <<= 7;
-					     current_pts |= (*(pdata+2) >> 1) & 0x7f;
-					     current_pts <<= 8;
-					     current_pts |= *(pdata+3);
-					     current_pts <<= 7;
-					     current_pts |= (*(pdata+4) >> 1) & 0x7f;
-					     
-					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
-
-					     stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
-					     for (pid_index = 0; pid_index < stream_count; pid_index++) {
-						 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
-						     tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
-						     if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
-							 tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
-							 break;
-						     }
-						 }
-					     }
-					     
-					     current_dts = (*(pdata+5) >> 1) & 0x07;
-					     current_dts <<= 8;
-					     current_dts |= *(pdata+6);
-					     current_dts <<= 7;
-					     current_dts |= (*(pdata+7) >> 1) & 0x7f;
-					     current_dts <<= 8;
-					     current_dts |= *(pdata+8);
-					     current_dts <<= 7;
-					     current_dts |= (*(pdata+9) >> 1) & 0x7f;
-					     
-					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = current_dts;
-					     for (pid_index = 0; pid_index < stream_count; pid_index++) {
-						 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
-						     tsdata->master_pmt_table[each_pmt].last_dts[pid_index] = current_dts;
-						     if (tsdata->master_pmt_table[each_pmt].first_dts[pid_index] == -1) {
-							 tsdata->master_pmt_table[each_pmt].first_dts[pid_index] = current_dts;
-							 break;
-						     }
-						 }
-					     }
-					 } else {
-					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
-					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
-					 }
-					 
-					 pdata += pes_header_size;
-					 remaining_samples = 184 - 9 - pes_header_size - adaptation_size;
-					 if (remaining_samples < 0) {
-					     goto continue_packet_processing;
-					 }
-					 if (remaining_samples > 0) {
-					     if (remaining_samples >= 184) {
-						 goto continue_packet_processing;
-					     }
-					     if (!tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer) {
-						 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer = (unsigned char *)malloc(MAX_BUFFER_SIZE);
-					     }
-					     if (remaining_samples <= MAX_BUFFER_SIZE) {
-						 memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer, pdata, remaining_samples);
-					     }
-					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = remaining_samples;
-					 }
-				     } // conditional parse
+                                     int pes_header_size;
+                                     int pes_aligned;
+                                     int timestamp_present;
+                                     int remaining_samples = 0;
+                                     
+                                     pes_header_size = *(pdata+8);
+                                     if (pes_header_size > 184) {
+                                         backup_caller(2000, 916, current_pid, 0, 0, 0, backup_context);
+                                         goto continue_packet_processing;
+                                     }
+                                     pes_aligned = (check0 & 0x04) >> 3;
+                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = pes_aligned;
+                                     pdata += 9;
+                                     timestamp_present = (check1 & 0xc0) >> 6;
+                                     if (timestamp_present == 1) {
+                                         backup_caller(2000, 917, current_pid, 0, 0, 0, backup_context);
+                                         goto continue_packet_processing;
+                                     } else if (timestamp_present == 2) {
+                                         int64_t current_pts;
+                                         int stream_count;
+                                         int pid_index;
+                                         
+                                         current_pts = (*(pdata+0) >> 1) & 0x07;
+                                         current_pts <<= 8;
+                                         current_pts |= *(pdata+1);
+                                         current_pts <<= 7;
+                                         current_pts |= (*(pdata+2) >> 1) & 0x7f;
+                                         current_pts <<= 8;
+                                         current_pts |= *(pdata+3);
+                                         current_pts <<= 7;
+                                         current_pts |= (*(pdata+4) >> 1) & 0x7f;
+                                         
+                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
+                                         
+                                         stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
+                                         for (pid_index = 0; pid_index < stream_count; pid_index++) {
+                                             if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
+                                                 tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
+                                                 if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
+                                                     tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
+                                                     break;
+                                                 }
+                                             }
+                                         }
+                                     } else if (timestamp_present == 3) {
+                                         int64_t current_pts;
+                                         int64_t current_dts;
+                                         int stream_count;
+                                         int pid_index;
+                                         
+                                         current_pts = (*(pdata+0) >> 1) & 0x07;
+                                         current_pts <<= 8;
+                                         current_pts |= *(pdata+1);
+                                         current_pts <<= 7;
+                                         current_pts |= (*(pdata+2) >> 1) & 0x7f;
+                                         current_pts <<= 8;
+                                         current_pts |= *(pdata+3);
+                                         current_pts <<= 7;
+                                         current_pts |= (*(pdata+4) >> 1) & 0x7f;
+                                         
+                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
+                                         
+                                         stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
+                                         for (pid_index = 0; pid_index < stream_count; pid_index++) {
+                                             if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
+                                                 tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
+                                                 if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
+                                                     tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
+                                                     break;
+                                                 }
+                                             }
+                                         }
+                                         
+                                         current_dts = (*(pdata+5) >> 1) & 0x07;
+                                         current_dts <<= 8;
+                                         current_dts |= *(pdata+6);
+                                         current_dts <<= 7;
+                                         current_dts |= (*(pdata+7) >> 1) & 0x7f;
+                                         current_dts <<= 8;
+                                         current_dts |= *(pdata+8);
+                                         current_dts <<= 7;
+                                         current_dts |= (*(pdata+9) >> 1) & 0x7f;
+                                         
+                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = current_dts;
+                                         for (pid_index = 0; pid_index < stream_count; pid_index++) {
+                                             if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
+                                                 tsdata->master_pmt_table[each_pmt].last_dts[pid_index] = current_dts;
+                                                 if (tsdata->master_pmt_table[each_pmt].first_dts[pid_index] == -1) {
+                                                     tsdata->master_pmt_table[each_pmt].first_dts[pid_index] = current_dts;
+                                                     break;
+                                                 }
+                                             }
+                                         }
+                                     } else {
+                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
+                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
+                                     }
+                                     
+                                     pdata += pes_header_size;
+                                     remaining_samples = 184 - 9 - pes_header_size - adaptation_size;
+                                     if (remaining_samples < 0) {
+                                         goto continue_packet_processing;
+                                     }
+                                     if (remaining_samples > 0) {
+                                         if (remaining_samples >= 184) {
+                                             goto continue_packet_processing;
+                                         }
+                                         if (!tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer) {
+                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer = (unsigned char *)malloc(MAX_BUFFER_SIZE);
+                                         }
+                                         if (remaining_samples <= MAX_BUFFER_SIZE) {
+                                             memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer, pdata, remaining_samples);
+                                         }
+                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = remaining_samples;
+                                     }
 				     goto continue_packet_processing;
 				 }
 			     }
-                         }
+                       }
 
                          if (current_pid == 0) {
                               int unit_size = *(pdata+0);
@@ -1401,9 +1319,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 
                                              tsdata->pmt_table_acquired = 0;
                                              tsdata->pmt_table_expected = 0;
-					} else {
-					    // TODO
-                                        }
+					}
                                         goto continue_packet_processing;
                                    }
                               }
@@ -1415,9 +1331,6 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 				 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_count] == current_pid) {
 				     int last_cc;
 				     
-				     if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].actual_data_size > 0) {
-					 // TODO
-				     }
 				     last_cc = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc;
 				     if (last_cc == -1) {
 					 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
@@ -1444,11 +1357,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
 						    pdata,
 						    remaining_samples);
 					     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index += remaining_samples;
-					 } else {
-					     // TODO
 					 }
-				     }
-				     
+				     }				     
 				 }
 			     }
                          }
