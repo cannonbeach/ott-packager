@@ -128,6 +128,12 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 <br>
 
 ## Current Status
+(03/04/19) Project is still in active development.  I am still pushing for a v1.0 in the next couple of months.  I pushed up a small update today to clean up a few minor issues:
+
+- MPEG audio decoding
+- Fix for audio switching from 5.1 to 2.0 back to 5.1 during commercials.  This is working now, but the audio levels are quieter on these commercials so I am looking at the levels to see if the main downmix can be adjusted to match.  
+- Fixed a few small minor code issues (you could call this cleanup)
+
 (02/20/19) As I mentioned in earlier posts, the application is still in active development, but I am getting closer to a v1.0 release.  This most recent update has included some significant transcoding feature improvements.
 
 - 5.1 to stereo downconversion and mono to stereo upconversion added
