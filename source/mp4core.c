@@ -921,15 +921,15 @@ static int output_fmp4_minf(fragment_file_struct *fmp4, track_struct *track_data
     data = fmp4->buffer + fmp4->buffer_offset;
     buffer_offset = output32(fmp4, 0);
     buffer_offset += output_fmp4_4cc(fmp4,"minf");
+    buffer_offset += output_fmp4_dinf(fmp4);
+    buffer_offset += output_fmp4_stbl(fmp4, track_data);
     if (track_data->track_type == TRACK_TYPE_VIDEO) {
 	buffer_offset += output_fmp4_vmhd(fmp4);
     } else if (track_data->track_type == TRACK_TYPE_AUDIO) {
 	buffer_offset += output_fmp4_smhd(fmp4);
     } else {
 	buffer_offset += 0;
-    }
-    buffer_offset += output_fmp4_dinf(fmp4);
-    buffer_offset += output_fmp4_stbl(fmp4, track_data);
+    }   
 
     output32_raw(data, buffer_offset);
 
@@ -1463,6 +1463,12 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
 		*(sample_buffer+saved_position+3) = sample_size & 0xff;
                 parsing_sample = 0;
 	    }
+
+            if (nal_type == 35) {//aud
+		parsing_sample = 0;
+		read_pos += 4;	     
+		continue;	                    
+            }
             
             if (nal_type == 32 || nal_type == 33 || nal_type == 34) {  // nal_type == 20
                 fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
@@ -1489,6 +1495,12 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
 		*(sample_buffer+saved_position+3) = sample_size & 0xff;
                 parsing_sample = 0;
 	    }
+
+            if (nal_type == 35) {//aud
+		parsing_sample = 0;
+		read_pos += 3;
+		continue;	                    
+            }            
             
             if (nal_type == 32 || nal_type == 33 || nal_type == 34) {
                 fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
