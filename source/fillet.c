@@ -73,9 +73,11 @@ static int enable_verbose = 0;
 static int enable_transcode = 0;
 static int enable_scte35 = 0;
 static int enable_stereo = 0;
+static int enable_webvtt = 0;
 static int enable_fmp4 = 0;
 static int enable_youtube = 0;
 static int enable_ts = 0;
+static int audio_streams = -1;
 
 static volatile int child_pids[MAX_SESSIONS];
 static config_options_struct config_data;
@@ -95,7 +97,9 @@ static struct option long_options[] = {
      {"google", no_argument, &enable_youtube, 'y'},
      {"manifest-dash", required_argument, 0, 'M'},
      {"manifest-hls", required_argument, 0, 'H'},
-     {"manifest-fmp4", required_argument, 0, 'F'},     
+     {"manifest-fmp4", required_argument, 0, 'F'},
+     {"webvtt", no_argument, &enable_webvtt, 'W'},
+     {"astreams", required_argument, 0, 'T'},
 #if defined(ENABLE_TRANSCODE)
      {"transcode", no_argument, &enable_transcode, 'z'},
      {"outputs", required_argument, 0, 'o'},              // number of output profiles
@@ -218,18 +222,26 @@ static int destroy_fillet_core(fillet_app_struct *core)
 
 	for (audio_source = 0; audio_source < MAX_AUDIO_SOURCES; audio_source++) {
 	    astream = (audio_stream_struct*)core->source_stream[current_source].audio_stream[audio_source];
-	    dataqueue_destroy(astream->audio_queue);
+            if (astream->audio_queue) {
+                dataqueue_destroy(astream->audio_queue);
+                astream->audio_queue = NULL;
+            }
 	    
 	    free(core->source_stream[current_source].audio_stream[audio_source]);
 	    core->source_stream[current_source].audio_stream[audio_source] = NULL;
 	}
 	vstream = (video_stream_struct*)core->source_stream[current_source].video_stream;
-	dataqueue_destroy(vstream->video_queue);
+        if (vstream->video_queue) {
+            dataqueue_destroy(vstream->video_queue);
+            vstream->video_queue = NULL;
+        }
 	free(core->source_stream[current_source].video_stream);
 	core->source_stream[current_source].video_stream = NULL;		 
     }
-    dataqueue_destroy(core->event_queue);
-    core->event_queue = NULL;
+    if (core->event_queue) {
+        dataqueue_destroy(core->event_queue);
+        core->event_queue = NULL;
+    }
     memory_destroy(core->fillet_msg_pool);
     memory_destroy(core->frame_msg_pool);
     memory_destroy(core->compressed_video_pool);
@@ -332,7 +344,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F:3:2:q:p",
+                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F:3:2:q:p:W:T",
                            long_options,
                            &option_index);
 
@@ -661,6 +673,12 @@ static int parse_input_options(int argc, char **argv)
                   return -1;
               }
               break;
+          case 'T':
+              if (optarg) {
+                  audio_streams = atoi(optarg);
+                  fprintf(stderr,"STATUS: Limiting audio streams to: %d\n", audio_streams);
+              }
+              break;
 	  case 'u':
 	      if (optarg) {
 		  config_data.identity = atoi(optarg);
@@ -819,7 +837,7 @@ static int parse_input_options(int argc, char **argv)
 		      if (inet_aton(config_data.active_source[f].active_ip, &addr) == 0) {
 			  fprintf(stderr,"ERROR: INVALID IP ADDRESS: %s\n",
 				  config_data.active_source[f].active_ip);
-			  return -1;
+                          return -1;
 		      }		      
 		  }
 	      }
@@ -1758,6 +1776,13 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             //error            
         }
 
+        if (audio_streams != -1) {
+            if (sub_source >= audio_streams) {
+                //rejecting additional audio streams
+                return 0;
+            }
+        }
+
         if (source != core->cd->audio_source_index && core->cd->audio_source_index != -1) {
             // take audio only from the specified stream
             // if we are being fed with multiple spts of audio then we should just grab the first set
@@ -1974,6 +1999,7 @@ int main(int argc, char **argv)
          fprintf(stderr,"       --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]\n");
          fprintf(stderr,"       --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]\n");
          fprintf(stderr,"       --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]\n");
+         fprintf(stderr,"       --webvtt        [ENABLE WEBVTT CAPTION OUTPUT]\n");
 	 fprintf(stderr,"\n");
 #if defined(ENABLE_TRANSCODE)
          fprintf(stderr,"TRANSCODE OPTIONS\n");
@@ -2000,7 +2026,7 @@ int main(int argc, char **argv)
      }
 
      if (enable_ts == 0 && enable_fmp4 == 0 && enable_youtube == 0) {
-         fprintf(stderr,"FILLET: ERROR: Please select TS output and/or fMP4 output mode OR YouTube DASH publishing mode\n");
+         fprintf(stderr,"FILLET: ERROR: Please select TS output (--hls) and/or fMP4 output mode (--dash) OR YouTube DASH publishing mode\n");
          fprintf(stderr,"\n");
          return 1;
      }
@@ -2037,10 +2063,10 @@ int main(int argc, char **argv)
      core->sync_thread_restart_count = 0;
      core->cd->enable_scte35 = !!enable_scte35;
      core->cd->enable_stereo = !!enable_stereo;
+     core->cd->enable_webvtt = !!enable_webvtt;
      
      register_message_callback(message_dispatch, (void*)core);
      register_frame_callback(receive_frame, (void*)core);
-     hlsmux_create(core);
 
      for (i = 0; i < config_data.active_sources; i++) {
          struct in_addr addr;	     
@@ -2049,10 +2075,15 @@ int main(int argc, char **argv)
          if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
              fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
                      config_data.active_source[i].active_ip);
-             goto cleanup_main_app;
+             if (strlen(config_data.active_source[i].active_ip) == 0) {
+                 fprintf(stderr,"\n\nNO IP ADDRESS WAS SPECIFIED\n\n");                
+             }
+             exit(0);
          }
          core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
      }
+
+     hlsmux_create(core);     
      
      sync_thread_running = 1;
      pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
@@ -2209,9 +2240,11 @@ int main(int argc, char **argv)
          }
      }
      pthread_join(client_thread_id, NULL);
-cleanup_main_app:         
-     hlsmux_destroy(core->hlsmux);
-     core->hlsmux = NULL;         
+cleanup_main_app:
+     if (core->hlsmux) {
+         hlsmux_destroy(core->hlsmux);
+         core->hlsmux = NULL;
+     }
      destroy_fillet_core(core);         
      fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
      

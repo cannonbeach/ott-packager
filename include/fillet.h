@@ -59,6 +59,7 @@
 #define MAX_VIDEO_MUX_BUFFER       1024*1024*4
 #define MAX_AUDIO_MUX_BUFFER       1024*64
 #define MAX_VIDEO_PES_BUFFER       1024*1024*4
+#define MAX_TEXT_BUFFER            1024*1024
 #define MAX_WINDOW_SIZE            25
 #define MIN_WINDOW_SIZE            3
 #define DEFAULT_WINDOW_SIZE        5
@@ -173,6 +174,7 @@ typedef struct _config_options_struct_ {
 
     int              enable_scte35;
     int              enable_stereo;
+    int              enable_webvtt;
 #if defined(ENABLE_TRANSCODE)
     int                           num_outputs;
     trans_video_output_struct     transvideo_info[MAX_TRANS_OUTPUTS];
@@ -192,6 +194,7 @@ typedef struct _stream_struct_ {
     int                      sources;
     uint8_t                  *muxbuffer;
     uint8_t                  *pesbuffer;
+    char                     *textbuffer;
     packet_struct            *packettable;
     int                      packet_count;
     int64_t                  file_sequence_number;
@@ -201,6 +204,7 @@ typedef struct _stream_struct_ {
     int64_t                  last_segment_time;
     FILE                     *output_ts_file;
     FILE                     *output_fmp4_file;
+    FILE                     *output_webvtt_file;
 
     void                     *source_queue;
     int                      cnt;

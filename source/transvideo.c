@@ -198,6 +198,34 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->maxNumMergeCand = 2;
                 x265_data[current_encoder].param->maxNumReferences = 1;
 
+                // these really need to be tuned
+                if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_LOW) {
+                    // low is default
+                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_MEDIUM) {
+                    x265_data[current_encoder].param->rdLevel = 3;
+                    x265_data[current_encoder].param->bEnableEarlySkip = 1;
+                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH; 
+                    x265_data[current_encoder].param->subpelRefine = 3;
+                    x265_data[current_encoder].param->maxNumMergeCand = 2;
+                    x265_data[current_encoder].param->maxNumReferences = 2;                    
+                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_HIGH) {
+                    x265_data[current_encoder].param->rdLevel = 5;
+                    x265_data[current_encoder].param->bEnableEarlySkip = 1;
+                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH; 
+                    x265_data[current_encoder].param->subpelRefine = 5;
+                    x265_data[current_encoder].param->maxNumMergeCand = 2;
+                    x265_data[current_encoder].param->maxNumReferences = 3;
+                    x265_data[current_encoder].param->bframes = 3;  // set configuration                    
+                } else {  // ENCODER_QUALITY_CRAZY
+                    x265_data[current_encoder].param->rdLevel = 5;
+                    x265_data[current_encoder].param->bEnableEarlySkip = 1;
+                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH; 
+                    x265_data[current_encoder].param->subpelRefine = 5;
+                    x265_data[current_encoder].param->maxNumMergeCand = 2;
+                    x265_data[current_encoder].param->maxNumReferences = 3;
+                    x265_data[current_encoder].param->bframes = 4;
+                }                
+
                 // vui factors
                 x265_data[current_encoder].param->vui.aspectRatioIdc = X265_EXTENDED_SAR;
                 x265_data[current_encoder].param->vui.videoFormat = 5;
@@ -1255,15 +1283,33 @@ void *video_prepare_thread(void *context)
                             encode_msg->splice_point = 0;
                             encode_msg->splice_duration = 0;
                         }
-                                                
-                        /*fprintf(stderr,"[%d] SENDING VIDEO FRAME TO ENCODER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
-                                current_output,
-                                encode_msg->pts,
-                                encode_msg->dts,
-                                encode_msg->aspect_num,
-                                encode_msg->aspect_den);*/
 
-                        dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);                        
+                        if (sync_diff > 1) {
+                            if (encode_msg->splice_point == 0 || encode_msg->splice_duration_remaining == 0) {
+                                if (encode_msg->caption_buffer) {
+                                    // THIS NEEDS TO BE SAVED AND TACKED ONTO ANOTHER FRAME- FOR NOW WE WILL JUST DROP IT
+                                    free(encode_msg->caption_buffer);
+                                    encode_msg->caption_buffer = NULL;
+                                }
+                                memory_return(core->raw_video_pool, deinterlaced_buffer);
+                                deinterlaced_buffer = NULL;
+                                deinterlaced_frame_count[current_output]--;  // frames since the video start time- go back one
+                                memory_return(core->fillet_msg_pool, encode_msg);
+                                encode_msg = NULL;
+                                // dropped!
+                            }
+                        }
+                    
+                        /*fprintf(stderr,"[%d] SENDING VIDEO FRAME TO ENCODER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
+                          current_output,
+                          encode_msg->pts,
+                          encode_msg->dts,
+                          encode_msg->aspect_num,
+                          encode_msg->aspect_den);*/
+
+                        if (encode_msg) {
+                            dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);
+                        }
                     }
                     if (opaque_data) {
                         if (opaque_data->caption_buffer) {

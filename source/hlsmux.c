@@ -34,6 +34,7 @@
 #include "hlsmux.h"
 
 #define MAX_STREAM_NAME       256
+#define MAX_TEXT_SIZE         512
 
 #define VIDEO_PID             480
 #define AUDIO_BASE_PID        481
@@ -117,6 +118,9 @@ typedef struct _source_context_struct_ {
     int           height;
     uint8_t       midbyte;
     char          lang_tag[4];
+    char          caption_text[MAX_TEXT_SIZE];
+    int           caption_index;
+    int64_t       text_start_time;
 } source_context_struct;
 
 static uint8_t aac_quiet_2[23] = {  0xde, 0x02, 0x00, 0x4c, 0x61, 0x76, 0x63, 0x35, 0x36, 0x2e, 0x36, 0x30, 0x2e, 0x31, 0x30, 0x30, 0x00, 0x42, 0x20, 0x08, 0xc1, 0x18, 0x38 };
@@ -471,10 +475,14 @@ void hlsmux_destroy(void *hlsmux)
         quit_mux_pump_thread = 1;
         pthread_join(hlsmux1->hlsmux_thread_id, NULL);
         
-	dataqueue_destroy(hlsmux1->input_queue);
-	hlsmux1->input_queue = NULL;
-	free(hlsmux1);
-	hlsmux1 = NULL;
+        if (hlsmux1->input_queue) {
+            dataqueue_destroy(hlsmux1->input_queue);
+            hlsmux1->input_queue = NULL;
+        }
+        if (hlsmux1) {
+            free(hlsmux1);
+            hlsmux1 = NULL;
+        }
     }
     return;
 }
@@ -1172,6 +1180,48 @@ static int end_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int 
     return 0;
 }
 
+static int start_webvtt_fragment(fillet_app_struct *core, stream_struct *stream, int source)
+{
+    struct stat sb;    
+    if (!stream->output_webvtt_file) {
+	char stream_name[MAX_STREAM_NAME];
+	char local_dir[MAX_STREAM_NAME];
+
+        snprintf(local_dir, MAX_STREAM_NAME-1, "%s/webvtt%d", core->cd->manifest_directory, source);	    
+
+	if (stat(local_dir, &sb) == 0 && S_ISDIR(sb.st_mode)) {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory exists: %s\n", local_dir);
+	} else {
+	    fprintf(stderr,"STATUS: fMP4 manifest directory does not exist: %s (CREATING)\n", local_dir);
+	    mkdir(local_dir, 0700);
+	    fprintf(stderr,"STATUS: Done creating fMP4 manifest directory\n");
+	}
+
+	snprintf(stream_name, MAX_STREAM_NAME-1, "%s/segment%ld.vtt", local_dir, stream->file_sequence_number);
+	stream->output_webvtt_file = fopen(stream_name,"w");
+    }
+    return 0;
+}
+
+static int end_webvtt_fragment(fillet_app_struct *core, stream_struct *stream, int source, int64_t segment_time)
+{
+    if (stream->output_webvtt_file) {
+	fclose(stream->output_webvtt_file);
+	stream->output_webvtt_file = NULL;
+        {
+            char stream_name[MAX_STREAM_NAME];
+            char stream_name_link[MAX_STREAM_NAME];
+            char local_dir[MAX_STREAM_NAME];
+            snprintf(local_dir, MAX_STREAM_NAME-1, "%s/webvtt%d", core->cd->manifest_directory, source);	    
+            snprintf(stream_name, MAX_STREAM_NAME-1, "%s/segment%ld.vtt", local_dir, stream->file_sequence_number);
+            snprintf(stream_name_link, MAX_STREAM_NAME-1, "%s/segment%ld.vtt", local_dir, segment_time);
+            syslog(LOG_INFO,"HLSMUX: WRITING OUT %s (%s)\n", stream_name_link, stream_name);
+            symlink(stream_name, stream_name_link);
+        }        
+    }    
+    return 0;
+}
+
 static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stream, int source, int discontinuity, source_context_struct *sdata)
 {
     FILE *video_manifest;
@@ -1539,7 +1589,7 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
     //Segment availability start time = MPD@availabilityStartTime + PeriodStart + MediaSegment[i].startTime + MediaSegment[i].duration 
     //urn:mpeg:dash:profile:isoff-live:2011,urn:com:dashif:dash264    
     fprintf(master_manifest,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" type=\"dynamic\" minimumUpdatePeriod=\"PT%dS\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minBufferTime=\"PT%dS\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011,urn:com:dashif:dash264,http://dashif.org/guidelines/dash-if-simple\">\n",
+    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" type=\"dynamic\" minimumUpdatePeriod=\"PT%dS\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minBufferTime=\"PT%dS\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011,urn:com:dashif:dash264\">\n",
             core->cd->segment_length,
 	    tm_avail.tm_year + 1900, tm_avail.tm_mon + 1, tm_avail.tm_mday, tm_avail.tm_hour, tm_avail.tm_min, tm_avail.tm_sec,
             core->cd->window_size * core->cd->segment_length);
@@ -1707,9 +1757,10 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
             }
         }
     }    
+    //http://dashif.org/guidelines/dash-if-simple
     
     fprintf(master_manifest,"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" xmlns:cenc=\"urn:mpeg:cenc:2013\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011,http://dashif.org/guidelines/dash-if-simple\" minBufferTime=\"PT5S\" type=\"dynamic\" publishTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minimumUpdatePeriod=\"PT5S\" timeShiftBufferDepth=\"PT%dS\">\n",
+    fprintf(master_manifest,"<MPD xmlns=\"urn:mpeg:dash:schema:mpd:2011\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xsi:schemaLocation=\"urn:mpeg:dash:schema:mpd:2011 DASH-MPD.xsd\" xmlns:cenc=\"urn:mpeg:cenc:2013\" profiles=\"urn:mpeg:dash:profile:isoff-live:2011\" minBufferTime=\"PT5S\" type=\"dynamic\" publishTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" availabilityStartTime=\"%d-%02d-%02dT%02d:%02d:%02dZ\" minimumUpdatePeriod=\"PT5S\" timeShiftBufferDepth=\"PT%dS\">\n",
 	    tm_publish.tm_year + 1900, tm_publish.tm_mon + 1, tm_publish.tm_mday, tm_publish.tm_hour, tm_publish.tm_min, tm_publish.tm_sec,
 	    tm_avail.tm_year + 1900, tm_avail.tm_mon + 1, tm_avail.tm_mday, tm_avail.tm_hour, tm_avail.tm_min, tm_avail.tm_sec,
             core->cd->window_size * core->cd->segment_length);
@@ -2110,6 +2161,9 @@ void *mux_pump_thread(void *context)
 	source_data[i].height = 0;
         source_data[i].pto_video = -core->cd->window_size;
         source_data[i].pto_audio = -core->cd->window_size;
+        source_data[i].caption_index = 0;
+        source_data[i].text_start_time = 0;
+        memset(source_data[i].caption_text, 0, MAX_TEXT_SIZE);
     }
     
     for (i = 0; i < MAX_VIDEO_SOURCES; i++) {
@@ -2121,12 +2175,20 @@ void *mux_pump_thread(void *context)
 	hlsmux->video[i].packet_count = 0;
 	hlsmux->video[i].output_ts_file = NULL;
 	hlsmux->video[i].output_fmp4_file = NULL;
+        hlsmux->video[i].output_webvtt_file = NULL;        
 	hlsmux->video[i].file_sequence_number = 0;
 	hlsmux->video[i].media_sequence_number = 0;
 	hlsmux->video[i].fragments_published = 0;
         hlsmux->video[i].discontinuity_adjustment = 0;
         hlsmux->video[i].last_segment_time = 0;        
 	hlsmux->video[i].fmp4 = NULL;
+        if (i == 0) {
+            hlsmux->video[i].textbuffer = (char*)malloc(MAX_TEXT_BUFFER);
+            memset(hlsmux->video[i].textbuffer, 0, MAX_TEXT_BUFFER);
+            snprintf(hlsmux->video[i].textbuffer, MAX_TEXT_BUFFER-1, "WEBVTT\n\n");            
+        } else {
+            hlsmux->video[i].textbuffer = NULL;
+        }
 
         for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
             hlsmux->audio[i][j].muxbuffer = (uint8_t*)malloc(MAX_VIDEO_MUX_BUFFER);
@@ -2247,6 +2309,12 @@ void *mux_pump_thread(void *context)
 			fclose(hlsmux->video[i].output_fmp4_file);
 			hlsmux->video[i].output_fmp4_file = NULL;		    
 		    }
+                    if (i == 0) {
+                        if (hlsmux->video[i].output_webvtt_file) {
+                            fclose(hlsmux->video[i].output_webvtt_file);                        
+                            hlsmux->video[i].output_webvtt_file = NULL;
+                        }
+                    }
                     if (hlsmux->video[i].fmp4) {
 			fmp4_file_finalize(hlsmux->video[i].fmp4);
 			hlsmux->video[i].fmp4 = NULL;
@@ -2284,6 +2352,181 @@ void *mux_pump_thread(void *context)
 	    source_discontinuity = 0;
             splice_duration = 0;
 	}
+
+        if (frame->frame_type == FRAME_TYPE_VIDEO && core->cd->enable_webvtt) {
+            if (frame->media_type == MEDIA_TYPE_H264 && frame->source == 0) {
+                // grab the sei caption message
+                int sp;
+                uint8_t *buffer;
+                
+                buffer = frame->buffer;
+                for (sp = 0; sp < frame->buffer_size - 3; sp++) {
+                    if (buffer[sp] == 0x00 &&
+                        buffer[sp+1] == 0x00 &&
+                        buffer[sp+2] == 0x01) {
+                        int nal = buffer[sp+3] & 0x1f;
+                        int sei = buffer[sp+4];
+                        if (nal == 0x06 && sei == 4) {
+                            if (buffer[sp+ 6] == 0xb5 && buffer[sp+ 7] == 0x00 &&
+                                buffer[sp+ 8] == 0x31 && buffer[sp+ 9] == 0x47 &&
+                                buffer[sp+10] == 0x41 && buffer[sp+11] == 0x39 &&
+                                buffer[sp+12] == 0x34) {
+                                
+                                int read_idx = 3;                                
+                                uint8_t *cbuf = (uint8_t*)&buffer[sp+13];
+                                int caption_count;
+                                int current_idx;                                
+
+                                caption_count = (*(cbuf+1) & 0x1f);
+                                fprintf(stderr,"captions:%d\n", caption_count);                                
+                                
+                                for (current_idx = 0; current_idx < caption_count; current_idx++) {
+                                    uint8_t cc1 = *(cbuf+read_idx+1) & 0x7f;
+                                    uint8_t cc2 = *(cbuf+read_idx+2) & 0x7f;                                
+                                    
+                                    int cckind = *(cbuf+read_idx) & 0x03;
+                                    int isactive = *(cbuf+read_idx) & 0x04;
+                                    int xds = (((cc1 & 0x70) == 0x00) & ((cc2 & 0x70) == 0x00));
+                                    int tab = (((cc1 & 0x77) == 0x17) & ((cc2 & 0x7c) == 0x20));
+                                    int space = (((cc1 & 0x77) == 0x11) & ((cc2 & 0x70) == 0x20));
+                                    int other = (((cc1 & 0x77) == 0x11) & ((cc2 & 0x70) == 0x30));
+                                    int ctrlcc = (((cc1 & 0x76) == 0x14) & ((cc2 & 0x70) == 0x20));
+                                    int ctrl = ((cc1 & 0x70) == 0x10);
+
+                                    if (!isactive) {
+                                        break;
+                                    }
+                                    if (xds) {
+                                        break;
+                                    }
+                                    if (tab) {
+                                        read_idx += 3;
+                                        continue;
+                                    }
+                                    if (other) {
+                                        read_idx += 3;
+                                        continue;
+                                    }
+                                    if (space && cckind == 0) {
+                                        int caption_index = source_data[0].caption_index;
+                                        if (caption_index == 0) {
+                                            source_data[0].text_start_time = frame->full_time;
+                                        }
+                                        source_data[0].caption_text[caption_index++] = ' ';
+                                        source_data[0].caption_index = caption_index;
+                                        read_idx += 3;
+                                        continue;
+                                    }
+                                    if (ctrl) {
+                                        if (ctrlcc && !cckind) {
+                                            int cm = cc2 & 0x0f;
+                                            if (cm == 0) {
+                                            } else if (cm == 1) {
+                                            } else if (cm == 4) {
+                                            } else if (cm == 5) {
+                                                //fprintf(stderr,"rollup\n");
+                                                int caption_index = source_data[0].caption_index;
+                                                if (caption_index == 0) {
+                                                    source_data[0].text_start_time = frame->full_time;
+                                                }                                                
+                                                source_data[0].caption_text[caption_index++] = '\n';
+                                                source_data[0].caption_index = caption_index;                                                
+                                            } else if (cm == 6) {
+                                                //fprintf(stderr,"rollup\n");
+                                                int caption_index = source_data[0].caption_index;
+                                                if (caption_index == 0) {
+                                                    source_data[0].text_start_time = frame->full_time;
+                                                }                                                
+                                                source_data[0].caption_text[caption_index++] = '\n';
+                                                source_data[0].caption_index = caption_index;                                                
+                                            } else if (cm == 7) {
+                                                //fprintf(stderr,"rollup\n");
+                                                int caption_index = source_data[0].caption_index;
+                                                if (caption_index == 0) {
+                                                    source_data[0].text_start_time = frame->full_time;
+                                                }                                                
+                                                source_data[0].caption_text[caption_index++] = '\n';
+                                                source_data[0].caption_index = caption_index;                                                
+                                            } else if (cm == 13 || cm == 15) {
+                                                char temp_text[MAX_TEXT_SIZE];
+                                                if (cm == 13) {
+                                                    fprintf(stderr,"crlf\n");
+                                                } else if (cm == 15) {
+                                                    fprintf(stderr,"end!\n");
+                                                }                                                
+                                                fprintf(stderr,"\n\n\ncaption: %s\n\n\n",
+                                                        source_data[0].caption_text);
+                                                syslog(LOG_INFO,"CAPTION:%s\n",
+                                                       source_data[0].caption_text);
+
+                                                double seconds_at_start = ((double)source_data[0].text_start_time - source_data[0].start_time_video) / (double)VIDEO_CLOCK;
+                                                double seconds_at_end = ((double)frame->full_time - (double)source_data[0].start_time_video) / (double)VIDEO_CLOCK;
+                                                int seconds_end;
+                                                int seconds_start;
+                                                
+                                                seconds_end = (int)seconds_at_end % 60;
+                                                seconds_start = (int)seconds_at_start % 60;
+                                                if (seconds_end < 1) {
+                                                    seconds_end = 1;
+                                                }
+                                                if (seconds_start < 0) {
+                                                    seconds_start = 0;
+                                                }                                               
+
+                                                snprintf(temp_text, MAX_TEXT_SIZE-1, "00:00:00:%02d.000 --> 00:00:00:%02d.000\n",
+                                                         seconds_start,
+                                                         seconds_end);
+                                                strncat(hlsmux->video[0].textbuffer,
+                                                        temp_text,
+                                                        MAX_TEXT_BUFFER-1);
+                                                
+                                                snprintf(temp_text, MAX_TEXT_SIZE-1, "%s\n\n", source_data[0].caption_text);
+                                                strncat(hlsmux->video[0].textbuffer,
+                                                        temp_text,
+                                                        MAX_TEXT_BUFFER-1);
+
+                                                memset(source_data[0].caption_text,0,MAX_TEXT_SIZE);
+                                                source_data[0].caption_index = 0;                                                
+                                            } else {
+                                                syslog(LOG_INFO,"unhandled caption control code: %d 0x%d\n",
+                                                       cm, cm);
+                                            }
+                                        }                                    
+                                        read_idx += 3;
+                                        continue;
+                                    }
+                                    if (cckind == 0) { // field=0
+                                        /*fprintf(stderr,"(caption:%d) chars: %c %c (0x%x 0x%x)   idx:%d  type:%d  active:%d\n",
+                                                current_idx, cc1, cc2,
+                                                cc1, cc2,
+                                                source_data[0].caption_index,
+                                                cckind,
+                                                isactive);*/
+                                        if (cc1 != 0x00 && cc2 != 0x00) {
+                                            if (cc1 > 31 && cc1 < 128 &&
+                                                cc2 > 31 && cc2 < 128) {
+                                                int caption_index = source_data[0].caption_index;
+                                                if (caption_index == 0) {
+                                                    source_data[0].text_start_time = frame->full_time;
+                                                }                                                
+                                                source_data[0].caption_text[caption_index++] = cc1;
+                                                source_data[0].caption_text[caption_index++] = cc2;
+                                                source_data[0].caption_index = caption_index;
+                                            }
+                                        }
+                                        fprintf(stderr,"(%d)  current:%s\n",
+                                                source_data[0].caption_index,
+                                                source_data[0].caption_text);
+                                        read_idx += 3;
+                                        continue;                                                                                
+                                    }
+                                }                                                                
+                            }                            
+                        }
+                    }
+                }
+            }
+        }        
 
 	if (frame->frame_type == FRAME_TYPE_VIDEO) {
 	    int source = frame->source;
@@ -2558,14 +2801,14 @@ void *mux_pump_thread(void *context)
                        source_data[source].total_video_duration,
                        source_data[source].expected_video_duration,
                        fragment_length);*/
-                
+               
 		if (source_data[source].total_video_duration+frag_delta >= source_data[source].expected_video_duration+fragment_length) {
                     int64_t sidx_time;
                     int64_t sidx_duration;
                     int64_t segment_time;
                     int64_t duration_time;
                     int j;
-                    
+
                     sidx_time = 0;
                     sidx_duration = 0;
 		    if (core->cd->enable_ts_output) {
@@ -2604,6 +2847,18 @@ void *mux_pump_thread(void *context)
 
 			    fwrite(hlsmux->video[source].fmp4->buffer, 1, hlsmux->video[source].fmp4->buffer_offset, hlsmux->video[source].output_fmp4_file);
 			    end_mp4_fragment(core, &hlsmux->video[source], source, NO_SUBSTREAM, IS_VIDEO, segment_time);
+
+                            if (source == 0 && core->cd->enable_webvtt) { // webvtt
+                                if (strlen(hlsmux->video[0].textbuffer) > 8) {
+                                    fprintf(stderr,"WEBVTT CAPTION DATA\n");
+                                    fprintf(stderr,"%s", hlsmux->video[0].textbuffer);
+                                }
+                                fprintf(hlsmux->video[source].output_webvtt_file, "%s", hlsmux->video[0].textbuffer);
+                                memset(hlsmux->video[source].textbuffer, 0, MAX_TEXT_BUFFER);
+                                snprintf(hlsmux->video[source].textbuffer, MAX_TEXT_BUFFER-1, "WEBVTT\n\n");
+                                end_webvtt_fragment(core, &hlsmux->video[source], source, segment_time);
+                            }                                                
+                            
 			}
 		    }
 		    
@@ -2699,7 +2954,10 @@ void *mux_pump_thread(void *context)
                     
 		    if (core->cd->enable_fmp4_output) {
 			video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
-			
+
+                        if (source == 0 && core->cd->enable_webvtt) {
+                            start_webvtt_fragment(core, &hlsmux->video[source], source);
+                        }			
 			start_mp4_fragment(core, &hlsmux->video[source], source, IS_VIDEO, NO_SUBSTREAM);
 			if (hlsmux->video[source].fmp4 == NULL) {
 			    if (frame->media_type == MEDIA_TYPE_H264) {
@@ -3365,13 +3623,23 @@ cleanup_mux_pump_thread:
         int j;
         
 	free(hlsmux->video[i].pesbuffer);
+        hlsmux->video[i].pesbuffer = NULL;
 	free(hlsmux->video[i].muxbuffer);
+        hlsmux->video[i].muxbuffer = NULL;
 	free(hlsmux->video[i].packettable);
+        hlsmux->video[i].packettable = NULL;
+        if (i == 0) {
+            free(hlsmux->video[i].textbuffer);
+            hlsmux->video[i].textbuffer = NULL;
+        }
 
         for (j = 0; j < MAX_AUDIO_STREAMS; j++) {            
             free(hlsmux->audio[i][j].pesbuffer);
+            hlsmux->audio[i][j].pesbuffer = NULL;
             free(hlsmux->audio[i][j].muxbuffer);
+            hlsmux->audio[i][j].muxbuffer = NULL;
             free(hlsmux->audio[i][j].packettable);
+            hlsmux->audio[i][j].packettable = NULL;
         }
     }
 
