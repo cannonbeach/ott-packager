@@ -44,6 +44,8 @@ PACKAGING OPTIONS
        --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]
        --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]
        --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]
+       --webvtt
+       --astreams
 
 TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
        --transcode     [ENABLE TRANSCODER AND NOT JUST PACKAGING]
@@ -128,6 +130,13 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 <br>
 
 ## Current Status
+
+(03/14/19) Short update on things
+
+- Added initial framework for webvtt caption decoding (creating the small .vtt files now) - (--webvtt)
+- Improved frame a/v sync code and made it more robust against some rare situations
+- Added a way to select the number of input audio streams (--astreams #)
+
 (03/04/19) Project is still in active development.  I am still pushing for a v1.0 in the next couple of months.  I pushed up a small update today to clean up a few minor issues:
 
 - MPEG audio decoding
