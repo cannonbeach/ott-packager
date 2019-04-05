@@ -13,6 +13,7 @@ sudo apt-get install cmake
 sudo apt-get install cmake-curses-gui
 sudo apt-get install gdb
 sudo apt-get install g++
+sudo apt-get install libnuma-dev
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -84,13 +85,11 @@ echo "Installing x265 from packaged source"
 #hg clone https://bitbucket.org/multicoreware/x265 ./headx265
 wget $x265download
 tar xzf x265_2.9.tar.gz
-pushd
 cd x265_2.9
 cd build
 cd linux
 ./make-Makefiles.bash
 make -j8
-popd
 
 echo "Done!"
 
