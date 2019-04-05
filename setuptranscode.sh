@@ -1,8 +1,10 @@
 whichnasm="/usr/bin/nasm"
 whichyasm="/usr/bin/yasm"
 yasmdownload="http://www.tortall.net/projects/yasm/releases/yasm-1.3.0.tar.gz"
+yasmfile="yasm-1.3.0.tar.gz"
 nasmdownload="https://www.nasm.us/pub/nasm/releasebuilds/2.14/nasm-2.14.tar.gz"
-x265download="http://ftp.videolan.org/pub/videolan/x265/x265_2.9.tar.gz"
+nasmfile="nasm-2.14.tar.gz"
+x265download="http://ftp.videolan.org/pub/videolan/x265/x265_3.0.tar.gz"
 
 sudo apt-get update
 sudo apt-get upgrade
@@ -18,8 +20,13 @@ sudo apt-get install libnuma-dev
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
 echo "Installing YASM"
+
+if [ -f "$yasmfile" ]; then
+    echo "Removing old yasm file"
+    rm $yasmfile
+fi
 wget $yasmdownload
-tar xzf yasm-1.3.0.tar.gz
+tar xzf $yasmfile
 cd yasm-1.3.0
 ./configure --prefix=/usr
 make -j4
@@ -36,15 +43,19 @@ fi
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
 echo "Installing NASM"
+if [ -f "$nasmfile" ]; then
+    echo "Removing old nasm file"
+    rm $nasmfile
+fi
 wget $nasmdownload
-tar xzf nasm-2.14.tar.gz
+tar xzf $nasmfile
 cd nasm-2.14
 ./configure --prefix=/usr
 make -j4
 sudo make install
 cd ..
 
-if [ -e "$whichnasm" ]; then
+if [ -f "$whichnasm" ]; then
     echo "SUCCESS: NASM compiled and installed"
 else
     echo "ERROR: NASM did not compile and install - aborting installation!"
@@ -84,13 +95,12 @@ cd ..
 echo "Installing x265 from packaged source"
 #hg clone https://bitbucket.org/multicoreware/x265 ./headx265
 wget $x265download
-tar xzf x265_2.9.tar.gz
-cd x265_2.9
+tar xzf x265_3.0.tar.gz
+cd x265_3.0
 cd build
 cd linux
 ./make-Makefiles.bash
 make -j8
 
 echo "Done!"
-
 

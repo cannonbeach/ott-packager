@@ -51,7 +51,7 @@
 #include "../cbffmpeg/libavfilter/buffersink.h"
 #include "../cbffmpeg/libavfilter/buffersrc.h"
 #include "../cbx264/x264.h"
-#include "../x265_2.9/source/x265.h"
+#include "../x265_3.0/source/x265.h"
 
 static volatile int video_decode_thread_running = 0;
 static volatile int video_prepare_thread_running = 0;
