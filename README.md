@@ -131,6 +131,10 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 
 ## Current Status
 
+(04/15/19) Another short update
+
+- Started to build a web application based on NodeJS for status, control and provisioning.  I pushed up the start of it but the web application is not useful yet.  I would like to include this as part of the v1.0 release if possible since I think it'll be a very useful feature.  I'll post some screen shots and how to run it once I get the basic functionality in place.
+
 (03/14/19) Short update on things
 
 - Added initial framework for webvtt caption decoding (creating the small .vtt files now) - (--webvtt)
