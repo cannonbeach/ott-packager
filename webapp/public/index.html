@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Fillet Content Publishing Control</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* {
+    box-sizing: border-box;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Style the top navigation bar */
+.topnav {
+    overflow: hidden;
+    background-color: #800;
+    text-align: center;
+    padding: 5px 5px;
+    color: #fff;
+    font-size: 1.5em;
+}
+
+/* Style the topnav links */
+.topnav a {
+    float: left;
+    display: block;
+    color: #fff;
+    text-align: center;
+    padding: 14px 16px;
+    text-decoration: none;
+}
+
+/* Change color on hover */
+.topnav a:hover {
+    background-color: #001f3f;
+    color: black;
+}
+
+/* Style the content */
+.content {
+    background-color: #ddd;
+    padding: 10px;
+    height: 800px;
+}
+
+/* Style the footer */
+.footer {
+    background-color: #0074D9;
+    padding: 10px;
+}
+
+section {
+   position: relative;
+   border: 1px solid #000;
+   padding-top: 37px;
+   background: #500;
+}
+
+section.anchortable {
+   position: absolute;
+   top:225px;
+   left:50px;
+   box-shadow: 0 0 15px #333;
+}
+
+section.configtable {
+   position: relative;
+   width: 60%;
+   left:15px;
+   margin-right:30px;
+   box-shadow: 0 0 15px #333;
+   color: black;
+}
+
+section.controls {
+   position: absolute;
+   top:125px;
+   left:50px;
+   box-shadow: 0 0 15px #333;
+}
+
+.container {
+   overflow-y: auto;
+   height: auto;
+   width: auto;
+}
+
+table {
+   border-spacing: 0;
+   width:100%;
+}
+
+td + td {
+   border-left:1px solid #eee;
+}
+
+td, th {
+   border-bottom:1px solid #eee;
+   background: #ddd;
+   color: #000;
+   padding: 5px 15px;
+}
+
+th {
+   height: 0;
+   line-height: 0;
+   padding-top: 0;
+   padding-bottom: 0;
+   color: transparent;
+   border: none;	
+   white-space: nowrap;
+}
+
+th div{
+   position: absolute;
+   background: transparent;
+   color: #fff;
+   padding: 10px 15px;
+   top: 0;
+   margin-left: -15px;
+   line-height: normal;
+   border-left: 1px solid #800;
+}
+
+th:first-child div{
+   border: none;
+}
+
+.row {
+   display: -ms-flexbox; /* IE10 */
+   display: flex;
+   -ms-flex-wrap: wrap; /* IE10 */
+   flex-wrap: wrap;
+   margin: 0 -16px;
+}
+
+.col-25 {
+   -ms-flex: 25%; /* IE10 */
+   flex: 25%;
+}
+
+.col-50 {
+   -ms-flex: 50%; /* IE10 */
+   flex: 50%;
+}
+
+.col-75 {
+   -ms-flex: 75%; /* IE10 */
+   flex: 75%;
+}
+
+.col-25,
+.col-50,
+.col-75 {
+   padding: 0 16px;
+}
+
+.container {
+   background-color: #f2f2f2;
+   padding: 5px 20px 15px 20px;
+   border: 1px solid lightgrey;
+   border-radius: 3px;
+}
+
+input[type=text] {
+   width: 80%;
+   margin-bottom: 5px;
+   padding: 6px;
+   border: 1px solid #ccc;
+   border-radius: 3px;
+}
+
+label {
+   margin-bottom: 10px;
+   display: block;
+}
+
+.icon-container {
+   margin-bottom: 20px;
+   padding: 7px 0;
+   font-size: 24px;
+}
+
+.btngreen {
+   background-color: #4CAF50;
+   color: white;
+   padding: 12px;
+   margin: 10px 0;
+   border: none;
+   width: 20%;
+   border-radius: 3px;
+   cursor: pointer;
+   font-size: 17px;
+}
+
+.btngreen:hover {
+   background-color: #45a049;
+}
+
+.btnred {
+   background-color: #FF0000;
+   color: white;
+   padding: 12px;
+   margin: 10px 0;
+   border: none;
+   width: 20%;
+   border-radius: 3px;
+   cursor: pointer;
+   font-size: 17px;
+}
+
+.btnred:hover {
+   background-color: #800000;
+}
+
+@media (max-width: 800px) {
+   .row {
+       flex-direction: column-reverse;
+   }
+   .col-25 {
+       margin-bottom: 20px;
+   }
+}
+
+</style>
+</head>
+<body>
+
+<div class="topnav">
+<p>Content Publishing Control System</p>
+</div>
+
+<div class="control" id="controlpage">
+  <section class="controls">
+  <div class="container">
+    <table>
+      <thead>
+	<tr class="header">
+	  <th>Add Source<div>Add Source</div></th>
+	</tr>
+      </thead>
+      <tbody>
+	<tr>
+	  <td>
+	    <button id='new_button'>New</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  </section>
+</div>
+
+<div class="content" id="statuspage">
+<section class="anchortable">
+  <div class="container">
+    <table>
+      <thead>
+       <tr class="header">
+       <th>Session ID<div>Session ID</div></th>
+       <th>Name<div>Name</div></th>       
+       <th>Process Control<div>Process Control</div></th>
+       <th>Ingesting<div>Ingesting</div></th>
+       <th>Uptime<div>Uptime</div></th>
+       <th>Signal<div>Signal</div></th>
+       <th>Session Control<div>Session Control</div></th>
+       </tr>
+      </thead>
+      <tbody>
+       <tr>
+       <td>1</td>
+       <td>NBC Sports</td>
+       <td>
+           <button id='start_button'>Start</button>
+	   <button id='stop_button'>Stop</button>
+	   <button id='reset_button'>Reset</button>
+       </td>
+       <td>ACTIVE</td>
+       <td></td>
+       <td>YES</td>       
+       <td>
+	   <button id='log' type='log'>Show<br>Log</button>       
+           <button id='status' type='button'>Show<br>Status</button>
+	   <button id='edit' type='edit'>Update<br>Session</button>
+	   <button id='remove' type='remove'>Remove<br>Session</button>
+       </td>	   
+       </tr>      
+       
+       </tbody>
+       </table>
+       </div>
+       </section>
+</div>
+
+<div class="row" id="newsourcepage">
+  <div class="col-75">
+    <div class="container">
+	<div class="row">
+	  <div class="col-50">
+	    <h2>Add A New Contribution Source For Transcoding</h2>
+
+	    <section class="configtable">
+	      <table>
+	      <thead>
+		<tr>
+		  <th><div> </div></th>
+		  <th><div>Source Information </div></th>
+		  <th><div>Network Interface</div></th>
+		</tr>
+	      </thead>
+	      
+	      <tbody>
+		<tr>
+		  <td>
+		    <label>Channel Name</label>
+		  </td>
+		  <td>
+		    <input type="text" id="sname" name="sourcename" placeholder="XYZ Sports Network">
+		  </td>
+		</tr>	
+		  
+		<tr>
+		  <td>
+		    <label>Primary UDP Source IP:PORT</label>
+		  </td>
+		  <td>
+		    <input type="text" id="ipaddr_primary" name="ipaddress_primary" placeholder="239.192.10.10:6000">
+		  </td>
+
+		  <td>
+		    <select id="inputinterface1">
+		      <script>
+			fetch('/get_interfaces',{method: 'GET'})
+			.then(response => {
+ 			if (response.ok) {
+			return response.json()
+			} else {
+   			return Promise.reject('something went wrong!')
+			}
+			})
+			.then(data => {
+			console.log('data is', data);
+			
+			var parsedJSON = JSON.parse(JSON.stringify(data));
+  			select = document.getElementById('inputinterface1');
+      			for (var prop in parsedJSON) {
+			if (parsedJSON.hasOwnProperty(prop)) {
+			console.log("prop: " + prop);
+  			var opt = document.createElement('option');
+ 	 		opt.value = prop;
+  	  		opt.innerHTML = prop;
+ 			select.appendChild(opt);
+			}
+			}
+			})
+		      </script>
+		    </select>
+		  </td>
+		</tr>
+		
+		<tr>
+		  <td>
+		    <label>Backup UDP Source IP:PORT (Optional)</label>
+		  </td>
+		  <td>
+		    <input type="text" id="ipaddr_backup" name="ipaddress_backup" placeholder="239.192.10.10:7000">
+		  </td>
+		  <td>
+		    <select id="inputinterface2">
+		      <script>
+			fetch('/get_interfaces',{method: 'GET'})
+			.then(response => {
+ 			if (response.ok) {
+			return response.json()
+			} else {
+   			return Promise.reject('something went wrong!')
+			} 
+			})
+			.then(data => {
+			console.log('data is', data);
+			
+			var parsedJSON = JSON.parse(JSON.stringify(data));
+  			select = document.getElementById('inputinterface2');
+      			for (var prop in parsedJSON) {
+			if (parsedJSON.hasOwnProperty(prop)) {
+			console.log("prop: " + prop);
+  			var opt = document.createElement('option');
+ 	 		opt.value = prop;
+  	  		opt.innerHTML = prop;
+ 			select.appendChild(opt);
+			}
+			}
+			})					
+		      </script>
+		    </select>
+		  </td>
+		</tr>
+	      </tbody>
+	    </table>
+	    </section>
+
+	    <div>
+	      <h2>Additional Configuration Options</h2>
+	    </div>
+	    
+	    <section class="configtable">	    
+	    <table>
+	      <thead>
+	      <tr>
+		<th><div> </div></th>
+		<th><div>Selection</div></th>       
+	      </tr>
+	      </thead>
+	      <tbody>
+		<tr>
+		<td>
+		  <label>Enable HLS Output (Transport Stream w/m3u8 Manifest)</label>
+		</td>
+		<td>
+		  <input type="checkbox" checked="checked" name="enablehls">
+		</td>
+		
+		<tr>
+		<td>
+		  <label>Enable DASH/fMP4 Output (MP4 w/MPD And m3u8 Manifest)</label>
+		</td>
+		<td>
+		  <input type="checkbox" checked="checked" name="enabledash">		
+		</td>
+		</tr>
+		
+		<tr>
+		<td>
+		  <label>Enable SCTE35 Passthrough (HLS Only)</label>
+		</td>
+		<td>
+		<input type="checkbox" checked="checked" name="enablescte35">
+		</td>
+		</tr>
+	    
+		<tr>
+		  <td>
+		    <label>Select Your Video Codec</label>
+		  </td>
+		  <td>
+		    <select id="videocodec">
+		      <option value="h264">H.264</option>
+		      <option value="hevc">HEVC</option>
+		    </select>
+		  </td>
+		</tr>
+
+		<tr>
+		  <td>
+		    <label>Maximum Audio Sources</label>
+		  </td>
+		  <td>
+		    <select id="audiosources">
+		      <option value="1">1 audio stream</option>
+		      <option value="2">2 audio streams</option>
+		    </select>
+		  </td>
+		</tr>
+
+		<tr>
+		  <td>
+		    <label>Autoconvert To Stereo</label>
+		  </td>
+		  <td>
+		    <input type="checkbox" checked="checked" name="enablestereo">
+		  </td>
+		</tr>
+
+		<tr>
+		  <td>
+		    <label>Please Select Audio Bitrate (AAC output)</label>
+		  </td>
+		  <td>
+		    <select id="audiobitrate">
+		      <option value="40">40kbps</option>
+		      <option value="64">64kbps</option>
+		      <option value="96">96kbps</option>
+		      <option value="128">128kbps</option>
+		      <option value="192">192kbps</option>
+		      <option value="256">256kbps</option>
+		    </select>
+		  </td>
+		</tr>
+	      </tbody>
+	    </table>
+	    </section>
+      
+            <div>
+	    <h2>Adaptive Video Bitrate/Resolution (ABR) Output Ladder</h2>
+	    <h2>(Please Select At Least One)</h2>
+	    </div>
+	    <section class="configtable">	    
+	    <table>
+	      <thead>
+	      <tr>
+		<th>ABR Stream<div>ABR Stream</div></th>
+		<th>Resolution<div>Resolution</div></th>       
+		<th>Video Bitrate (kbps)<div>Video Bitrate (kbps)</div></th>
+	      </tr>
+	      </thead>
+	      <tbody>
+		<tr id="abroutputs1"> 
+		  <td>
+		    <label>
+		      <input id="outputenabled1" type="checkbox" checkbox="unchecked" name="output1"/> Output 1
+		    </label>
+		  </td>
+		  <td>
+		    <select id="outputresolution1">
+		      <option value="176x144">176x144</option>
+		      <option value="320x240">320x240</option>
+		      <option value="480x320">480x320</option>
+		      <option value="640x360">640x360</option>
+		      <option value="640x480">640x480</option>
+		      <option value="960x540">960x540</option>
+		      <option value="1280x720">1280x720</option>
+		      <option value="1440x1080">1440x1080</option>
+		      <option value="1920x1080">1920x1080</option>
+		    </select>
+		  </td>
+		  <td>
+		    <input type="text" style="width:20%" id="video_bitrate1" name="video_bitrate1" placeholder="500"/>
+  		  </td>
+	        <tr>
+		  
+		<tr id="abroutputs2"> 
+		  <td>
+		    <label>
+		      <input id="outputenabled2" type="checkbox" checkbox="unchecked" name="output2"/> Output 2
+		    </label>
+		  </td>
+		  <td>
+		    <select id="outputresolution2">
+		      <option value="176x144">176x144</option>
+		      <option value="320x240">320x240</option>
+		      <option value="480x320">480x320</option>
+		      <option value="640x360">640x360</option>
+		      <option value="640x480">640x480</option>
+		      <option value="960x540">960x540</option>
+		      <option value="1280x720">1280x720</option>
+		      <option value="1440x1080">1440x1080</option>
+		      <option value="1920x1080">1920x1080</option>
+		    </select>
+		  </td>
+		  <td>
+		    <input type="text" style="width:20%" id="video_bitrate2" name="video_bitrate2" placeholder="1500"/>
+  		  </td>
+	        <tr>
+
+  		<tr id="abroutputs3"> 
+		  <td>
+		    <label>
+		      <input id="outputenabled3" type="checkbox" checkbox="unchecked" name="output3"/> Output 3
+		    </label>
+		  </td>
+		  <td>
+		    <select id="outputresolution3">
+		      <option value="176x144">176x144</option>
+		      <option value="320x240">320x240</option>
+		      <option value="480x320">480x320</option>
+		      <option value="640x360">640x360</option>
+		      <option value="640x480">640x480</option>
+		      <option value="960x540">960x540</option>
+		      <option value="1280x720">1280x720</option>
+		      <option value="1440x1080">1440x1080</option>
+		      <option value="1920x1080">1920x1080</option>
+		    </select>
+		  </td>
+		  <td>
+		    <input type="text" style="width:20%" id="video_bitrate3" name="video_bitrate3" placeholder="3000"/>
+  		  </td>
+	        <tr>
+
+		<tr id="abroutputs4"> 
+		  <td>
+		    <label>
+		      <input id="outputenabled4" type="checkbox" checkbox="unchecked" name="output2"/> Output 4
+		    </label>
+		  </td>
+		  <td>
+		    <select id="outputresolution4">
+		      <option value="176x144">176x144</option>
+		      <option value="320x240">320x240</option>
+		      <option value="480x320">480x320</option>
+		      <option value="640x360">640x360</option>
+		      <option value="640x480">640x480</option>
+		      <option value="960x540">960x540</option>
+		      <option value="1280x720">1280x720</option>
+		      <option value="1440x1080">1440x1080</option>
+		      <option value="1920x1080">1920x1080</option>
+		    </select>
+		  </td>
+		  <td>
+		    <input type="text" style="width:20%" id="video_bitrate4" name="video_bitrate4" placeholder="5000"/>
+  		  </td>
+	        <tr>		  		  
+
+	      </tbody>
+	    </table>
+	    </section>
+	  <div>	  
+	    <h2>CDN Publishing</h2>
+	  </div>
+	</div>
+	</div>
+        <button id='submit_button' class="btngreen">Submit New Source</button>
+	<button id='abort_button' class="btnred">Abort</button>
+      </form>
+    </div>
+  </div>
+</body>
+<script src="client.js"></script>
+</html>
+
+
+	
+	
