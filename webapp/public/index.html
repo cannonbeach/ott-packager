@@ -258,43 +258,22 @@ label {
 
 <div class="content" id="statuspage">
 <section class="anchortable">
-  <div class="container">
-    <table>
-      <thead>
-       <tr class="header">
-       <th>Session ID<div>Session ID</div></th>
-       <th>Name<div>Name</div></th>       
-       <th>Process Control<div>Process Control</div></th>
-       <th>Ingesting<div>Ingesting</div></th>
-       <th>Uptime<div>Uptime</div></th>
-       <th>Signal<div>Signal</div></th>
-       <th>Session Control<div>Session Control</div></th>
-       </tr>
-      </thead>
-      <tbody>
-       <tr>
-       <td>1</td>
-       <td>NBC Sports</td>
-       <td>
-           <button id='start_button'>Start</button>
-	   <button id='stop_button'>Stop</button>
-	   <button id='reset_button'>Reset</button>
-       </td>
-       <td>ACTIVE</td>
-       <td></td>
-       <td>YES</td>       
-       <td>
-	   <button id='log' type='log'>Show<br>Log</button>       
-           <button id='status' type='button'>Show<br>Status</button>
-	   <button id='edit' type='edit'>Update<br>Session</button>
-	   <button id='remove' type='remove'>Remove<br>Session</button>
-       </td>	   
-       </tr>      
-       
-       </tbody>
-       </table>
-       </div>
-       </section>
+  <div class="container" id="controltable">
+    <script>
+      fetch('/get_control_page',{method: 'GET'})
+      .then(response => {
+          if (response.ok) {	      
+              return response.text();
+	  } else {
+   	      return Promise.reject('something went wrong!');
+	  }
+      })
+      .then(data => {
+          document.getElementById("controltable").innerHTML = data;
+      })
+    </script>
+  </div>
+</section>
 </div>
 
 <div class="row" id="newsourcepage">
@@ -320,7 +299,7 @@ label {
 		    <label>Channel Name</label>
 		  </td>
 		  <td>
-		    <input type="text" id="sname" name="sourcename" placeholder="XYZ Sports Network">
+		    <input type="text" id="sourcename" name="sourcename" placeholder="XYZ Sports Network"/>
 		  </td>
 		</tr>	
 		  
@@ -329,7 +308,7 @@ label {
 		    <label>Primary UDP Source IP:PORT</label>
 		  </td>
 		  <td>
-		    <input type="text" id="ipaddr_primary" name="ipaddress_primary" placeholder="239.192.10.10:6000">
+		    <input type="text" id="ipaddr_primary" name="ipaddress_primary" placeholder="239.192.10.10:6000"/>
 		  </td>
 
 		  <td>
@@ -418,29 +397,47 @@ label {
 	      </thead>
 	      <tbody>
 		<tr>
-		<td>
-		  <label>Enable HLS Output (Transport Stream w/m3u8 Manifest)</label>
-		</td>
-		<td>
-		  <input type="checkbox" checked="checked" name="enablehls">
-		</td>
-		
+		  <td>
+		    <label>Enable HLS Output (Transport Stream w/m3u8 Manifest)</label>
+		  </td>
+		  <td>
+		    <input type="checkbox" checked="checked" id="enablehls" name="enablehls"/>
+		  </td>
+		  
 		<tr>
-		<td>
-		  <label>Enable DASH/fMP4 Output (MP4 w/MPD And m3u8 Manifest)</label>
-		</td>
-		<td>
-		  <input type="checkbox" checked="checked" name="enabledash">		
-		</td>
+		  <td>
+		    <label>Enable DASH/fMP4 Output (MP4 w/MPD And m3u8 Manifest)</label>
+		  </td>
+		  <td>
+		    <input type="checkbox" checked="checked" id="enabledash" name="enabledash"/>		    
+		  </td>
 		</tr>
-		
+
 		<tr>
-		<td>
-		  <label>Enable SCTE35 Passthrough (HLS Only)</label>
-		</td>
-		<td>
-		<input type="checkbox" checked="checked" name="enablescte35">
-		</td>
+		  <td>
+		    <label>Manifest Window Size (segments)</label>
+		  </td>
+		  <td>
+		    <input type="text" style="width:20%" id="windowsize" name="windowsize" placeholder="20"/>
+		  </td>
+		</tr>
+
+		<tr>
+		  <td>
+		    <label>Segment Size (seconds)</label>
+		  </td>
+		  <td>
+		    <input type="text" style="width:20%" id="segmentsize" name="segmentsize" placeholder="2"/>
+		  </td>
+		</tr>
+
+		<tr>
+		  <td>
+		    <label>Enable SCTE35 Passthrough (HLS Only)</label>
+		  </td>
+		  <td>
+		    <input type="checkbox" checked="checked" id="enablescte35" name="enablescte35"/>
+		  </td>
 		</tr>
 	    
 		<tr>
@@ -472,7 +469,7 @@ label {
 		    <label>Autoconvert To Stereo</label>
 		  </td>
 		  <td>
-		    <input type="checkbox" checked="checked" name="enablestereo">
+		    <input type="checkbox" checked="checked" id="enablestereo" name="enablestereo"/>
 		  </td>
 		</tr>
 
@@ -610,6 +607,72 @@ label {
 	    </section>
 	  <div>	  
 	    <h2>CDN Publishing</h2>
+	    <section class="configtable">
+	      <table>
+		<thead>
+		  <tr>
+		    <th><div> </div></th>
+		    <th><div>Remote Server </div></th>
+		  </tr>
+		</thead>
+		
+		<tbody>
+		  <tr>
+		    <td>
+		      <label>HLS Manifest Filename (TS)</label>
+		    </td>
+		    <td>
+		      <input type="text" id="hlsmanifest" name="hlsmanifest" placeholder="master.m3u8"/>
+		    </td>
+		  </tr>
+
+		  <tr>
+		    <td>
+		      <label>HLS Manifest Filename (Fragmented MP4)</label>
+		    </td>
+		    <td>
+		      <input type="text" id="fmp4manifest" name="fmp4manifest" placeholder="fmp4.m3u8"/>
+		    </td>
+		  </tr>		  		  
+
+		  <tr>
+		    <td>
+		      <label>DASH Manifest Filename</label>
+		    </td>
+		    <td>
+		      <input type="text" id="dashmanifest" name="dashmanifest" placeholder="master.mpd"/>
+		    </td>
+		  </tr>
+
+		  <tr>
+		    <td>
+		      <label>CDN Publishing Point (leave blank if none)</label>
+		    </td>
+		    <td>
+		      <input type="text" id="publishpoint1" name="publishpoint1" placeholder="http://www.mycdn.com/publishname">
+		    </td>
+		  </tr>
+
+		  <tr>
+		    <td>
+		      <label>CDN Username</label>
+		    </td>
+		    <td>
+		      <input type="text" id="cdnusername1" name="cdnusername1" placeholder="cdnuser">
+		    </td>
+		  </tr>
+
+		  <tr>
+		    <td>
+		      <label>CDN Password</label>
+		    </td>
+		    <td>
+		      <input type="text" id="cdnpassword1" name="cdnpassword1" placeholder="password">
+		    </td>
+		  </tr>
+		</tbody>
+	      </table>
+	    </section>
 	  </div>
 	</div>
 	</div>
