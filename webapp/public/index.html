@@ -260,7 +260,7 @@ label {
 <section class="anchortable">
   <div class="container" id="controltable">
     <script>
-      fetch('/get_control_page',{method: 'GET'})
+      fetch('/api/v1/get_control_page',{method: 'GET'})
       .then(response => {
           if (response.ok) {	      
               return response.text();
@@ -314,7 +314,7 @@ label {
 		  <td>
 		    <select id="inputinterface1">
 		      <script>
-			fetch('/get_interfaces',{method: 'GET'})
+			fetch('/api/v1/get_interfaces',{method: 'GET'})
 			.then(response => {
  			if (response.ok) {
 			return response.json()
@@ -352,7 +352,7 @@ label {
 		  <td>
 		    <select id="inputinterface2">
 		      <script>
-			fetch('/get_interfaces',{method: 'GET'})
+			fetch('/api/v1/get_interfaces',{method: 'GET'})
 			.then(response => {
  			if (response.ok) {
 			return response.json()
@@ -605,7 +605,33 @@ label {
 	      </tbody>
 	    </table>
 	    </section>
-	  <div>	  
+
+            <div>
+	      <h2>Status Monitoring</h2>
+	      <section class="configtable">
+		<table>
+		  <thead>
+		    <tr>
+		      <th><div></div></th>
+		      <th><div>Server</div></th>
+		    </tr>
+		  </thead>
+
+		  <tbody>
+		    <tr>
+		      <td>
+			<label>Remote Management Server IP</label>
+		      </td>
+		      <td>
+			<input type="text" id="managementserverip" name="managementserverip" placeholder="http://192.168.100.1/status"/>
+		      </td>
+		    </tr>
+		  </tbody>
+		</table>		
+	      </section>
+	    </div>
+	    
+	    <div>	  
 	    <h2>CDN Publishing</h2>
 	    <section class="configtable">
 	      <table>

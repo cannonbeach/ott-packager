@@ -2,11 +2,107 @@ console.log('Client-side code running');
 document.getElementById("newsourcepage").style.display = "none";
 
 var new_button = document.getElementById('new_button');
-var start_button = document.getElementById('start_button1');
-var reset_button = document.getElementById('reset_button1');
-var stop_button1 = document.getElementById('stop_button1');
 var submit_button = document.getElementById('submit_button');
 var abort_button = document.getElementById('abort_button');
+
+function strncmp(str1, str2, lgth)
+{
+    var s1 = (str1+'').substr(0, lgth);
+    var s2 = (str2+'').substr(0, lgth);
+
+    return ((s1 == s2) ? 0 : ((s1 > s2) ? 1 : -1));
+}
+
+document.addEventListener('click',function(e){
+    console.log('button clicked: ', e.target.id);
+
+    var buttonString = e.target.id;
+    var button_number = 0;
+    
+    const digits = buttonString.split('').filter(item => !isNaN(item));
+    
+    if (digits.length > 0) {
+	if (digits.length > 2) {
+	    button_number = digits[digits.length-3]+digits[digits.length-2]+digits[digits.length-1];
+	} else if (digits.length > 1) {
+	    button_number = digits[digits.length-2]+digits[digits.length-1];
+	} else {
+	    button_number = digits[digits.length-1];
+	}
+    }
+    console.log(button_number);
+
+    if (strncmp(buttonString,'start',5) == 0) {
+	console.log('the start button was pressed');
+	var currentButton = document.getElementById(buttonString);
+	currentButton.disabled = true;
+	var clickedButton = '/api/v1/start_clicked/'+button_number;
+	fetch(clickedButton,{method: 'POST'})
+	    .then(function(response) {
+		if (response.ok) {
+		    console.log('start clicked confirmed');
+		    return;
+		}
+		throw new Error('Start request failed.');
+	    })
+	    .catch(function(error) {
+		console.log(error);
+	    });		
+    } else if (strncmp(buttonString,'stop',4) == 0) {
+	console.log('the stop button was pressed');
+	var currentButton = document.getElementById(buttonString);
+	currentButton.disabled = true;
+	var clickedButton = '/api/v1/stop_clicked/'+button_number;
+	fetch(clickedButton,{method: 'POST'})
+	    .then(function(response) {
+		if (response.ok) {
+		    console.log('stop clicked confirmed');
+		    return;
+		}
+		throw new Error('Stop request failed.');
+	    })
+	    .catch(function(error) {
+		console.log(error);
+	    });	
+    } else if (strncmp(buttonString,'reset',5) == 0) {
+	console.log('the reset button was pressed');
+	var currentButton = document.getElementById(buttonString);
+	currentButton.disabled = true;
+	var clickedButton = '/api/v1/reset_clicked/'+button_number;
+	fetch(clickedButton,{method: 'POST'})
+	    .then(function(response) {
+		if (response.ok) {
+		    console.log('reset clicked confirmed');
+		    return;
+		}
+		throw new Error('Reset request failed.');
+	    })
+	    .catch(function(error) {
+		console.log(error);
+	    });	
+    } else if (strncmp(buttonString,"remove",6) == 0) {
+	console.log('the remove button was pressed');
+	var currentButton = document.getElementById(buttonString);
+	currentButton.disabled = true;
+	var clickedButton = '/api/v1/removesource/'+button_number;
+
+	var result = confirm("Are you sure you want to remove this service?");
+	if (result) {
+	    fetch(clickedButton,{method: 'POST'})
+		.then(function(response) {
+		    if (response.ok) {
+			console.log('remove clicked confirmed');
+			window.location.reload(true);
+			return;
+		    }
+		    throw new Error('Remove request failed.');
+		})
+		.catch(function(error) {
+		    console.log(error);
+		});
+	}
+    }
+});
 
 if (new_button) {
     new_button.addEventListener('click', function(e) {
@@ -19,48 +115,6 @@ if (new_button) {
 	document.getElementById("newsourcepage").style.display = "block";
 	
 	button.disabled = false;
-    });
-}
-
-if (reset_button) {
-    reset_button.addEventListener('click', function(e) {
-	console.log('reset button was clicked');
-	var button = document.getElementById('reset_button');
-	button.disabled = true;
-	
-	fetch('/reset_clicked',{method: 'POST'})
-	    .then(function(response) {
-		if (response.ok) {
-		    console.log('reset clicked confirmed');
-		    return;
-		}
-		throw new Error('Reset request failed.');
-	    })
-	    .catch(function(error) {
-		console.log(error);
-	    });
-	
-    });
-}
-
-if (stop_button1) {
-    stop_button1.addEventListener('click', function(e) {
-	console.log('stop button was clicked');
-	var button = document.getElementById('stop_button1');
-	button.disabled = true;
-	
-	fetch('/stop_clicked',{method: 'POST'})
-	    .then(function(response) {
-		if (response.ok) {
-		    console.log('stop clicked confirmed');
-		    return;
-		}
-		throw new Error('Stop request failed.');
-	    })
-	    .catch(function(error) {
-		console.log(error);
-	    });
-	
     });
 }
 
@@ -101,6 +155,9 @@ submit_button.addEventListener('click', function(e) {
     var hlsmanifest = document.getElementById("hlsmanifest").value;
     var fmp4manifest = document.getElementById("fmp4manifest").value;
     var dashmanifest = document.getElementById("dashmanifest").value;
+
+    var managementserverip = document.getElementById("managementserverip").value;
+    
     var publishpoint1 = document.getElementById("publishpoint1").value;
     var cdnusername1 = document.getElementById("cdnusername1").value;
     var cdnpassword1 = document.getElementById("cdnpassword1").value;
@@ -123,6 +180,7 @@ submit_button.addEventListener('click', function(e) {
 	document.getElementById("newsourcepage").style.display = "none";
 	
 	var obj = new Object();
+	obj.filletmode = "transcode";
 	obj.sourcename = sourcename;	
 	obj.ipaddr_primary = ipaddr_primary;
 	obj.inputinterface1 = inputinterface1;
@@ -159,6 +217,9 @@ submit_button.addEventListener('click', function(e) {
 	obj.hlsmanifest = hlsmanifest;
 	obj.fmp4manifest = fmp4manifest;
 	obj.dashmanifest = dashmanifest;
+
+	obj.managementserverip = managementserverip;
+	
 	obj.publishpoint1 = publishpoint1;
 	obj.cdnusername1 = cdnusername1;
 	obj.cdnpassword1 = cdnpassword1;
@@ -199,3 +260,93 @@ abort_button.addEventListener('click', function(e) {
     document.getElementById("newsourcepage").style.display = "none";    
     alert("Aborted!");    
 });
+
+function request_service_status(service)
+{
+    var serviceQuery = '/api/v1/get_service_status/'+service;
+    console.log('querying: ', serviceQuery);    
+    fetch(serviceQuery,{method: 'GET'})
+	.then(serviceresponse => {
+	    if (serviceresponse.ok) {
+		return serviceresponse.text();
+	    } else {
+		var elementname = 'active'+service;
+		var stopbuttonString = 'stop_button'+service;
+		var resetbuttonString = 'reset_button'+service;
+		var stopButton = document.getElementById(stopbuttonString);
+		var resetButton = document.getElementById(resetbuttonString);
+		document.getElementById(elementname).innerHTML = 'INACTIVE';
+		stopButton.disabled = true;
+		resetButton.disabled = true;
+		return Promise.reject('error: unable to get service update: '+service);
+	    }
+	})
+	.then(servicedata => {
+	    var service_words = JSON.parse(servicedata);
+	    var input_signal = service_words.input_signal;
+	    console.log('received service status data');
+	    console.log('input_signal: ', input_signal);
+	})    
+}
+
+function get_service_info(services)
+{    
+    console.log('services waited ', services);
+
+    var i;    
+    for (i = 0; i < services; i++) {
+	var currentService = i + 1;
+	request_service_status(currentService);
+    }    
+}
+
+function update_service_status()
+{
+    console.log('calling update_service_status()');
+
+    var services = 0;
+    
+    fetch('/api/v1/get_service_count',{method: 'GET'})
+	.then(response => {
+	    if (response.ok) {
+		return response.text();
+	    } else {
+		return Promise.reject('error: unable to get service count');
+	    }
+	})
+    
+	.then(data => {
+	    var words = JSON.parse(data);	    
+	    console.log('services active: ', words.services);
+	    services = words.services;
+	    
+	    get_service_info(services);
+        })    
+}
+
+setInterval(update_service_status, 1000);
+    
+/*function update_status()
+{
+    console.log('calling update_status()');
+    fetch('/get_signal_status',{method: 'GET'})
+	.then(response => {
+	    if (response.ok) {
+		return response.text();
+	    } else {
+		return Promise.reject('something went wrong!');
+	    }
+	})
+    
+	.then(data => {
+	    var words = JSON.parse(data);
+            document.getElementById('active1').innerHTML = JSON.parse(words.uptime);
+        )}
+}
+
+setInterval(update_status, 2000);
+*/
+
+
+
+
