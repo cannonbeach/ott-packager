@@ -1,9 +1,10 @@
 console.log('Client-side code running');
 document.getElementById("newsourcepage").style.display = "none";
 
-var new_button = document.getElementById('new_button');
+var transcode_button = document.getElementById('transcode_button');
 var submit_button = document.getElementById('submit_button');
 var abort_button = document.getElementById('abort_button');
+var stopping = 0;
 
 function strncmp(str1, str2, lgth)
 {
@@ -35,8 +36,15 @@ document.addEventListener('click',function(e){
     if (strncmp(buttonString,'start',5) == 0) {
 	console.log('the start button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	currentButton.disabled = true;
 	var clickedButton = '/api/v1/start_clicked/'+button_number;
+	var resetbuttonString = 'reset_button'+button_number;
+	var stopbuttonString = 'stop_button'+button_number;
+	var resetButton = document.getElementById(resetbuttonString);
+	var stopButton = document.getElementById(stopbuttonString);
+	currentButton.disabled = true;
+	resetButton.disabled = true;
+	stopButton.disabled = true;
+
 	fetch(clickedButton,{method: 'POST'})
 	    .then(function(response) {
 		if (response.ok) {
@@ -51,8 +59,15 @@ document.addEventListener('click',function(e){
     } else if (strncmp(buttonString,'stop',4) == 0) {
 	console.log('the stop button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	currentButton.disabled = true;
 	var clickedButton = '/api/v1/stop_clicked/'+button_number;
+	var resetbuttonString = 'reset_button'+button_number;
+	var startbuttonString = 'start_button'+button_number;
+	var resetButton = document.getElementById(resetbuttonString);
+	var startButton = document.getElementById(startbuttonString);
+	currentButton.disabled = true;	
+	resetButton.disabled = true;
+	startButton.disabled = true;
+	
 	fetch(clickedButton,{method: 'POST'})
 	    .then(function(response) {
 		if (response.ok) {
@@ -104,10 +119,10 @@ document.addEventListener('click',function(e){
     }
 });
 
-if (new_button) {
-    new_button.addEventListener('click', function(e) {
+if (transcode_button) {
+    transcode_button.addEventListener('click', function(e) {
 	console.log('new button was clicked');
-	var button = document.getElementById('new_button');
+	var button = document.getElementById('transcode_button');
 	button.disabled = true;
 	
 	document.getElementById("controlpage").style.display = "none";
@@ -261,6 +276,20 @@ abort_button.addEventListener('click', function(e) {
     alert("Aborted!");    
 });
 
+function trigger_image_update()
+{
+    var images = document.getElementsByTagName('img');
+
+    for (var i = 0; i < images.length; i++) {
+	var dt = new Date();
+	var img = images[i];
+
+	if (img.src.length >= 0 & img.id != 'idImageNoTimestamp') {
+	    img.src = img.src + "?" + dt.getTime();
+	}
+    }
+}
+
 function request_service_status(service)
 {
     var serviceQuery = '/api/v1/get_service_status/'+service;
@@ -270,22 +299,108 @@ function request_service_status(service)
 	    if (serviceresponse.ok) {
 		return serviceresponse.text();
 	    } else {
-		var elementname = 'active'+service;
+		var elementname_active = 'active'+service;
+		var elementname_uptime = 'uptime'+service;
 		var stopbuttonString = 'stop_button'+service;
 		var resetbuttonString = 'reset_button'+service;
+		var startbuttonString = 'start_button'+service;		
 		var stopButton = document.getElementById(stopbuttonString);
 		var resetButton = document.getElementById(resetbuttonString);
-		document.getElementById(elementname).innerHTML = 'INACTIVE';
+		var startButton = document.getElementById(startbuttonString);		
+		document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
+		document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';
 		stopButton.disabled = true;
 		resetButton.disabled = true;
+		startButton.disabled = false;
 		return Promise.reject('error: unable to get service update: '+service);
 	    }
 	})
 	.then(servicedata => {
 	    var service_words = JSON.parse(servicedata);
 	    var input_signal = service_words.input_signal;
-	    console.log('received service status data');
-	    console.log('input_signal: ', input_signal);
+	    var startbuttonString = 'start_button'+service;
+	    var stopbuttonString = 'stop_button'+service;
+	    var resetbuttonString = 'reset_button'+service;	    
+	    var startButton = document.getElementById(startbuttonString);
+	    var stopButton = document.getElementById(stopbuttonString);
+	    var resetButton = document.getElementById(resetbuttonString);	    
+	    var elementname_active = 'active'+service;
+	    var elementname_uptime = 'uptime'+service;
+	    var elementname_image = 'thumbnail'+service;
+	    var elementname_source = 'input'+service;
+	    var elementname_output = 'output'+service;
+	    var video_bitrate = service_words.video_bitrate / 1000;
+	    
+	    if (input_signal == 1) {
+		document.getElementById(elementname_active).innerHTML = '<p style="color:green">INGESTING</p>';
+		document.getElementById(elementname_uptime).innerHTML = '<p>'+service_words.uptime+'</p>';
+	    } else {
+		document.getElementById(elementname_active).innerHTML = '<p style="color:red">NO SIGNAL</p>';
+		document.getElementById(elementname_uptime).innerHTML = '<p>'+service_words.uptime+'</p>';		
+	    }
+	    var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br>Input bitrate '+video_bitrate+' kbps</p>';
+	    var fps = service_words.fpsnum / service_words.fpsden;
+	    var fps2 = Math.round(fps*1000)/1000;
+	    var mediatype = '';
+	    
+	    if (service_words.mediatype = 0x10) {
+		mediatype = 'H264';		
+	    } else if (service_words.mediatype == 0x11) {
+		mediatype = 'HEVC';
+	    } else if (service_words.mediatype == 0x12) {
+		mediatype = 'MPEG2';
+	    } else {
+		mediatype = 'UNKNOWN';
+	    }
+
+	    input_string += '<p>Input is '+mediatype+' - '+service_words.source_width+'x'+service_words.source_height+' @ '+fps2+' fps </p>';
+	    document.getElementById(elementname_source).innerHTML = input_string;
+
+	    /*
+	      from server.js
+	    obj.source_width = words.data.source.width;
+	    obj.source_height = words.data.source.height;
+	    obj.fpsnum = words.data.source.fpsnum;
+	    obj.fpsden = words.data.source.fpsden;
+	    obj.aspectnum =words.data.source.aspectnum;
+	    obj.aspectden =words.data.source.aspectden;
+	    */
+
+	    var i;
+	    var output_string = '<p>';
+	    for (i = 0; i < service_words.outputs; i++) {
+		var output_streams = service_words.output_streams;		
+		var width = output_streams[i].width;
+		var height = output_streams[i].height;
+		var video_bitrate = output_streams[i].video_bitrate;
+		console.log("resolution: ", width, " x ", height, " rate: ", video_bitrate);
+
+		if (i == service_words.outputs - 1) {
+		    output_string += ' '+width+'x'+height+' @ '+video_bitrate+'kbps';
+		} else {
+		    output_string += ' '+width+'x'+height+' @ '+video_bitrate+'kbps<br>';
+		}
+	    }
+	    output_string += '</p>';
+	    output_string += '<p>window is '+service_words.window_size+' segments <br>segment size '+service_words.segment_length+' seconds</p>';
+	    document.getElementById(elementname_output).innerHTML = output_string;    
+	    
+	    /*
+	      from server.js
+	    obj.window_size = words.data.system["window-size"];
+	    obj.segment_length = words.data.system["segment-length"];
+	    obj.hls_active= words.data.system["hls-active"];
+	    obj.dash_active= words.data.system["dash-fmp4-active"];
+	    obj.source_interruptions = words.data.system["source-interruptions"];
+	    obj.transcoding = words.data.system.transcoding;
+	    obj.scte35 = words.data.system.scte35;
+	    */	    
+	    
+	    trigger_image_update();
+	    
+	    startButton.disabled = true;
+	    stopButton.disabled = false;
+	    resetButton.disabled = false;
 	})    
 }
 
@@ -321,7 +436,7 @@ function update_service_status()
 	    services = words.services;
 	    
 	    get_service_info(services);
-        })    
+        })
 }
 
 setInterval(update_service_status, 1000);

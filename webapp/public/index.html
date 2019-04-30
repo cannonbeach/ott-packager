@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<title>Fillet Content Publishing Control</title>
+  <title>Fillet Content Publishing Control</title>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -63,7 +63,7 @@ section {
 
 section.anchortable {
    position: absolute;
-   top:225px;
+   top:240px;
    left:50px;
    box-shadow: 0 0 15px #333;
 }
@@ -218,6 +218,12 @@ label {
    background-color: #800000;
 }
 
+img {
+   width:176px;
+   height:144px;
+   background: no-repeat scroll 0 0;
+}
+
 @media (max-width: 800px) {
    .row {
        flex-direction: column-reverse;
@@ -232,29 +238,51 @@ label {
 <body>
 
 <div class="topnav">
-<p>Content Publishing Control System</p>
+  <p>Content Publishing Control System</p>
+</div>
+
+<div>
+  <p><div id="status_information"></div></p>
 </div>
 
 <div class="control" id="controlpage">
   <section class="controls">
-  <div class="container">
-    <table>
-      <thead>
-	<tr class="header">
-	  <th>Add Source<div>Add Source</div></th>
-	</tr>
-      </thead>
-      <tbody>
-	<tr>
-	  <td>
-	    <button id='new_button'>New</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+    <div class="container">
+      <table>
+	<thead>
+	  <tr class="header">
+	    <th>Add Transcode Service<div>Add Transcode Service</div></th>
+	    <th>Add Repackage Service<div>Add Repackage Service</div></th>
+	    <th>Backup Service Configs<div>Backup Service Configs</div></th>
+	    <th>Restore Service Configs<div>Restore Service Configs</div></th>
+	    <th>Download Logs<div>Download Logs</div></th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>
+	      <button id='transcode_button'>New Transcode Service</button>	    
+            </td>
+	    <td>
+	      <button id='repackage_button'>New Repackage Service</button>
+	    </td>
+	    <td>
+	      <button id='backup_button'>Backup Services</button>
+	    </td>
+	    <td>
+	      <button id='reload_button'>Restore Services</button>
+	    </td>	     
+	    <td>
+	      <button id='download_button'>Download Logs</button>
+            </td> 
+          </tr>
+	</tbody>
+      </table>
+    </div>
   </section>
 </div>
+
+<div></div>
 
 <div class="content" id="statuspage">
 <section class="anchortable">
@@ -706,7 +734,8 @@ label {
 	<button id='abort_button' class="btnred">Abort</button>
       </form>
     </div>
-  </div>
+</div>
+
 </body>
 <script src="client.js"></script>
 </html>
