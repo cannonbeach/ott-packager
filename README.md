@@ -131,6 +131,10 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 
 ## Current Status
 
+(04/29/19) Web application development
+
+- I've started pushing up the initial implementation for the web application based on NodeJS.  It is not entirely usable yet, but some of the basic functionality is starting to come together.  Please see the comments on the push for more details.  I will provide setup scripts and a configuration along with a detailed tutorial on how to use the NodeJS web application as soon as a first version is ready.
+
 (04/15/19) Another short update
 
 - Started to build a web application based on NodeJS for status, control and provisioning.  I pushed up the start of it but the web application is not useful yet.  I would like to include this as part of the v1.0 release if possible since I think it'll be a very useful feature.  I'll post some screen shots and how to run it once I get the basic functionality in place.
