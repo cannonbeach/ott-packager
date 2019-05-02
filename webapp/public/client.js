@@ -1,10 +1,11 @@
 console.log('Client-side code running');
-document.getElementById("newsourcepage").style.display = "none";
+document.getElementById("newtranscodesourcepage").style.display = "none";
+document.getElementById("newrepackagesourcepage").style.display = "none";
 
 var transcode_button = document.getElementById('transcode_button');
-var submit_button = document.getElementById('submit_button');
-var abort_button = document.getElementById('abort_button');
-var stopping = 0;
+var submit_button_transcode = document.getElementById('submit_button_transcode');
+var abort_button_transcode = document.getElementById('abort_button_transcode');
+var backup_button = document.getElementById('backup_button');
 
 function strncmp(str1, str2, lgth)
 {
@@ -59,7 +60,7 @@ document.addEventListener('click',function(e){
     } else if (strncmp(buttonString,'stop',4) == 0) {
 	console.log('the stop button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	var clickedButton = '/api/v1/stop_clicked/'+button_number;
+	var clickedButton = '/api/v1/stop_clicked/'+button_number;	
 	var resetbuttonString = 'reset_button'+button_number;
 	var startbuttonString = 'start_button'+button_number;
 	var resetButton = document.getElementById(resetbuttonString);
@@ -67,7 +68,7 @@ document.addEventListener('click',function(e){
 	currentButton.disabled = true;	
 	resetButton.disabled = true;
 	startButton.disabled = true;
-	
+
 	fetch(clickedButton,{method: 'POST'})
 	    .then(function(response) {
 		if (response.ok) {
@@ -116,6 +117,25 @@ document.addEventListener('click',function(e){
 		    console.log(error);
 		});
 	}
+    } else if (strncmp(buttonString,"backup",6) == 0) {
+	console.log('the backup button was pressed');
+	var currentButton = document.getElementById(buttonString);
+	var clickedButton = '/api/v1/backup_services';
+
+	fetch(clickedButton,{method: 'GET'})
+	    .then(response => {
+		if (response.ok) {
+		    return response.text();
+		} else {
+		    return Promise.reject('error: unable to get backup of configurations');
+		}
+	    })
+	
+	    .then(data => {
+		// data?
+		console.log('need to write out zip file here-- saveas');
+		saveAs(data, "backups.zip");
+            })    
     }
 });
 
@@ -127,13 +147,13 @@ if (transcode_button) {
 	
 	document.getElementById("controlpage").style.display = "none";
 	document.getElementById("statuspage").style.display = "none";
-	document.getElementById("newsourcepage").style.display = "block";
+	document.getElementById("newtranscodesourcepage").style.display = "block";
 	
 	button.disabled = false;
     });
 }
 
-submit_button.addEventListener('click', function(e) {
+submit_button_transcode.addEventListener('click', function(e) {
     console.log('submit button was clicked');
 
     var sourcename = document.getElementById("sourcename").value;
@@ -147,6 +167,7 @@ submit_button.addEventListener('click', function(e) {
     var segmentsize = document.getElementById("segmentsize").value;
     var enablescte35 = document.getElementById("enablescte35").value;
     var videocodec = document.getElementById("videocodec").value;
+    var videoquality = document.getElementById("videoquality").value;
     var audiosources = document.getElementById("audiosources").value;
     var enablestereo = document.getElementById("enablestereo").value;
     var audiobitrate = document.getElementById("audiobitrate").value;
@@ -188,11 +209,16 @@ submit_button.addEventListener('click', function(e) {
 	safe = 2;
 	console.log('windowsize is outside of limits');
     }
+
+    if (sourcename == "") {
+	safe = 3;
+	console.log('invalid service name');
+    }   
     
     if (safe == 1) {
 	document.getElementById("controlpage").style.display = "block";
 	document.getElementById("statuspage").style.display = "block";
-	document.getElementById("newsourcepage").style.display = "none";
+	document.getElementById("newtranscodesourcepage").style.display = "none";
 	
 	var obj = new Object();
 	obj.filletmode = "transcode";
@@ -209,6 +235,7 @@ submit_button.addEventListener('click', function(e) {
 
 	obj.enablescte35 = enablescte35;
 	obj.videocodec = videocodec;
+	obj.videoquality = videoquality;
 	obj.audiosources = audiosources;
 	obj.enablestereo = enablestereo;
 	obj.audiobitrate = audiobitrate;
@@ -263,16 +290,18 @@ submit_button.addEventListener('click', function(e) {
     } else {
 	if (safe == 2) {
 	    alert("Bad Window Size Specified!");
+	} else if (safe == 3) {
+	    alert("Invalid Service Name!");
 	}
     }    
 });
 
-abort_button.addEventListener('click', function(e) {
+abort_button_transcode.addEventListener('click', function(e) {
     console.log('abort button was clicked');
     
     document.getElementById("controlpage").style.display = "block";
     document.getElementById("statuspage").style.display = "block";
-    document.getElementById("newsourcepage").style.display = "none";    
+    document.getElementById("newtranscodesourcepage").style.display = "none";    
     alert("Aborted!");    
 });
 
@@ -281,13 +310,28 @@ function trigger_image_update()
     var images = document.getElementsByTagName('img');
 
     for (var i = 0; i < images.length; i++) {
-	var dt = new Date();
 	var img = images[i];
 
 	if (img.src.length >= 0 & img.id != 'idImageNoTimestamp') {
-	    img.src = img.src + "?" + dt.getTime();
+	    var d = new Date;
+	    var http = img.src;	    
+	    if (http.indexOf("?=") != -1) {
+		http = http.split("?=")[0];
+	    }
+	    img.src = http + '?=' + d.getTime();
 	}
     }
+}
+
+var toHHMMSS = (secs) => {
+    var sec_num = parseInt(secs, 10)
+    var hours   = Math.floor(sec_num / 3600) % 24
+    var minutes = Math.floor(sec_num / 60) % 60
+    var seconds = sec_num % 60
+    return [hours,minutes,seconds]
+        .map(v => v < 10 ? "0" + v : v)
+        .filter((v,i) => v !== "00" || i > 0)
+        .join(":")
 }
 
 function request_service_status(service)
@@ -307,11 +351,17 @@ function request_service_status(service)
 		var stopButton = document.getElementById(stopbuttonString);
 		var resetButton = document.getElementById(resetbuttonString);
 		var startButton = document.getElementById(startbuttonString);		
-		document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
-		document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';
 		stopButton.disabled = true;
 		resetButton.disabled = true;
-		startButton.disabled = false;
+		if (serviceresponse.status == 503) {
+		    startButton.disabled = true;
+		    document.getElementById(elementname_active).innerHTML = '<p style="color:red">WAITING</p>';
+		    document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';		    
+		} else {		 // otherwise 404
+		    startButton.disabled = false;
+		    document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
+		    document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';		    
+		}
 		return Promise.reject('error: unable to get service update: '+service);
 	    }
 	})
@@ -329,32 +379,62 @@ function request_service_status(service)
 	    var elementname_image = 'thumbnail'+service;
 	    var elementname_source = 'input'+service;
 	    var elementname_output = 'output'+service;
+	    var elementname_event = 'event'+service;
 	    var video_bitrate = service_words.video_bitrate / 1000;
+	    var transcoding = service_words.transcoding;
+	    var video_codec = service_words.video_codec;
+	    var video_profile = service_words.video_profile;
+	    var video_quality = service_words.video_quality;
 	    
 	    if (input_signal == 1) {
-		document.getElementById(elementname_active).innerHTML = '<p style="color:green">INGESTING</p>';
-		document.getElementById(elementname_uptime).innerHTML = '<p>'+service_words.uptime+'</p>';
+		var active_string = '<p style="color:green">INGESTING</p>';
+		if (transcoding) {
+		    active_string += '<p style="color:blue">TRANSCODE</p>';
+		} else {
+		    active_string += '<p style="color:blue">REPACKAGE</p>';		    
+		}
+		document.getElementById(elementname_active).innerHTML = active_string;
+		document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';
 	    } else {
 		document.getElementById(elementname_active).innerHTML = '<p style="color:red">NO SIGNAL</p>';
-		document.getElementById(elementname_uptime).innerHTML = '<p>'+service_words.uptime+'</p>';		
+		document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';		
 	    }
-	    var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br>Input bitrate '+video_bitrate+' kbps</p>';
+	    var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
 	    var fps = service_words.fpsnum / service_words.fpsden;
 	    var fps2 = Math.round(fps*1000)/1000;
-	    var mediatype = '';
+	    var videomediatype = '';
+	    var audiomediatype = '';
 	    
-	    if (service_words.mediatype = 0x10) {
-		mediatype = 'H264';		
-	    } else if (service_words.mediatype == 0x11) {
-		mediatype = 'HEVC';
-	    } else if (service_words.mediatype == 0x12) {
-		mediatype = 'MPEG2';
+	    if (service_words.videomediatype == 0x10) {
+		videomediatype = 'H264';		
+	    } else if (service_words.videomediatype == 0x11) {
+		videomediatype = 'HEVC';
+	    } else if (service_words.videomediatype == 0x12) {
+		videomediatype = 'MPEG2';
 	    } else {
-		mediatype = 'UNKNOWN';
+		videomediatype = 'UNKNOWN';
 	    }
 
-	    input_string += '<p>Input is '+mediatype+' - '+service_words.source_width+'x'+service_words.source_height+' @ '+fps2+' fps </p>';
+	    if (service_words.audiomediatype == 0x01) {
+		audiomediatype = 'AAC';
+	    } else if (service_words.audiomediatype == 0x02) {
+		audiomediatype = 'AC3';
+	    } else if (service_words.audiomediatype == 0x03) {
+		audiomediatype = 'EAC3';
+	    } else if (service_words.audiomediatype == 0x04) {
+		audiomediatype = 'MPEG';
+	    } else {
+		audiomediatype = 'UNKNOWN';
+	    }
+
+	    input_string += '<p>Video is '+videomediatype+' - '+service_words.source_width+'x'+service_words.source_height+' @ '+fps2+' fps<br>';
+	    input_string += 'Audio is '+audiomediatype+'</p>';
+	    
 	    document.getElementById(elementname_source).innerHTML = input_string;
+
+	    //var event_string = '<p>Current Status</p>';
+	    var event_string = '';
+	    document.getElementById(elementname_event).innerHTML = event_string;
 
 	    /*
 	      from server.js
@@ -367,7 +447,30 @@ function request_service_status(service)
 	    */
 
 	    var i;
-	    var output_string = '<p>';
+	    var output_string = '';
+
+	    if (transcoding == 1) {
+		var quality_string;
+		if (video_quality == 0) {
+		    quality_string = 'LOW';
+		} else if (video_quality == 1) {
+		    quality_string = 'MEDIUM';
+		} else if (video_quality == 2) {
+		    quality_string = 'HIGH';
+		} else if (video_quality == 3) {
+		    quality_string = 'MAX';
+		} else {
+		    quality_string = 'N/A';
+		}
+		if (video_codec == 0x02) {  // h264
+		    output_string += '<p>Video is H264<br>Profile '+video_profile+'<br>Quality '+quality_string+'<br>';
+		} else if (video_codec == 0x03) { // hevc
+		    output_string += '<p>Video is HEVC<br>Quality '+quality_string+'<br>';
+		}
+		output_string += 'Audio is AAC</p>';
+	    }
+   
+	    output_string += '<p>';
 	    for (i = 0; i < service_words.outputs; i++) {
 		var output_streams = service_words.output_streams;		
 		var width = output_streams[i].width;
@@ -382,7 +485,8 @@ function request_service_status(service)
 		}
 	    }
 	    output_string += '</p>';
-	    output_string += '<p>window is '+service_words.window_size+' segments <br>segment size '+service_words.segment_length+' seconds</p>';
+	    output_string += '<p>Window is '+service_words.window_size+' segments <br>Segment size '+service_words.segment_length+' seconds</p>';
+	    
 	    document.getElementById(elementname_output).innerHTML = output_string;    
 	    
 	    /*
@@ -437,30 +541,30 @@ function update_service_status()
 	    
 	    get_service_info(services);
         })
-}
 
-setInterval(update_service_status, 1000);
-    
-/*function update_status()
-{
-    console.log('calling update_status()');
-    fetch('/get_signal_status',{method: 'GET'})
+    fetch('/api/v1/system_information',{method: 'GET'})
 	.then(response => {
 	    if (response.ok) {
 		return response.text();
 	    } else {
-		return Promise.reject('something went wrong!');
+		return Promise.reject('error: unable to get system information');
 	    }
 	})
-    
-	.then(data => {
+        .then(data => {
 	    var words = JSON.parse(data);
-            document.getElementById('active1').innerHTML = JSON.parse(words.uptime);
-        )}
+	    var cpus;
+	    console.log(words.length);
+	    for (cpus = 0; cpus < words.length; cpus++) {
+		console.log(words[cpus].percent);
+	    }
+	    var cpucount = words.length;
+	    var cpustring = '<p>'+cpucount+' cores</p>';
+	    var elementname_cpucount = 'cpucount';
+	    document.getElementById(elementname_cpucount).innerHTML = cpustring;
+	})      
 }
 
-setInterval(update_status, 2000);
-*/
+setInterval(update_service_status, 1000);
 
 
 

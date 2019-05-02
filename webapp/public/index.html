@@ -63,7 +63,7 @@ section {
 
 section.anchortable {
    position: absolute;
-   top:240px;
+   top:375px;
    left:50px;
    box-shadow: 0 0 15px #333;
 }
@@ -80,6 +80,13 @@ section.configtable {
 section.controls {
    position: absolute;
    top:125px;
+   left:50px;
+   box-shadow: 0 0 15px #333;
+}
+
+section.statusinfo {
+   position: absolute;
+   top:240px;
    left:50px;
    box-shadow: 0 0 15px #333;
 }
@@ -238,11 +245,40 @@ img {
 <body>
 
 <div class="topnav">
-  <p>Content Publishing Control System</p>
+  <p>Content Publishing Media Gateway</p>
 </div>
 
-<div>
-  <p><div id="status_information"></div></p>
+<div class="control" id="systempage">
+  <section class="statusinfo">
+    <div class="container">
+      <table>
+	<thead>
+	  <tr class="header">
+	    <th>Core Count<div>Core Count</div></th>
+	    <th>CPU Load<div>CPU Load</div></th>
+	    <th>Total Mem<div>Total Mem</div></th>
+	    <th>Used Mem<div>Used Mem</div></th>	    
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>
+	      <div id='cpucount'></div>
+	    </td>
+	    <td>
+	      <div id='cpuload'></div>
+	    </td>
+	    <td>
+	      <div id='totalmem'></div>
+	    </td>
+	    <td>
+	      <div id='usedmem'></div>
+	    </td>
+	  </tr>  	  
+	</tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
 <div class="control" id="controlpage">
@@ -284,6 +320,10 @@ img {
 
 <div></div>
 
+
+
+<div></div>
+
 <div class="content" id="statuspage">
 <section class="anchortable">
   <div class="container" id="controltable">
@@ -304,7 +344,31 @@ img {
 </section>
 </div>
 
-<div class="row" id="newsourcepage">
+<div class="row" id="newrepackagesourcepage">
+  <div class="col-75">
+    <div class="container">
+      <div class="row">
+	<div class="col-50">
+	  <h2>Add A New Source For Stream Repackaging</h2>
+
+	  <section class="configtable">
+	    <table>
+	      <thead>
+		<tr>
+		  <th><div></div></th>
+		</tr>
+	      </thead>
+	      <tbody>
+	      </tbody>
+	    </table>
+	  </section>
+	</div>
+      </div>
+    </div>
+  </div>  
+</div>
+
+<div class="row" id="newtranscodesourcepage">
   <div class="col-75">
     <div class="container">
 	<div class="row">
@@ -343,27 +407,27 @@ img {
 		    <select id="inputinterface1">
 		      <script>
 			fetch('/api/v1/get_interfaces',{method: 'GET'})
-			.then(response => {
- 			if (response.ok) {
-			return response.json()
-			} else {
-   			return Promise.reject('something went wrong!')
-			}
+			    .then(response => {
+ 			    if (response.ok) {
+			        return response.json()
+			    } else {
+   			        return Promise.reject('something went wrong!')
+			    }
 			})
 			.then(data => {
-			console.log('data is', data);
+			    console.log('data is', data);
 			
-			var parsedJSON = JSON.parse(JSON.stringify(data));
-  			select = document.getElementById('inputinterface1');
-      			for (var prop in parsedJSON) {
-			if (parsedJSON.hasOwnProperty(prop)) {
-			console.log("prop: " + prop);
-  			var opt = document.createElement('option');
- 	 		opt.value = prop;
-  	  		opt.innerHTML = prop;
- 			select.appendChild(opt);
-			}
-			}
+			    var parsedJSON = JSON.parse(JSON.stringify(data));
+  			    select = document.getElementById('inputinterface1');
+      			    for (var prop in parsedJSON) {
+			        if (parsedJSON.hasOwnProperty(prop)) {
+			            console.log("prop: " + prop);
+  			            var opt = document.createElement('option');
+ 	 		            opt.value = prop;
+  	  		            opt.innerHTML = prop;
+ 			            select.appendChild(opt);
+			        }
+			    }
 			})
 		      </script>
 		    </select>
@@ -381,27 +445,27 @@ img {
 		    <select id="inputinterface2">
 		      <script>
 			fetch('/api/v1/get_interfaces',{method: 'GET'})
-			.then(response => {
- 			if (response.ok) {
-			return response.json()
-			} else {
-   			return Promise.reject('something went wrong!')
-			} 
+			    .then(response => {
+ 			    if (response.ok) {
+			        return response.json()
+			    } else {
+   			        return Promise.reject('something went wrong!')
+			    } 
 			})
 			.then(data => {
-			console.log('data is', data);
+			    console.log('data is', data);
 			
-			var parsedJSON = JSON.parse(JSON.stringify(data));
-  			select = document.getElementById('inputinterface2');
-      			for (var prop in parsedJSON) {
-			if (parsedJSON.hasOwnProperty(prop)) {
-			console.log("prop: " + prop);
-  			var opt = document.createElement('option');
- 	 		opt.value = prop;
-  	  		opt.innerHTML = prop;
- 			select.appendChild(opt);
-			}
-			}
+			    var parsedJSON = JSON.parse(JSON.stringify(data));
+  			    select = document.getElementById('inputinterface2');
+       			    for (var prop in parsedJSON) {
+			        if (parsedJSON.hasOwnProperty(prop)) {
+			            console.log("prop: " + prop);
+  			            var opt = document.createElement('option');
+ 	 		            opt.value = prop;
+  	  		            opt.innerHTML = prop;
+ 			            select.appendChild(opt);
+			        }
+			    }
 			})					
 		      </script>
 		    </select>
@@ -476,6 +540,20 @@ img {
 		    <select id="videocodec">
 		      <option value="h264">H.264</option>
 		      <option value="hevc">HEVC</option>
+		    </select>
+		  </td>
+		</tr>
+
+		<tr>
+		  <td>
+		    <label>Select Your Video Quality (Higher Consumes More CPU)</label>
+		  </td>
+		  <td>
+		    <select id="videoquality">
+		      <option value="0">LOW</option>
+		      <option value="1">MEDIUM</option>
+		      <option value="2">HIGH</option>
+		      <option value="3">MAX</option>
 		    </select>
 		  </td>
 		</tr>
@@ -730,8 +808,8 @@ img {
 	  </div>
 	</div>
 	</div>
-        <button id='submit_button' class="btngreen">Submit New Source</button>
-	<button id='abort_button' class="btnred">Abort</button>
+        <button id='submit_button_transcode' class="btngreen">Submit New Source</button>
+	<button id='abort_button_transcode' class="btnred">Abort</button>
       </form>
     </div>
 </div>
