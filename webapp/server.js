@@ -150,7 +150,7 @@ app.get('/api/v1/get_service_count', (req, res) => {
 app.get('/api/v1/get_control_page', (req, res) => {
     var html = '';
     var i;
-    var files = fs.readdirSync('/var/tmp/configs');
+    var files = fs.readdirSync(configFolder);
     var listedfiles = 0;
     
     html += '<table>';
@@ -208,13 +208,13 @@ app.get('/api/v1/get_control_page', (req, res) => {
             html += '</td>';
 	    html += '<td>';
 	    html += '<button style="width:95%" id=\'log'+configindex+'\' type=\'log\'>Event<br>Log</button><br>';
-	    html += '<button style="width:95%" id=\'status'+configindex+'\' type=\'button\'>Detailed<br>Status</button><br>';
+	    //html += '<button style="width:95%" id=\'status'+configindex+'\' type=\'button\'>Detailed<br>Status</button><br>';
 	    html += '<button style="width:95%" id=\'remove'+configindex+'\' type=\'remove\'>Remove<br>Service</button>';
 	    html += '</td>';
 	    html += '<td>';
 	    html += '<img src=\'http://'+req.host+'/thumbnail'+fileprefix+'.jpg?='+ new Date().getTime() +'\' id=\'thumbnail'+fileprefix+'\'/>';
 	    html += '</td>'
-	    html += '<td><div id=\'status'+configindex+'\'></div></td>';
+	    html += '<td><div id=\'statusinfo'+configindex+'\'></div></td>';
 	    html += '</tr>';
 	}
     })
@@ -241,7 +241,7 @@ app.post('/api/v1/restore_services', (req, res) => {
 app.post('/api/v1/removesource/:uid', (req, res) => {
     console.log('received remove source request: ', req.params.uid);
 
-    var files = fs.readdirSync('/var/tmp/configs');    
+    var files = fs.readdirSync(configFolder);    
     
     var listedfiles = 0;
     
@@ -315,7 +315,7 @@ app.post('/api/v1/status_update/:uid', (req, res) => {
 app.post('/api/v1/stop_clicked/:uid', (req, res) => {
     console.log('stop button pressed: ', req.params.uid);
 
-    var files = fs.readdirSync('/var/tmp/configs');
+    var files = fs.readdirSync(configFolder);
     var listedfiles = 0;
 
     files.forEach(file => {
@@ -377,7 +377,7 @@ app.post('/api/v1/start_clicked/:uid', (req, res) => {
     console.log(click);    
     console.log('start button pressed: ', req.params.uid);
 
-    var files = fs.readdirSync('/var/tmp/configs');
+    var files = fs.readdirSync(configFolder);
     var listedfiles = 0;
 
     files.forEach(file => {
@@ -393,6 +393,10 @@ app.post('/api/v1/start_clicked/:uid', (req, res) => {
 		var fileprefix = path.basename(fullfile, '.json');
 		console.log('the file prefix is: ', fileprefix);
 
+		var output_count = 0;
+		var codec = 'h264';
+		
+
 		var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped -v /var/tmp:/var/tmp -v /var/tmp/configs:/var/tmp/configs -v /var/tmp/status:/var/tmp/status -v /var/www/html/hls:/var/www/html/hls -v /var/www/html:/var/www/html dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --outputs 1 --vcodec h264 --resolutions 640x360 --vrate 2500 --acodec aac --arate 128 --aspect 16:9 --scte35 --quality 0 --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest /var/www/html/hls --identity '+fileprefix+' --hls --dash --astreams 1';
 
 		//--verbose --sources 1 --ip 0.0.0.0:9000 --interface enp0s25 --window 20 --segment 2 --identity 2000 --dash --hls --transcode --outputs 2 --vcodec h264 --resolutions 640x360,320x240 --maifest /var/www/html/hls --vrate 2500,1250 --acodec aac --arate 128 --aspect 16:9 --scte35 --quality 0 --stereo --webvtt --astreams 1
@@ -400,7 +404,7 @@ app.post('/api/v1/start_clicked/:uid', (req, res) => {
 		console.log('start command: ', start_cmd);
 		exec(start_cmd, (err, stdout, stderr) => {
 		    if (err) {
-			console.log('Unable to run Docker');
+			console.log('Unable to run Docker');	
 		    } else {
 			console.log('Started Docker container');
 		    }
@@ -413,6 +417,10 @@ app.post('/api/v1/start_clicked/:uid', (req, res) => {
     res.sendStatus(200);
 });
 
+app.get('/api/v1/list_services', (req, res) => {
+    //
+});
+
 function output_stream(height, width, video_bitrate) {
     this.height = height;
     this.width = width;
@@ -422,7 +430,7 @@ function output_stream(height, width, video_bitrate) {
 app.get('/api/v1/get_service_status/:uid', (req, res) => {
     console.log('getting signal status: ', req.params.uid);
 
-    var files = fs.readdirSync('/var/tmp/configs');       
+    var files = fs.readdirSync(configFolder);       
     var listedfiles = 0;
     var found = 0;
     var sent = 0;
@@ -431,10 +439,9 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
     // use the config file to find the correct status file since
     // they will have the same name but just in a different directory
     files.forEach(file => {
-	//console.log(getExtension(file));	
 	if (getExtension(file) == '.json') {
 	    var configindex = listedfiles + 1;
-	    console.log('get_service_status: checking configindex ', configindex);
+	    console.log('get_service_status: checking configindex ', configindex, ' looking for ', req.params.uid);
 	    if (configindex == req.params.uid) {
 		var fullfile = '/var/tmp/status/'+file;
 		var fileprefix = path.basename(fullfile, '.json');
@@ -463,7 +470,14 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    obj.aspectnum = words.data.source.aspectnum;
 			    obj.aspectden = words.data.source.aspectden;
 			    obj.videomediatype = words.data.source.videomediatype;
-			    obj.audiomediatype = words.data.source.audiomediatype;
+			    obj.audiomediatype0 = words.data.source.audiomediatype0;
+			    obj.audiomediatype1 = words.data.source.audiomediatype1;
+			    obj.audiochannelsinput0 = words.data.source.audiochannelsinput0;
+			    obj.audiochannelsinput1 = words.data.source.audiochannelsinput1;
+			    obj.audiochannelsoutput0 = words.data.source.audiochannelsoutput0;
+			    obj.audiochannelsoutput1 = words.data.source.audiochannelsoutput1;
+			    obj.audiosamplerate0 = words.data.source.audiosamplerate0;
+			    obj.audiosamplerate1 = words.data.source.audiosamplerate1;
 			    
 			    obj.window_size = words.data.system["window-size"];
 			    obj.segment_length = words.data.system["segment-length"];
@@ -474,6 +488,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    obj.video_quality = words.data.system.quality;
 			    
 			    obj.source_interruptions = words.data.system["source-interruptions"];
+			    obj.source_errors = words.data.system["source-errors"];
 			    obj.error_count = words.data.system.error_count;
 			    obj.transcoding = words.data.system.transcoding;			
 			    obj.scte35 = words.data.system.scte35;
@@ -481,7 +496,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    obj.video_frames = words.data.source.stream0["video-received-frames"];
 			    
 			    obj.outputs = words.data.output.outputs;
-			    //console.log('outputs: ', words.data.output.outputs);
+
 			    var streams = [];
 			    for (current_output = 0; current_output < words.data.output.outputs; current_output++) {
 				var outputstream = 'stream'+current_output;
@@ -491,7 +506,6 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 				
 				var ostream = new output_stream(height, width, video_bitrate);
 				streams.push(ostream);
-				//console.log('height: ',height,' width: ',width,' videobitrate: ',video_bitrate);
 			    }
 			    
 			    obj.output_streams = streams;
@@ -501,7 +515,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    
 			    res.send(retdata);
 			    sent = 1;
-			    return;
+			    //return;
 			}
 		    }
 		} else {
@@ -509,12 +523,18 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 		}
 	    }
 	    listedfiles++;
-	}	
+	}
     });
+    
     if (locked == 1) {
+	console.log('service is unavailable ', req.params.uid);
 	res.sendStatus(503);  // service unavailable
     } else if (sent == 0) {
+	console.log('serice was not found ', req.params.uid);
 	res.sendStatus(404);  // service not found
+    } else {
+	//console.log('service was fine ', req.params.uid);
+	//res.sendStatus(200);
     }
 });
 

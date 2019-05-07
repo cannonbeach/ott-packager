@@ -147,6 +147,7 @@ if (transcode_button) {
 	
 	document.getElementById("controlpage").style.display = "none";
 	document.getElementById("statuspage").style.display = "none";
+	document.getElementById("systempage").style.display = "none";
 	document.getElementById("newtranscodesourcepage").style.display = "block";
 	
 	button.disabled = false;
@@ -188,6 +189,7 @@ submit_button_transcode.addEventListener('click', function(e) {
     var outputresolution4 = document.getElementById("outputresolution4").value;
     var video_bitrate4 = document.getElementById("video_bitrate4").value;
 
+    var manifestdirectory = document.getElementById("manifestdirectory").value;
     var hlsmanifest = document.getElementById("hlsmanifest").value;
     var fmp4manifest = document.getElementById("fmp4manifest").value;
     var dashmanifest = document.getElementById("dashmanifest").value;
@@ -218,6 +220,7 @@ submit_button_transcode.addEventListener('click', function(e) {
     if (safe == 1) {
 	document.getElementById("controlpage").style.display = "block";
 	document.getElementById("statuspage").style.display = "block";
+	document.getElementById("systempage").style.display = "block";	
 	document.getElementById("newtranscodesourcepage").style.display = "none";
 	
 	var obj = new Object();
@@ -256,6 +259,7 @@ submit_button_transcode.addEventListener('click', function(e) {
 	obj.outputresolution4 = outputresolution4;
 	obj.video_bitrate4 = video_bitrate4;
 
+	obj.manifestdirectory = manifestdirectory;
 	obj.hlsmanifest = hlsmanifest;
 	obj.fmp4manifest = fmp4manifest;
 	obj.dashmanifest = dashmanifest;
@@ -380,11 +384,13 @@ function request_service_status(service)
 	    var elementname_source = 'input'+service;
 	    var elementname_output = 'output'+service;
 	    var elementname_event = 'event'+service;
+	    var elementname_status = 'statusinfo'+service;
 	    var video_bitrate = service_words.video_bitrate / 1000;
 	    var transcoding = service_words.transcoding;
 	    var video_codec = service_words.video_codec;
 	    var video_profile = service_words.video_profile;
 	    var video_quality = service_words.video_quality;
+	    var video_frames = service_words.video_frames;
 	    
 	    if (input_signal == 1) {
 		var active_string = '<p style="color:green">INGESTING</p>';
@@ -403,7 +409,13 @@ function request_service_status(service)
 	    var fps = service_words.fpsnum / service_words.fpsden;
 	    var fps2 = Math.round(fps*1000)/1000;
 	    var videomediatype = '';
-	    var audiomediatype = '';
+	    var audiomediatype0 = '';
+	    var audiochannelsinput0 = service_words.audiochannelsinput0;
+	    var audiochannelsinput1 = service_words.audiochannelsinput1;	    
+	    var audiosamplerate0 = service_words.audiosamplerate0;
+	    var audiosamplerate1 = service_words.audiosamplerate1;
+	    var audiochannelsoutput0 = service_words.audiochannelsoutput0;
+	    var audiochannelsoutput1 = service_words.audiochannelsoutput1;
 	    
 	    if (service_words.videomediatype == 0x10) {
 		videomediatype = 'H264';		
@@ -415,20 +427,20 @@ function request_service_status(service)
 		videomediatype = 'UNKNOWN';
 	    }
 
-	    if (service_words.audiomediatype == 0x01) {
-		audiomediatype = 'AAC';
-	    } else if (service_words.audiomediatype == 0x02) {
-		audiomediatype = 'AC3';
-	    } else if (service_words.audiomediatype == 0x03) {
-		audiomediatype = 'EAC3';
-	    } else if (service_words.audiomediatype == 0x04) {
-		audiomediatype = 'MPEG';
+	    if (service_words.audiomediatype0 == 0x01) {
+		audiomediatype0 = 'AAC';
+	    } else if (service_words.audiomediatype0 == 0x02) {
+		audiomediatype0 = 'AC3';
+	    } else if (service_words.audiomediatype0 == 0x03) {
+		audiomediatype0 = 'EAC3';
+	    } else if (service_words.audiomediatype0 == 0x04) {
+		audiomediatype0 = 'MPEG';
 	    } else {
-		audiomediatype = 'UNKNOWN';
+		audiomediatype0 = 'UNKNOWN';
 	    }
-
+	    
 	    input_string += '<p>Video is '+videomediatype+' - '+service_words.source_width+'x'+service_words.source_height+' @ '+fps2+' fps<br>';
-	    input_string += 'Audio is '+audiomediatype+'</p>';
+	    input_string += 'Audio is '+audiomediatype0+' @ '+audiochannelsinput0+' channels @ '+audiosamplerate0+' Hz </p>';
 	    
 	    document.getElementById(elementname_source).innerHTML = input_string;
 
@@ -467,7 +479,7 @@ function request_service_status(service)
 		} else if (video_codec == 0x03) { // hevc
 		    output_string += '<p>Video is HEVC<br>Quality '+quality_string+'<br>';
 		}
-		output_string += 'Audio is AAC</p>';
+		output_string += 'Audio is AAC @ '+audiochannelsoutput0+' channels </p>';
 	    }
    
 	    output_string += '<p>';
@@ -487,8 +499,14 @@ function request_service_status(service)
 	    output_string += '</p>';
 	    output_string += '<p>Window is '+service_words.window_size+' segments <br>Segment size '+service_words.segment_length+' seconds</p>';
 	    
-	    document.getElementById(elementname_output).innerHTML = output_string;    
-	    
+	    document.getElementById(elementname_output).innerHTML = output_string;
+
+	    var status_string;
+
+	    status_string = '<p>Detected '+service_words.source_interruptions+' source interruptions<br>';
+	    status_string += 'Detected '+service_words.source_errors+' source errors<br>';
+	    status_string += 'Processed '+service_words.video_frames+' video frames<p>';
+	    document.getElementById(elementname_status).innerHTML = status_string;
 	    /*
 	      from server.js
 	    obj.window_size = words.data.system["window-size"];
@@ -496,6 +514,7 @@ function request_service_status(service)
 	    obj.hls_active= words.data.system["hls-active"];
 	    obj.dash_active= words.data.system["dash-fmp4-active"];
 	    obj.source_interruptions = words.data.system["source-interruptions"];
+	    obj.source_errors = words.data.system["source-errors"];
 	    obj.transcoding = words.data.system.transcoding;
 	    obj.scte35 = words.data.system.scte35;
 	    */	    
@@ -553,14 +572,27 @@ function update_service_status()
         .then(data => {
 	    var words = JSON.parse(data);
 	    var cpus;
+	    var cpuload_total = 0;
+	    var cpuload_avg;
 	    console.log(words.length);
 	    for (cpus = 0; cpus < words.length; cpus++) {
 		console.log(words[cpus].percent);
+		cpuload_total += words[cpus].percent;
 	    }
+	    if (words.length > 0) {
+		cpuload_avg = cpuload_total / words.length;
+	    } else {
+		cpuload_avg = 0;
+	    }
+	    cpuload_avg = Math.round(cpuload_avg*100)/100;
 	    var cpucount = words.length;
 	    var cpustring = '<p>'+cpucount+' cores</p>';
 	    var elementname_cpucount = 'cpucount';
 	    document.getElementById(elementname_cpucount).innerHTML = cpustring;
+	    
+	    var loadstring = '<p>Avg '+cpuload_avg+'%</p>';
+	    var elementname_cpuload = 'cpuload';
+	    document.getElementById(elementname_cpuload).innerHTML = loadstring;	    
 	})      
 }
 
