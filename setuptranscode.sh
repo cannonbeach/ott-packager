@@ -1,3 +1,5 @@
+#!/bin/bash
+
 whichnasm="/usr/bin/nasm"
 whichyasm="/usr/bin/yasm"
 yasmdownload="http://www.tortall.net/projects/yasm/releases/yasm-1.3.0.tar.gz"
@@ -67,7 +69,7 @@ fi
 echo "Installing FFMPEG from cannonbeach fork"
 git clone https://github.com/cannonbeach/FFmpeg.git ./cbffmpeg
 cd cbffmpeg
-./configure --prefix=/usr --disable-encoders --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-muxers --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-muxers --disable-avdevice
+./configure --prefix=/usr --disable-encoders --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-muxers --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-muxers --disable-avdevice --enable-encoder=mjpeg
 make -j8
 cd ..
 
@@ -92,7 +94,17 @@ cd cbfdkaac
 make -j8
 cd ..
 
-echo "Installing x265 from packaged source"
+#----------------------------------------------------------------------------------------------------------------------------------------------
+
+echo "Installing libcurl from cannonbeach fork"
+git clone https://github.com/cannonbeach/curl.git ./cblibcurl
+cd cblibcurl
+./buildconf
+./configure --prefix=/usr --enable-static --enable-pthreads --without-ssl
+make -j8
+cd ..
+
+echo "Installing x265 from packaged source- please select static libs"
 #hg clone https://bitbucket.org/multicoreware/x265 ./headx265
 wget $x265download
 tar xzf x265_3.0.tar.gz
