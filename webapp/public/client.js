@@ -3,9 +3,12 @@ document.getElementById("newtranscodesourcepage").style.display = "none";
 document.getElementById("newrepackagesourcepage").style.display = "none";
 
 var transcode_button = document.getElementById('transcode_button');
+var repackage_button = document.getElementById('repackage_button');
 var submit_button_transcode = document.getElementById('submit_button_transcode');
 var abort_button_transcode = document.getElementById('abort_button_transcode');
 var backup_button = document.getElementById('backup_button');
+var reload_button = document.getElementById('reload_button');
+var download_button = document.getElementById('download_button');
 
 function strncmp(str1, str2, lgth)
 {
@@ -99,7 +102,6 @@ document.addEventListener('click',function(e){
     } else if (strncmp(buttonString,"remove",6) == 0) {
 	console.log('the remove button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	currentButton.disabled = true;
 	var clickedButton = '/api/v1/removesource/'+button_number;
 
 	var result = confirm("Are you sure you want to remove this service?");
@@ -133,9 +135,11 @@ document.addEventListener('click',function(e){
 	
 	    .then(data => {
 		// data?
-		console.log('need to write out zip file here-- saveas');
-		saveAs(data, "backups.zip");
-            })    
+		console.log('need to write out zip file here-- saveas');		
+		//saveAs(data, "backups.zip");
+            })
+
+	alert("This feature is not yet available");
     }
 });
 
@@ -151,6 +155,27 @@ if (transcode_button) {
 	document.getElementById("newtranscodesourcepage").style.display = "block";
 	
 	button.disabled = false;
+    });
+}
+
+if (repackage_button) {
+    repackage_button.addEventListener('click', function(e) {
+	console.log('new repackage button was clicked');
+	alert("This feature is not yet available");
+    });
+}
+
+if (reload_button) {
+    reload_button.addEventListener('click', function(e) {
+	console.log('restore configurations was clicked');
+	alert("This feature is not yet available");
+    });
+}
+
+if (download_button) {
+    download_button.addEventListener('click', function(e) {
+	console.log('downloading event logs was clicked');
+	alert("This feature is not yet available");
     });
 }
 
@@ -215,7 +240,57 @@ submit_button_transcode.addEventListener('click', function(e) {
     if (sourcename == "") {
 	safe = 3;
 	console.log('invalid service name');
-    }   
+    }
+
+    if (enablehls == false && enabledash == false) {
+	safe = 4;
+	console.log('hls and dash are disabled');
+    }
+
+    if (outputenabled1 == false) {
+	safe = 5;
+	console.log('invalid output combination');
+    }
+    if (outputenabled4 == true) {
+	if (outputenabled3 == false || outputenabled2 == false) {
+	    safe = 5;
+	    console.log('invalid output combination');
+	}
+    } else if (outputenabled3 == true) {
+	if (outputenabled2 == false) {
+	    safe = 5;
+	    console.log('invalid output combination');
+	}
+    }
+
+    if (outputenabled1 == true) {
+	var vb1 = parseInt(video_bitrate1);
+	if (vb1 <= 50 || vb1 >= 15000 || isNaN(vb1)) {
+	    safe = 6;
+	    console.log('invalid output bitrate');
+	}
+    } 
+    if (outputenabled2 == true) {
+	var vb2 = parseInt(video_bitrate2);
+	if (vb2 <= 50 || vb2 >= 15000 || isNaN(vb2)) {
+	    safe = 6;
+	    console.log('invalid output bitrate');
+	}
+    }
+    if (outputenabled3 == true) {
+	var vb3 = parseInt(video_bitrate3);
+	if (vb3 <= 50 || vb3 >= 15000 || isNaN(vb3)) {
+	    safe = 6;
+	    console.log('invalid output bitrate');
+	}
+    }
+    if (outputenabled4 == true) {
+	var vb4 = parseInt(video_bitrate4);
+	if (vb4 <= 50 || vb4 >= 15000 || isNaN(vb4)) {
+	    safe = 6;
+	    console.log('invalid output bitrate');
+	}
+    }
     
     if (safe == 1) {
 	document.getElementById("controlpage").style.display = "block";
@@ -296,6 +371,10 @@ submit_button_transcode.addEventListener('click', function(e) {
 	    alert("Bad Window Size Specified!");
 	} else if (safe == 3) {
 	    alert("Invalid Service Name!");
+	} else if (safe == 4) {
+	    alert("Invalid HLS/DASH combination!");
+	} else if (safe == 5) {
+	    alert("Invalid output stream combination!");
 	}
     }    
 });
@@ -354,176 +433,203 @@ function request_service_status(service)
 		var startbuttonString = 'start_button'+service;		
 		var stopButton = document.getElementById(stopbuttonString);
 		var resetButton = document.getElementById(resetbuttonString);
-		var startButton = document.getElementById(startbuttonString);		
+		var startButton = document.getElementById(startbuttonString);
+		var elementname_source = 'input'+service;
+		var elementname_output = 'output'+service;
+		var elementname_status = 'statusinfo'+service;
 		stopButton.disabled = true;
 		resetButton.disabled = true;
-		if (serviceresponse.status == 503) {
-		    startButton.disabled = true;
-		    document.getElementById(elementname_active).innerHTML = '<p style="color:red">WAITING</p>';
-		    document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';		    
-		} else {		 // otherwise 404
-		    startButton.disabled = false;
-		    document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
-		    document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';		    
-		}
+		startButton.disabled = true;
+		document.getElementById(elementname_active).innerHTML = '<p style="color:red">WAITING</p>';
+		document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';		    
 		return Promise.reject('error: unable to get service update: '+service);
 	    }
 	})
 	.then(servicedata => {
 	    var service_words = JSON.parse(servicedata);
-	    var input_signal = service_words.input_signal;
-	    var startbuttonString = 'start_button'+service;
-	    var stopbuttonString = 'stop_button'+service;
-	    var resetbuttonString = 'reset_button'+service;	    
-	    var startButton = document.getElementById(startbuttonString);
-	    var stopButton = document.getElementById(stopbuttonString);
-	    var resetButton = document.getElementById(resetbuttonString);	    
-	    var elementname_active = 'active'+service;
-	    var elementname_uptime = 'uptime'+service;
-	    var elementname_image = 'thumbnail'+service;
-	    var elementname_source = 'input'+service;
-	    var elementname_output = 'output'+service;
-	    var elementname_event = 'event'+service;
-	    var elementname_status = 'statusinfo'+service;
-	    var video_bitrate = service_words.video_bitrate / 1000;
-	    var transcoding = service_words.transcoding;
-	    var video_codec = service_words.video_codec;
-	    var video_profile = service_words.video_profile;
-	    var video_quality = service_words.video_quality;
-	    var video_frames = service_words.video_frames;
-	    
-	    if (input_signal == 1) {
-		var active_string = '<p style="color:green">INGESTING</p>';
-		if (transcoding) {
-		    active_string += '<p style="color:blue">TRANSCODE</p>';
-		} else {
-		    active_string += '<p style="color:blue">REPACKAGE</p>';		    
-		}
-		document.getElementById(elementname_active).innerHTML = active_string;
-		document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';
+	    var get_uptime = service_words.uptime;
+	    if (get_uptime == -1) {
+		var elementname_active = 'active'+service;
+		var elementname_uptime = 'uptime'+service;
+		var stopbuttonString = 'stop_button'+service;
+		var resetbuttonString = 'reset_button'+service;
+		var startbuttonString = 'start_button'+service;		
+		var stopButton = document.getElementById(stopbuttonString);
+		var resetButton = document.getElementById(resetbuttonString);
+		var startButton = document.getElementById(startbuttonString);
+		var elementname_source = 'input'+service;
+		var elementname_output = 'output'+service;
+		var elementname_status = 'statusinfo'+service;
+		var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate 0 kbps</p>';
+		input_string += '<p>Video is [INACTIVE] - 0x0 @ 0 fps<br>';
+		input_string += 'Audio is [INACTIVE] @ 0 channels @ 0 Hz<br></p>';
+		document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
+		document.getElementById(elementname_uptime).innerHTML = '<p style="color:grey">N/A</p>';
+		document.getElementById(elementname_source).innerHTML = input_string;
+		document.getElementById(elementname_output).innerHTML = '<p style="color:grey">SERVICE IS NOT ACTIVE<p>';
+		document.getElementById(elementname_status).innerHTML = '<p style="color:grey">SERVICE IS NOT ACTIVE<p>';
+		stopButton.disabled = true;
+		resetButton.disabled = true;		
+		startButton.disabled = false;		
 	    } else {
-		document.getElementById(elementname_active).innerHTML = '<p style="color:red">NO SIGNAL</p>';
-		document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';		
-	    }
-	    var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
-	    var fps = service_words.fpsnum / service_words.fpsden;
-	    var fps2 = Math.round(fps*1000)/1000;
-	    var videomediatype = '';
-	    var audiomediatype0 = '';
-	    var audiochannelsinput0 = service_words.audiochannelsinput0;
-	    var audiochannelsinput1 = service_words.audiochannelsinput1;	    
-	    var audiosamplerate0 = service_words.audiosamplerate0;
-	    var audiosamplerate1 = service_words.audiosamplerate1;
-	    var audiochannelsoutput0 = service_words.audiochannelsoutput0;
-	    var audiochannelsoutput1 = service_words.audiochannelsoutput1;
-	    
-	    if (service_words.videomediatype == 0x10) {
-		videomediatype = 'H264';		
-	    } else if (service_words.videomediatype == 0x11) {
-		videomediatype = 'HEVC';
-	    } else if (service_words.videomediatype == 0x12) {
-		videomediatype = 'MPEG2';
-	    } else {
-		videomediatype = 'UNKNOWN';
-	    }
-
-	    if (service_words.audiomediatype0 == 0x01) {
-		audiomediatype0 = 'AAC';
-	    } else if (service_words.audiomediatype0 == 0x02) {
-		audiomediatype0 = 'AC3';
-	    } else if (service_words.audiomediatype0 == 0x03) {
-		audiomediatype0 = 'EAC3';
-	    } else if (service_words.audiomediatype0 == 0x04) {
-		audiomediatype0 = 'MPEG';
-	    } else {
-		audiomediatype0 = 'UNKNOWN';
-	    }
-	    
-	    input_string += '<p>Video is '+videomediatype+' - '+service_words.source_width+'x'+service_words.source_height+' @ '+fps2+' fps<br>';
-	    input_string += 'Audio is '+audiomediatype0+' @ '+audiochannelsinput0+' channels @ '+audiosamplerate0+' Hz </p>';
-	    
-	    document.getElementById(elementname_source).innerHTML = input_string;
-
-	    //var event_string = '<p>Current Status</p>';
-	    var event_string = '';
-	    document.getElementById(elementname_event).innerHTML = event_string;
-
-	    /*
-	      from server.js
-	    obj.source_width = words.data.source.width;
-	    obj.source_height = words.data.source.height;
-	    obj.fpsnum = words.data.source.fpsnum;
-	    obj.fpsden = words.data.source.fpsden;
-	    obj.aspectnum =words.data.source.aspectnum;
-	    obj.aspectden =words.data.source.aspectden;
-	    */
-
-	    var i;
-	    var output_string = '';
-
-	    if (transcoding == 1) {
-		var quality_string;
-		if (video_quality == 0) {
-		    quality_string = 'LOW';
-		} else if (video_quality == 1) {
-		    quality_string = 'MEDIUM';
-		} else if (video_quality == 2) {
-		    quality_string = 'HIGH';
-		} else if (video_quality == 3) {
-		    quality_string = 'MAX';
+		var input_signal = service_words.input_signal;
+		var startbuttonString = 'start_button'+service;
+		var stopbuttonString = 'stop_button'+service;
+		var resetbuttonString = 'reset_button'+service;	    
+		var startButton = document.getElementById(startbuttonString);
+		var stopButton = document.getElementById(stopbuttonString);
+		var resetButton = document.getElementById(resetbuttonString);	    
+		var elementname_active = 'active'+service;
+		var elementname_uptime = 'uptime'+service;
+		var elementname_image = 'thumbnail'+service;
+		var elementname_source = 'input'+service;
+		var elementname_output = 'output'+service;
+		var elementname_event = 'event'+service;
+		var elementname_status = 'statusinfo'+service;
+		var video_bitrate = service_words.video_bitrate / 1000;
+		var transcoding = service_words.transcoding;
+		var video_codec = service_words.video_codec;
+		var video_profile = service_words.video_profile;
+		var video_quality = service_words.video_quality;
+		var video_frames = service_words.video_frames;
+		
+		if (input_signal == 1) {
+		    var active_string = '<p style="color:green">INGESTING</p>';
+		    if (transcoding) {
+			active_string += '<p style="color:blue">TRANSCODE</p>';
+		    } else {
+			active_string += '<p style="color:blue">REPACKAGE</p>';		    
+		    }
+		    document.getElementById(elementname_active).innerHTML = active_string;
+		    document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';
 		} else {
-		    quality_string = 'N/A';
+		    document.getElementById(elementname_active).innerHTML = '<p style="color:red">NO SIGNAL</p>';
+		    document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';		
 		}
-		if (video_codec == 0x02) {  // h264
-		    output_string += '<p>Video is H264<br>Profile '+video_profile+'<br>Quality '+quality_string+'<br>';
-		} else if (video_codec == 0x03) { // hevc
-		    output_string += '<p>Video is HEVC<br>Quality '+quality_string+'<br>';
-		}
-		output_string += 'Audio is AAC @ '+audiochannelsoutput0+' channels </p>';
-	    }
-   
-	    output_string += '<p>';
-	    for (i = 0; i < service_words.outputs; i++) {
-		var output_streams = service_words.output_streams;		
-		var width = output_streams[i].width;
-		var height = output_streams[i].height;
-		var video_bitrate = output_streams[i].video_bitrate;
-		console.log("resolution: ", width, " x ", height, " rate: ", video_bitrate);
-
-		if (i == service_words.outputs - 1) {
-		    output_string += ' '+width+'x'+height+' @ '+video_bitrate+'kbps';
+		var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
+		var fps = service_words.fpsnum / service_words.fpsden;
+		var fps2 = Math.round(fps*1000)/1000;
+		var videomediatype = '';
+		var audiomediatype0 = '';
+		var audiochannelsinput0 = service_words.audiochannelsinput0;
+		var audiochannelsinput1 = service_words.audiochannelsinput1;	    
+		var audiosamplerate0 = service_words.audiosamplerate0;
+		var audiosamplerate1 = service_words.audiosamplerate1;
+		var audiochannelsoutput0 = service_words.audiochannelsoutput0;
+		var audiochannelsoutput1 = service_words.audiochannelsoutput1;
+		
+		if (service_words.videomediatype == 0x10) {
+		    videomediatype = 'H264';		
+		} else if (service_words.videomediatype == 0x11) {
+		    videomediatype = 'HEVC';
+		} else if (service_words.videomediatype == 0x12) {
+		    videomediatype = 'MPEG2';
 		} else {
-		    output_string += ' '+width+'x'+height+' @ '+video_bitrate+'kbps<br>';
+		    videomediatype = 'UNKNOWN';
 		}
+		
+		if (service_words.audiomediatype0 == 0x01) {
+		    audiomediatype0 = 'AAC';
+		} else if (service_words.audiomediatype0 == 0x02) {
+		    audiomediatype0 = 'AC3';
+		} else if (service_words.audiomediatype0 == 0x03) {
+		    audiomediatype0 = 'EAC3';
+		} else if (service_words.audiomediatype0 == 0x04) {
+		    audiomediatype0 = 'MPEG';
+		} else {
+		    audiomediatype0 = 'UNKNOWN';
+		}
+		
+		input_string += '<p>Video is '+videomediatype+' - '+service_words.source_width+'x'+service_words.source_height+' @ '+fps2+' fps<br>';
+		input_string += 'Audio is '+audiomediatype0+' @ '+audiochannelsinput0+' channels @ '+audiosamplerate0+' Hz </p>';
+		
+		document.getElementById(elementname_source).innerHTML = input_string;
+		
+		//var event_string = '<p>Current Status</p>';
+		var event_string = '';
+		document.getElementById(elementname_event).innerHTML = event_string;
+		
+		/*
+		  from server.js
+		  obj.source_width = words.data.source.width;
+		  obj.source_height = words.data.source.height;
+		  obj.fpsnum = words.data.source.fpsnum;
+		  obj.fpsden = words.data.source.fpsden;
+		  obj.aspectnum =words.data.source.aspectnum;
+		  obj.aspectden =words.data.source.aspectden;
+		*/
+		
+		var i;
+		var output_string = '';
+		
+		if (transcoding == 1) {
+		    var quality_string;
+		    if (video_quality == 0) {
+			quality_string = 'LOW';
+		    } else if (video_quality == 1) {
+			quality_string = 'MEDIUM';
+		    } else if (video_quality == 2) {
+			quality_string = 'HIGH';
+		    } else if (video_quality == 3) {
+			quality_string = 'MAX';
+		    } else {
+			quality_string = 'N/A';
+		    }
+		    if (video_codec == 0x02) {  // h264
+			output_string += '<p>Video is H264<br>Profile '+video_profile+'<br>Quality '+quality_string+'<br>';
+		    } else if (video_codec == 0x03) { // hevc
+			output_string += '<p>Video is HEVC<br>Quality '+quality_string+'<br>';
+		    }
+		    output_string += 'Audio is AAC @ '+audiochannelsoutput0+' channels </p>';
+		}
+		
+		output_string += '<p>';
+		for (i = 0; i < service_words.outputs; i++) {
+		    var output_streams = service_words.output_streams;		
+		    var width = output_streams[i].width;
+		    var height = output_streams[i].height;
+		    var video_bitrate = output_streams[i].video_bitrate;
+		    console.log("resolution: ", width, " x ", height, " rate: ", video_bitrate);
+		    
+		    if (i == service_words.outputs - 1) {
+			output_string += ' '+width+'x'+height+' @ '+video_bitrate+'kbps';
+		    } else {
+			output_string += ' '+width+'x'+height+' @ '+video_bitrate+'kbps<br>';
+		    }
+		}
+		output_string += '</p>';
+		output_string += '<p>Window is '+service_words.window_size+' segments <br>Segment size '+service_words.segment_length+' seconds</p>';
+		
+		document.getElementById(elementname_output).innerHTML = output_string;
+		
+		var status_string;
+		
+		status_string = '<p>Detected '+service_words.source_interruptions+' source interruptions<br>';
+		status_string += 'Detected '+service_words.source_errors+' source errors<br>';
+		status_string += 'Processed '+service_words.video_frames+' video frames<p>';
+		document.getElementById(elementname_status).innerHTML = status_string;
+		
+		/*
+		  
+		  from server.js
+		  
+		  obj.window_size = words.data.system["window-size"];
+		  obj.segment_length = words.data.system["segment-length"];
+		  obj.hls_active= words.data.system["hls-active"];
+		  obj.dash_active= words.data.system["dash-fmp4-active"];
+		  obj.source_interruptions = words.data.system["source-interruptions"];
+		  obj.source_errors = words.data.system["source-errors"];
+		  obj.transcoding = words.data.system.transcoding;
+		  obj.scte35 = words.data.system.scte35;
+		  
+		*/	    
+		
+		trigger_image_update();	    
+	    
+		startButton.disabled = true;
+		stopButton.disabled = false;
+		resetButton.disabled = false;
 	    }
-	    output_string += '</p>';
-	    output_string += '<p>Window is '+service_words.window_size+' segments <br>Segment size '+service_words.segment_length+' seconds</p>';
-	    
-	    document.getElementById(elementname_output).innerHTML = output_string;
-
-	    var status_string;
-
-	    status_string = '<p>Detected '+service_words.source_interruptions+' source interruptions<br>';
-	    status_string += 'Detected '+service_words.source_errors+' source errors<br>';
-	    status_string += 'Processed '+service_words.video_frames+' video frames<p>';
-	    document.getElementById(elementname_status).innerHTML = status_string;
-	    /*
-	      from server.js
-	    obj.window_size = words.data.system["window-size"];
-	    obj.segment_length = words.data.system["segment-length"];
-	    obj.hls_active= words.data.system["hls-active"];
-	    obj.dash_active= words.data.system["dash-fmp4-active"];
-	    obj.source_interruptions = words.data.system["source-interruptions"];
-	    obj.source_errors = words.data.system["source-errors"];
-	    obj.transcoding = words.data.system.transcoding;
-	    obj.scte35 = words.data.system.scte35;
-	    */	    
-	    
-	    trigger_image_update();
-	    
-	    startButton.disabled = true;
-	    stopButton.disabled = false;
-	    resetButton.disabled = false;
 	})    
 }
 
