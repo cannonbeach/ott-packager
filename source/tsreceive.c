@@ -132,6 +132,13 @@ void *udp_source_thread(void *context)
                     core->fillet_input[active_source_index].interface,
                     no_signal_counter);
 
+            int audio_stream;
+            for (audio_stream = 0; audio_stream < MAX_AUDIO_STREAMS; audio_stream++) {
+                core->decoded_source_info.decoded_audio_channels_input[audio_stream] = 0;
+                core->decoded_source_info.decoded_audio_channels_output[audio_stream] = 0;
+                core->decoded_source_info.decoded_audio_sample_rate[audio_stream] = 0;
+            }
+
             if (core->input_signal == 1) {
                 core->source_interruptions++;
             }

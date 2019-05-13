@@ -36,6 +36,9 @@
 #include "fillet.h"
 #include "dataqueue.h"
 #include "background.h"
+#if defined(ENABLE_TRANSCODE)
+#include "curl.h"
+#endif // ENABLE_TRANSCODE
 
 #define MAX_CONNECTIONS    8
 #define MAX_REQUEST_SIZE   65535
@@ -57,6 +60,385 @@ int wait_for_event(fillet_app_struct *core)
 
     return msgid;
 }
+
+int build_response_repackage(fillet_app_struct *core, char *response_buffer, int *content_length, int full)
+{
+    char status_response[MAX_RESPONSE_SIZE];                            
+    char response_timestamp[MAX_STR_SIZE];
+#define MAX_LIST_SIZE MAX_RESPONSE_SIZE/4
+    char input_streams[MAX_LIST_SIZE];
+    char output_streams[MAX_LIST_SIZE];
+    time_t current;
+    struct tm currentUTC;
+    int source;
+    int output;
+    
+    memset(input_streams,0,sizeof(input_streams));
+    memset(output_streams,0,sizeof(output_streams));
+    
+    for (source = 0; source < core->cd->active_sources; source++) {
+        char scratch[MAX_STR_SIZE];
+        int sub_source = 0;                               
+        
+        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
+        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+        
+        snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-ip\": \"%s:%d\",\n",
+                 core->cd->active_source[source].active_ip,
+                 core->cd->active_source[source].active_port);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %ld,\n", vstream->video_bitrate);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-first-timestamp\": %ld,\n", vstream->first_timestamp);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-current-duration\": %ld,\n", vstream->last_full_time);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-received-frames\": %ld\n", vstream->current_receive_count);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+        if (source == core->cd->active_sources - 1) {
+            snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
+        } else {
+            snprintf(scratch,MAX_STR_SIZE-1,"            },\n");                                    
+        }
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+    }
+
+    current = time(NULL);
+    gmtime_r(&current, &currentUTC);
+    strftime(response_timestamp,MAX_STR_SIZE-1,"%Y-%m-%dT%H:%M:%SZ", &currentUTC);                            
+    
+    snprintf(status_response, MAX_RESPONSE_SIZE-1,
+             "{\n"
+             "    \"application\": \"fillet\",\n"
+             "    \"version\": \"1.0.0\",\n"
+             "    \"timestamp\": \"%s\",\n"
+             "    \"status\": \"success\",\n"
+             "    \"code\": 200,\n"
+             "    \"message\": \"OK\",\n"
+             "    \"data\": {\n"
+             "        \"system\": {\n"
+             "            \"input-signal\": %d,\n"
+             "            \"uptime\": %ld,\n"
+             "            \"transcoding\": %d,\n"
+             "            \"source-interruptions\": %d,\n"
+             "            \"source-errors\": %ld,\n"
+             "            \"window-size\": %d,\n"
+             "            \"segment-length\": %d,\n"
+             "            \"youtube-active\": %d,\n"
+             "            \"hls-active\": %d,\n"
+             "            \"dash-fmp4-active\": %d,\n"
+             "            \"scte35\": %d\n"
+             "        },\n"
+             "        \"source\": {\n"
+             "            \"inputs\": %d,\n"
+             "            \"interface\": \"%s\",\n"
+             "%s"
+             "        },\n"            
+             "        \"ad-insert\": {\n"
+             "        },\n"
+             "        \"output\": {\n"             
+             "            \"output-directory\": \"%s\",\n"
+             "            \"hls-manifest\": \"%s\",\n"
+             "            \"dash-manifest\": \"%s\",\n"
+             "            \"fmp4-manifest\": \"%s\"\n"
+             "        },\n"
+             "        \"publish\": {\n"
+             "        }\n"
+             "    }\n"
+             "}\n",
+             response_timestamp,
+             core->input_signal,
+             core->uptime,
+             core->transcode_enabled,
+             core->source_interruptions,
+             core->error_count,
+             core->cd->window_size,
+             core->cd->segment_length,
+             core->cd->enable_youtube_output,
+             core->cd->enable_ts_output,
+             core->cd->enable_fmp4_output,
+             core->cd->enable_scte35,
+             core->cd->active_sources,
+             core->cd->active_interface,
+             input_streams,
+             core->cd->manifest_directory,
+             core->cd->manifest_hls,
+             core->cd->manifest_dash,
+             core->cd->manifest_fmp4);
+    
+    memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+    if (full) {
+        *content_length = strlen(status_response)+4;        
+        snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                 "HTTP/1.1 200 OK\r\n"
+                 "Server: FILLET\r\n"
+                 "Access-Control-Allow-Methods: GET, POST\r\n"
+                 "Content-Length: %d\r\n"
+                 "\r\n"
+                 "%s\r\n\r\n",
+                 *content_length,
+                 status_response);
+    } else {        
+        snprintf(response_buffer, MAX_RESPONSE_SIZE-1, "%s", status_response);
+        *content_length = strlen(response_buffer);
+    }
+    return 0;
+}
+
+#if defined(ENABLE_TRANSCODE)
+int build_response_transcode(fillet_app_struct *core, char *response_buffer, int *content_length, int full)
+{
+    char status_response[MAX_RESPONSE_SIZE];                            
+    char response_timestamp[MAX_STR_SIZE];
+#define MAX_LIST_SIZE MAX_RESPONSE_SIZE/4
+    char input_streams[MAX_LIST_SIZE];
+    char output_streams[MAX_LIST_SIZE];
+    time_t current;
+    struct tm currentUTC;
+    int source;
+    int num_outputs = core->cd->num_outputs;
+    int output;
+    
+    memset(input_streams,0,sizeof(input_streams));
+    memset(output_streams,0,sizeof(output_streams));
+    
+    for (source = 0; source < core->cd->active_sources; source++) {
+        char scratch[MAX_STR_SIZE];
+        int sub_source = 0;                               
+        
+        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
+        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+        
+        snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-ip\": \"%s:%d\",\n",
+                 core->cd->active_source[source].active_ip,
+                 core->cd->active_source[source].active_port);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %ld,\n", vstream->video_bitrate);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-first-timestamp\": %ld,\n", vstream->first_timestamp);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-current-duration\": %ld,\n", vstream->last_full_time);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-received-frames\": %ld\n", vstream->current_receive_count);
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+        if (source == core->cd->active_sources - 1) {
+            snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
+        } else {
+            snprintf(scratch,MAX_STR_SIZE-1,"            },\n");                                    
+        }
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+    }
+
+    for (output = 0; output < num_outputs; output++) {
+        char scratch[MAX_STR_SIZE];
+        int output_width = core->cd->transvideo_info[output].width;
+        int output_height = core->cd->transvideo_info[output].height;
+        int video_bitrate = core->cd->transvideo_info[output].video_bitrate;
+
+        snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", output);
+        strncat(output_streams, scratch, MAX_LIST_SIZE-1);
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"output-width\": %d,\n",
+                 output_width);
+        strncat(output_streams, scratch, MAX_LIST_SIZE-1);
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"output-height\": %d,\n",
+                 output_height);
+        strncat(output_streams, scratch, MAX_LIST_SIZE-1);
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %d\n",
+                 video_bitrate);
+        strncat(output_streams, scratch, MAX_LIST_SIZE-1);
+        
+        if (output == num_outputs - 1) {
+            snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
+        } else {
+            snprintf(scratch,MAX_STR_SIZE-1,"            },\n");                                    
+        }
+        strncat(output_streams, scratch, MAX_LIST_SIZE-1);
+    }
+    
+    current = time(NULL);
+    gmtime_r(&current, &currentUTC);
+    strftime(response_timestamp,MAX_STR_SIZE-1,"%Y-%m-%dT%H:%M:%SZ", &currentUTC);                            
+    
+    snprintf(status_response, MAX_RESPONSE_SIZE-1,
+             "{\n"
+             "    \"application\": \"fillet\",\n"
+             "    \"version\": \"1.0.0\",\n"
+             "    \"timestamp\": \"%s\",\n"
+             "    \"status\": \"success\",\n"
+             "    \"code\": 200,\n"
+             "    \"message\": \"OK\",\n"
+             "    \"data\": {\n"
+             "        \"system\": {\n"
+             "            \"input-signal\": %d,\n"
+             "            \"uptime\": %ld,\n"
+             "            \"transcoding\": %d,\n"
+             "            \"codec\": %d,\n"
+             "            \"profile\": %d,\n"
+             "            \"quality\": %d,\n"                          
+             "            \"source-interruptions\": %d,\n"
+             "            \"source-errors\": %ld,\n"
+             "            \"window-size\": %d,\n"
+             "            \"segment-length\": %d,\n"
+             "            \"youtube-active\": %d,\n"
+             "            \"hls-active\": %d,\n"
+             "            \"dash-fmp4-active\": %d,\n"
+             "            \"scte35\": %d\n"
+             "        },\n"
+             "        \"source\": {\n"
+             "            \"inputs\": %d,\n"
+             "            \"width\": %d,\n"
+             "            \"height\": %d,\n"
+             "            \"fpsnum\": %d,\n"
+             "            \"fpsden\": %d,\n"
+             "            \"aspectnum\": %d,\n"
+             "            \"aspectden\": %d,\n"
+             "            \"videomediatype\": %d,\n"
+             "            \"audiomediatype0\": %d,\n"
+             "            \"audiomediatype1\": %d,\n"
+             "            \"audiochannelsinput0\": %d,\n"
+             "            \"audiochannelsinput1\": %d,\n"
+             "            \"audiochannelsoutput0\": %d,\n"
+             "            \"audiochannelsoutput1\": %d,\n"
+             "            \"audiosamplerate0\": %d,\n"
+             "            \"audiosamplerate1\": %d,\n"
+             "            \"interface\": \"%s\",\n"
+             "%s"
+             "        },\n"            
+             "        \"ad-insert\": {\n"
+             "        },\n"
+             "        \"output\": {\n"             
+             "            \"output-directory\": \"%s\",\n"
+             "            \"hls-manifest\": \"%s\",\n"
+             "            \"dash-manifest\": \"%s\",\n"
+             "            \"fmp4-manifest\": \"%s\",\n"
+             "            \"outputs\": %d,\n"
+             "%s"
+             "        },\n"
+             "        \"publish\": {\n"
+             "        }\n"
+             "    }\n"
+             "}\n",
+             response_timestamp,
+             core->input_signal,
+             core->uptime,
+             core->transcode_enabled,
+             core->cd->transvideo_info[0].video_codec,
+             core->cd->transvideo_info[0].encoder_profile,
+             core->cd->transvideo_info[0].encoder_quality,
+             core->source_interruptions,
+             core->error_count,
+             core->cd->window_size,
+             core->cd->segment_length,
+             core->cd->enable_youtube_output,
+             core->cd->enable_ts_output,
+             core->cd->enable_fmp4_output,
+             core->cd->enable_scte35,
+             core->cd->active_sources,
+             core->decoded_source_info.decoded_width,
+             core->decoded_source_info.decoded_height,
+             core->decoded_source_info.decoded_fps_num,
+             core->decoded_source_info.decoded_fps_den,
+             core->decoded_source_info.decoded_aspect_num,
+             core->decoded_source_info.decoded_aspect_den,
+             core->decoded_source_info.decoded_video_media_type,
+             core->decoded_source_info.decoded_audio_media_type[0],
+             core->decoded_source_info.decoded_audio_media_type[1],
+             core->decoded_source_info.decoded_audio_channels_input[0],
+             core->decoded_source_info.decoded_audio_channels_input[1],
+             core->decoded_source_info.decoded_audio_channels_output[0],
+             core->decoded_source_info.decoded_audio_channels_output[1],             
+             core->decoded_source_info.decoded_audio_sample_rate[0],
+             core->decoded_source_info.decoded_audio_sample_rate[1],
+             core->cd->active_interface,
+             input_streams,
+             core->cd->manifest_directory,
+             core->cd->manifest_hls,
+             core->cd->manifest_dash,
+             core->cd->manifest_fmp4,
+             num_outputs,
+             output_streams);
+    
+    memset(response_buffer, 0, MAX_RESPONSE_SIZE);
+    if (full) {
+        *content_length = strlen(status_response)+4;        
+        snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
+                 "HTTP/1.1 200 OK\r\n"
+                 "Server: FILLET\r\n"
+                 "Access-Control-Allow-Methods: GET, POST\r\n"
+                 "Content-Length: %d\r\n"
+                 "\r\n"
+                 "%s\r\n\r\n",
+                 *content_length,
+                 status_response);
+    } else {        
+        snprintf(response_buffer, MAX_RESPONSE_SIZE-1, "%s", status_response);
+        *content_length = strlen(response_buffer);
+    }
+    return 0;
+}
+#endif // ENABLE_TRANSCODE
+
+#if defined(ENABLE_TRANSCODE)
+void *status_thread(void *context)
+{
+    fillet_app_struct *core = (fillet_app_struct*)context;
+    CURLcode curlresponse;
+    CURL *curl = NULL;
+    long http_code = 200;
+    char *response_buffer = NULL;
+    char signal_url[MAX_STR_SIZE];
+    
+    curl_global_init(CURL_GLOBAL_ALL);
+    response_buffer = (char*)malloc(MAX_RESPONSE_SIZE);    
+    while (1) {
+        struct curl_slist *optional_data = NULL;
+        int content_length = 0;       
+        
+        curl = curl_easy_init();
+        optional_data = curl_slist_append(optional_data, "Content-Type: application/json");
+        optional_data = curl_slist_append(optional_data, "Expect:");
+        
+        build_response_transcode(core, response_buffer, &content_length, 0);
+
+        fprintf(stderr,"%s", response_buffer);
+
+        snprintf(signal_url,MAX_STR_SIZE-1,"http://127.0.0.1:8080/api/v1/status_update/%d",core->cd->identity);
+
+        curl_easy_setopt(curl, CURLOPT_URL, signal_url);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, (char*)response_buffer);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)content_length);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, optional_data);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 1L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_easy_setopt(curl, CURLOPT_TCP_NODELAY, 1);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
+        
+        curlresponse = curl_easy_perform(curl);
+        if (curlresponse != CURLE_OK) {
+            syslog(LOG_ERR,"SESSION:%d (RESTFUL) FATAL ERROR: UNABLE TO PROVIDE STATUS INFO\n",
+                   core->session_id);
+        }
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, (long*)&http_code);
+        fprintf(stderr,"SESSION:%d (RESTFUL) STATUS: HTTPCODE:%lu\n",
+                core->session_id,
+                (long)http_code);
+        curl_easy_cleanup(curl);
+        curl_slist_free_all(optional_data);
+        optional_data = NULL;             
+              
+        sleep(1);
+    }
+    free(response_buffer);
+    return NULL;
+}
+#endif // ENABLE_TRANSCODE
 
 void *client_thread(void *context)
 {
@@ -212,120 +594,8 @@ void *client_thread(void *context)
                                      content_length,
                                      status_response);
                         } else {
-                            char status_response[MAX_RESPONSE_SIZE];                            
-                            char response_timestamp[MAX_STR_SIZE];
-#define MAX_LIST_SIZE MAX_RESPONSE_SIZE/4
-                            char input_streams[MAX_LIST_SIZE];
-                            char output_streams[MAX_LIST_SIZE];
-                            time_t current;
-                            struct tm currentUTC;
-                            int content_length;
-                            int source;
-
-                            memset(input_streams,0,sizeof(input_streams));
-                            memset(output_streams,0,sizeof(output_streams));
-
-                            for (source = 0; source < core->cd->active_sources; source++) {
-                                char scratch[MAX_STR_SIZE];
-                                int sub_source = 0;                               
-                                         
-                                audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
-                                video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
-
-                                snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-                                snprintf(scratch,MAX_STR_SIZE-1,"                \"source-ip\": \"%s:%d\",\n",
-                                         core->cd->active_source[source].active_ip,
-                                         core->cd->active_source[source].active_port);
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
-                                snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %ld,\n", vstream->video_bitrate);
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
-                                snprintf(scratch,MAX_STR_SIZE-1,"                \"video-first-timestamp\": %ld,\n", vstream->first_timestamp);
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
-                                snprintf(scratch,MAX_STR_SIZE-1,"                \"video-current-duration\": %ld,\n", vstream->last_full_time);
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);                                
-                                snprintf(scratch,MAX_STR_SIZE-1,"                \"video-received-frames\": %ld\n", vstream->current_receive_count);
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-                                if (source == core->cd->active_sources - 1) {
-                                    snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
-                                } else {
-                                    snprintf(scratch,MAX_STR_SIZE-1,"            },\n");                                    
-                                }
-                                strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-                            }
-
-                            current = time(NULL);
-                            gmtime_r(&current, &currentUTC);
-                            strftime(response_timestamp,MAX_STR_SIZE-1,"%Y-%m-%dT%H:%M:%SZ", &currentUTC);                            
-
-                            snprintf(status_response, MAX_RESPONSE_SIZE-1,
-                                     "{\n"
-                                     "    \"application\": \"fillet\",\n"
-                                     "    \"version\": \"1.0.0\",\n"
-                                     "    \"timestamp\": \"%s\",\n"
-                                     "    \"status\": \"success\",\n"
-                                     "    \"code\": 200,\n"
-                                     "    \"message\": \"OK\",\n"
-                                     "    \"data\": {\n"
-                                     "        \"system\": {\n"
-                                     "            \"input-signal\": %d,\n"
-                                     "            \"uptime\": %ld,\n"
-                                     "            \"transcoding\": %d,\n"
-                                     "            \"source-interruptions\": %d,\n"
-                                     "            \"window-size\": %d,\n"
-                                     "            \"segment-length\": %d,\n"
-                                     "            \"youtube-active\": %d,\n"
-                                     "            \"hls-active\": %d,\n"
-                                     "            \"dash-fmp4-active\": %d,\n"
-                                     "            \"scte35\": %d\n"
-                                     "        },\n"
-                                     "        \"source\": {\n"
-                                     "            \"inputs\": %d,\n"
-                                     "            \"interface\": \"%s\",\n"
-                                     "%s"
-                                     "        },\n"
-                                     "        \"ad-insert\": {\n"
-                                     "        },\n"
-                                     "        \"output\": {\n"
-                                     "            \"output-directory\": \"%s\",\n"
-                                     "            \"hls-manifest\": \"%s\",\n"
-                                     "            \"dash-manifest\": \"%s\",\n"
-                                     "            \"fmp4-manifest\": \"%s\"\n"
-                                     "        },\n"
-                                     "        \"publish\": {\n"
-                                     "        }\n"
-                                     "    }\n"
-                                     "}\n",
-                                     response_timestamp,
-                                     core->input_signal,
-                                     core->uptime,
-                                     core->transcode_enabled,
-                                     core->source_interruptions,
-                                     core->cd->window_size,
-                                     core->cd->segment_length,
-                                     core->cd->enable_youtube_output,
-                                     core->cd->enable_ts_output,
-                                     core->cd->enable_fmp4_output,
-                                     core->cd->enable_scte35,
-                                     core->cd->active_sources,
-                                     core->cd->active_interface,
-                                     input_streams,
-                                     core->cd->manifest_directory,
-                                     core->cd->manifest_hls,
-                                     core->cd->manifest_dash,
-                                     core->cd->manifest_fmp4);
-                                     
-                            content_length = strlen(status_response)+4;
-                            memset(response_buffer, 0, MAX_RESPONSE_SIZE);
-                            snprintf(response_buffer, MAX_RESPONSE_SIZE-1,
-                                     "HTTP/1.1 200 OK\r\n"
-                                     "Server: FILLET\r\n"
-                                     "Access-Control-Allow-Methods: GET, POST\r\n"
-                                     "Content-Length: %d\r\n"
-                                     "\r\n"
-                                     "%s\r\n\r\n",
-                                     content_length,
-                                     status_response);                            
+                            int content_length = 0;
+                            build_response_repackage(core, response_buffer, &content_length, 1);
                         }
                         send(client, response_buffer, strlen(response_buffer), 0);
                         close(client);

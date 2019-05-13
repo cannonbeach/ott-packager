@@ -138,6 +138,7 @@ typedef struct _transaudio_internal_struct_ {
 
 typedef struct _encodevideo_internal_struct_ {
     void                   *input_queue[MAX_TRANS_OUTPUTS];
+    void                   *thumbnail_queue;
 } encodevideo_internal_struct;
 
 typedef struct _encodeaudio_internal_struct_ {
@@ -298,12 +299,21 @@ typedef struct _input_struct_ {
 } input_struct;
 
 typedef struct _decoded_source_info_struct_ {
+    int                    source_pmt_pid;
+    int                    source_video_pid;
+    int                    source_audio_pid[MAX_AUDIO_STREAMS];
+    
     int                    decoded_width;
     int                    decoded_height;
     int                    decoded_fps_num;
     int                    decoded_fps_den;
     int                    decoded_aspect_num;
-    int                    decoded_aspect_den;    
+    int                    decoded_aspect_den;
+    int                    decoded_video_media_type;
+    int                    decoded_audio_media_type[MAX_AUDIO_STREAMS];
+    int                    decoded_audio_channels_input[MAX_AUDIO_STREAMS];
+    int                    decoded_audio_channels_output[MAX_AUDIO_STREAMS];
+    int                    decoded_audio_sample_rate[MAX_AUDIO_STREAMS];
 } decoded_source_info_struct;
 
 typedef struct _fillet_app_struct_
@@ -337,6 +347,8 @@ typedef struct _fillet_app_struct_
 
     // these are some basic runtime stats- should move to different data structure
     int64_t                       uptime;
+    int64_t                       error_count;
+    char                          last_error[MAX_STR_SIZE];
     int                           input_signal;
     int                           source_interruptions;
     int                           sync_thread_restart_count;

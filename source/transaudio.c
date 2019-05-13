@@ -326,6 +326,8 @@ void *audio_decode_thread(void *context)
                 uint8_t *incoming_audio_buffer = frame->buffer;
                 int incoming_audio_buffer_size = frame->buffer_size;
 
+                core->decoded_source_info.decoded_audio_media_type[audio_stream] = frame->media_type;
+
                 //sometimes the audio frames are concatenated, especially coming from
                 //an mpeg2 transport stream
 
@@ -397,6 +399,10 @@ void *audio_decode_thread(void *context)
                         }
                     }
                     last_decode_channels = decode_avctx->channels;                    
+
+                    core->decoded_source_info.decoded_audio_channels_input[audio_stream] = decode_avctx->channels;
+                    core->decoded_source_info.decoded_audio_channels_output[audio_stream] = output_channels;
+                    core->decoded_source_info.decoded_audio_sample_rate[audio_stream] = decode_avctx->sample_rate;
                     
                     if (!swr) {
                         swr = avresample_alloc_context();

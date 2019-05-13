@@ -62,7 +62,7 @@
 
 static int calculated_mux_rate = 0;
 static error_struct error_data[MAX_ERROR_SIZE];
-static int error_count = 0;
+static int64_t error_count = 0;
 static int video_synchronizer_entries = 0;
 static int audio_synchronizer_entries = 0;
 static pthread_mutex_t sync_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -79,7 +79,6 @@ static int enable_youtube = 0;
 static int enable_ts = 0;
 static int audio_streams = -1;
 
-static volatile int child_pids[MAX_SESSIONS];
 static config_options_struct config_data;
 
 static struct option long_options[] = {
@@ -98,7 +97,7 @@ static struct option long_options[] = {
      {"manifest-dash", required_argument, 0, 'M'},
      {"manifest-hls", required_argument, 0, 'H'},
      {"manifest-fmp4", required_argument, 0, 'F'},
-     {"webvtt", no_argument, &enable_webvtt, 'W'},
+     {"webvtt", no_argument, &enable_webvtt, 'W'},     
      {"astreams", required_argument, 0, 'T'},
 #if defined(ENABLE_TRANSCODE)
      {"transcode", no_argument, &enable_transcode, 'z'},
@@ -154,6 +153,7 @@ static int create_transvideo_core(fillet_app_struct *core)
     for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
         core->encodevideo->input_queue[i] = (void*)dataqueue_create();
     }
+    core->encodevideo->thumbnail_queue = (void*)dataqueue_create();
 
     start_video_transcode_threads(core);
     start_audio_transcode_threads(core);
@@ -182,6 +182,8 @@ static int destroy_transvideo_core(fillet_app_struct *core)
         free(core->encodeaudio[i]);
         core->encodeaudio[i] = NULL;
     }
+    dataqueue_destroy(core->encodevideo->thumbnail_queue);
+    core->encodevideo->thumbnail_queue = NULL;
     dataqueue_destroy(core->preparevideo->input_queue);
     core->preparevideo->input_queue = NULL;
     dataqueue_destroy(core->transvideo->input_queue);
@@ -949,12 +951,13 @@ static int message_dispatch(int p1, int64_t p2, int64_t p3, int64_t p4, int64_t 
           case 914:
           case 915:
                //fprintf(stderr,"CONTINUITY COUNTER ERROR ON PID:%d  EXPECTED:%d INSTEAD FOUND:%d\n", p4, p3, p2 - 900);
-               error_data[error_count].packet_number = p5;
-               error_data[error_count].pid = p4;
-               sprintf(error_data[error_count].error_message,"CONTINUITY COUNTER ERROR ON PID:%4d (0x%4x)  LOOKING FOR %2d BUT FOUND %2d",
-                       (int)p4, (int)p4,
-                       (int)p3, (int)p2 - 900);
-               error_count = (error_count + 1) % MAX_ERROR_SIZE;
+               //error_data[error_count].packet_number = p5;
+               // error_data[error_count].pid = p4;
+               // sprintf(error_data[error_count].error_message,"CONTINUITY COUNTER ERROR ON PID:%4d (0x%4x)  LOOKING FOR %2d BUT FOUND %2d",
+               //         (int)p4, (int)p4,
+               //         (int)p3, (int)p2 - 900);
+               //error_count = (error_count + 1) % MAX_ERROR_SIZE;
+               error_count++;
                break;
           case 1000: {
                int framecode = p3;
@@ -1483,6 +1486,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
     int restart_sync_thread = 0;
+
+    core->error_count = error_count;
 
     if (sample_type == STREAM_TYPE_SCTE35) {
         if (core->cd->enable_scte35) {
@@ -2091,8 +2096,12 @@ int main(int argc, char **argv)
      for (i = 0; i < config_data.active_sources; i++) {	
          pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
      }
-     
-     pthread_create(&client_thread_id, NULL, client_thread, (void*)core);         
+
+#if defined(ENABLE_TRANSCODE)
+     pthread_create(&client_thread_id, NULL, status_thread, (void*)core);     
+#else     
+     pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
+#endif     
      while (core->source_running) {
          if (quit_sync_thread) {
              while (sync_thread_running) {

@@ -56,9 +56,11 @@
 static volatile int video_decode_thread_running = 0;
 static volatile int video_prepare_thread_running = 0;
 static volatile int video_encode_thread_running = 0;
+static volatile int video_thumbnail_thread_running = 0;
 static pthread_t video_decode_thread_id;
 static pthread_t video_prepare_thread_id;
 static pthread_t video_encode_thread_id;
+static pthread_t video_thumbnail_thread_id;
 
 typedef struct _x264_encoder_struct_ {
     x264_t           *h;
@@ -90,7 +92,104 @@ typedef struct _x265_encoder_struct_ {
     int64_t          frame_count_dts;
 } x265_encoder_struct;
 
+typedef struct _scale_struct_
+{
+    uint8_t *output_data[4];
+    int     output_stride[4];
+} scale_struct;
+
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source, int splice_point, int64_t splice_duration, int64_t splice_duration_remaining);
+
+int save_frame_as_jpeg(fillet_app_struct *core, AVFrame *pFrame)
+{
+    AVCodec *jpegCodec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    AVCodecContext *jpegContext = avcodec_alloc_context3(jpegCodec);
+    FILE *JPEG = NULL;
+#define MAX_FILENAME_SIZE 256
+    char filename[MAX_FILENAME_SIZE];
+    AVPacket packet = {.data = NULL, .size = 0};
+    int encodedFrame = 0;
+
+    jpegContext->bit_rate = 250000;
+    jpegContext->width = 176;
+    jpegContext->height = 144;
+    jpegContext->time_base= (AVRational){1,30};
+    jpegContext->pix_fmt = AV_PIX_FMT_YUVJ420P;
+    avcodec_open2(jpegContext, jpegCodec, NULL);
+    av_init_packet(&packet);
+    avcodec_encode_video2(jpegContext, &packet, pFrame, &encodedFrame);
+    snprintf(filename, MAX_FILENAME_SIZE-1, "/var/www/html/thumbnail%d.jpg", core->cd->identity);
+    JPEG = fopen(filename, "wb");
+    fwrite(packet.data, 1, packet.size, JPEG);
+    fclose(JPEG);
+    av_free_packet(&packet);
+    avcodec_close(jpegContext);
+    return 0;
+}
+
+void *video_thumbnail_thread(void *context)
+{
+    fillet_app_struct *core = (fillet_app_struct*)context;
+    dataqueue_message_struct *msg;
+
+    av_register_all();   
+    
+    while (video_thumbnail_thread_running) {
+        msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->thumbnail_queue);
+        while (!msg && video_thumbnail_thread_running) {
+            usleep(10000);
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->thumbnail_queue);
+        }
+
+        scale_struct *thumbnail_output = (scale_struct*)msg->buffer;
+
+        if (thumbnail_output) {
+            AVFrame *jpeg_frame;
+
+            jpeg_frame = av_frame_alloc();
+
+            jpeg_frame->data[0] = thumbnail_output->output_data[0];
+            jpeg_frame->data[1] = thumbnail_output->output_data[1];
+            jpeg_frame->data[2] = thumbnail_output->output_data[2];
+            jpeg_frame->data[3] = thumbnail_output->output_data[3];
+            jpeg_frame->linesize[0] = thumbnail_output->output_stride[0];
+            jpeg_frame->linesize[1] = thumbnail_output->output_stride[1];
+            jpeg_frame->linesize[2] = thumbnail_output->output_stride[2];
+            jpeg_frame->linesize[3] = thumbnail_output->output_stride[3];
+            jpeg_frame->pts = AV_NOPTS_VALUE;
+            jpeg_frame->pkt_dts = AV_NOPTS_VALUE;
+            jpeg_frame->pkt_pts = AV_NOPTS_VALUE;
+            jpeg_frame->pkt_duration = 0;
+            jpeg_frame->pkt_pos = -1;
+            jpeg_frame->pkt_size = -1;
+            jpeg_frame->key_frame = -1;
+            jpeg_frame->sample_aspect_ratio = (AVRational){1,1};
+            jpeg_frame->format = 0;
+            jpeg_frame->extended_data = NULL;
+            jpeg_frame->color_primaries = AVCOL_PRI_BT709;
+            jpeg_frame->color_trc = AVCOL_TRC_BT709;
+            jpeg_frame->colorspace = AVCOL_SPC_BT709;
+            jpeg_frame->color_range = AVCOL_RANGE_JPEG;
+            jpeg_frame->chroma_location = AVCHROMA_LOC_UNSPECIFIED;
+            jpeg_frame->flags = 0;
+            jpeg_frame->channels = 0;
+            jpeg_frame->channel_layout = 0;
+            jpeg_frame->width = 176;
+            jpeg_frame->height = 144;
+            jpeg_frame->interlaced_frame = 0;
+            jpeg_frame->top_field_first = 0;
+
+            save_frame_as_jpeg(core, jpeg_frame);
+            
+            av_frame_free(&jpeg_frame);            
+            av_freep(&thumbnail_output->output_data[0]);
+            free(thumbnail_output);
+            thumbnail_output = NULL;
+        }
+        memory_return(core->fillet_msg_pool, msg);
+    }
+    return NULL;
+}
 
 void *video_encode_thread_x265(void *context)
 {
@@ -829,12 +928,6 @@ cleanup_video_encode_thread:
     return NULL;
 }
 
-typedef struct _scale_struct_
-{
-    uint8_t *output_data[4];
-    int output_stride[4];
-} scale_struct;
-
 void copy_image_data_to_ffmpeg(uint8_t *source, int source_width, int source_height, AVFrame *source_frame)
 {    
     int row;
@@ -898,10 +991,13 @@ void *video_prepare_thread(void *context)
     int current_output;
     struct SwsContext *output_scaler[MAX_TRANS_OUTPUTS];
     scale_struct scaled_output[MAX_TRANS_OUTPUTS];
+    struct SwsContext *thumbnail_scaler = NULL;
+    scale_struct *thumbnail_output = NULL;
     int64_t deinterlaced_frame_count[MAX_TRANS_OUTPUTS];
     int64_t sync_frame_count = 0;
     double fps = 30.0;
     opaque_struct *opaque_data = NULL;
+    int thumbnail_count = 0;
 
     for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
         output_scaler[i] = NULL;
@@ -1100,6 +1196,38 @@ void *video_prepare_thread(void *context)
                     // deinterlaced_frame is where the video is located now
                     opaque_data = (opaque_struct*)deinterlaced_frame->opaque;
                     deinterlaced_frame->opaque = NULL;
+
+                    if (thumbnail_scaler == NULL) {
+                        thumbnail_scaler = sws_getContext(width, height, AV_PIX_FMT_YUV420P,
+                                                          176, 144, AV_PIX_FMT_YUV420P,
+                                                          SWS_BICUBIC, NULL, NULL, NULL);
+                    }
+
+                    thumbnail_count++;
+                    if (thumbnail_count == 150) {  // maybe use a timer instead?
+                        dataqueue_message_struct *thumbnail_msg;
+                        
+                        thumbnail_output = (scale_struct*)malloc(sizeof(scale_struct));
+                        av_image_alloc(thumbnail_output->output_data,
+                                       thumbnail_output->output_stride,
+                                       176, 144, AV_PIX_FMT_YUV420P, 1);                        
+                        sws_scale(thumbnail_scaler,
+                                  (const uint8_t * const*)deinterlaced_frame->data,
+                                  deinterlaced_frame->linesize,
+                                  0, height,
+                                  thumbnail_output->output_data,
+                                  thumbnail_output->output_stride);
+
+                        thumbnail_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                        if (!thumbnail_msg) {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain thumbnail_msg!!\n");
+                            exit(0);                                                                                            
+                        }
+                        thumbnail_msg->buffer = thumbnail_output;                        
+                        dataqueue_put_front(core->encodevideo->thumbnail_queue, thumbnail_msg);
+                        thumbnail_output = NULL;
+                        thumbnail_count = 0;
+                    }
                     
                     for (current_output = 0; current_output < num_outputs; current_output++) {
                         int output_width = core->cd->transvideo_info[current_output].width;
@@ -1349,6 +1477,7 @@ cleanup_video_prepare_thread:
             }
             sws_freeContext(output_scaler[current_output]);                   
         }
+        sws_freeContext(thumbnail_scaler);        
     }
     return NULL;
 }
@@ -1665,6 +1794,7 @@ void *video_decode_thread(void *context)
                         core->decoded_source_info.decoded_fps_den = prepare_msg->fps_den;
                         core->decoded_source_info.decoded_aspect_num = prepare_msg->aspect_num;
                         core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
+                        core->decoded_source_info.decoded_video_media_type = frame->media_type;
 
                         dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);                        
                     } else {
@@ -1713,6 +1843,9 @@ int start_video_transcode_threads(fillet_app_struct *core)
         exit(0);
     }
 
+    video_thumbnail_thread_running = 1;
+    pthread_create(&video_thumbnail_thread_id, NULL, video_thumbnail_thread, (void*)core);
+
     video_prepare_thread_running = 1;
     pthread_create(&video_prepare_thread_id, NULL, video_prepare_thread, (void*)core);
 
@@ -1729,6 +1862,9 @@ int stop_video_transcode_threads(fillet_app_struct *core)
     
     video_prepare_thread_running = 0;
     pthread_join(video_prepare_thread_id, NULL);
+
+    video_thumbnail_thread_running = 0;
+    pthread_join(video_thumbnail_thread_id, NULL);
     
     video_encode_thread_running = 0;
     pthread_join(video_encode_thread_id, NULL);

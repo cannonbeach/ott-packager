@@ -27,10 +27,12 @@ ifdef ENABLE_TRANSCODE
 		    ./cbffmpeg/libswresample/libswresample.a \
                     ./cbx264/libx264.a \
                     ./cbfdkaac/.libs/libfdk-aac.a \
+                    ./cblibcurl/./lib/.libs/libcurl.a \
 	            ./x265_3.0/build/linux/libx265.a
 	INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
-        INC += -I./x265_3.0/build/linux
-	BASELIBS += -lz -ldl -lnuma
+	INC += -I./x265_3.0/build/linux
+	INC += -I./cblibcurl/include/curl
+	BASELIBS += -lz -ldl -lnuma -lcrypto -lssl
 endif
 
 all: $(LIB) fillet
