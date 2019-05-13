@@ -40,7 +40,13 @@ curl http://127.0.0.1:8080/api/v1/get_service_count
 curl http://127.0.0.1:8080/api/v1/get_interfaces
 curl http://127.0.0.1:8080/api/v1/get_service_status/0
 
-#pm2 startup systemd
+sudo "STATUS- adding pm2 to systemd"
+sudo pm2 startup systemd
+sudo "STATUS- saving the active services"
+sudo pm2 save
+
+
+
 
 
 
