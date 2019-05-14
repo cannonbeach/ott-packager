@@ -130,6 +130,58 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 
 5/13/19 - working on putting this together!  Please be patient!
 
+```
+cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
+cannonbeach@insanitywave:$ ./setuptranscode.sh
+cannonbeach@insanitywave:$ sudo mkdir /var/tmp/status
+cannonbeach@insanitywave:$ sudo mkdir /var/tmp/configs
+cannonbeach@insanitywave:$ sudo mkdir /var/app
+cannonbeach@insanitywave:$ sudo mkdir /var/app/public
+cannonbeach@insanitywave:$ sudo cp ./webapp/server.js /var/app
+cannonbeach@insanitywave:$ sudo cp ./webapp/public/client.js /var/app/public
+cannonbeach@insanitywave:$ sudo cp ./webapp/public/index.html /var/app/public
+cannonbeach@insanitywave:$ sudo cp ./webapp/package.json /var/app
+cannonbeach@insanitywave:$ sudo apt-get update -y
+cannonbeach@insanitywave:$ sudo apt-get upgrade -y
+cannonbeach@insanitywave:$ sudo apt-get install build-essential -y
+cannonbeach@insanitywave:$ sudo apt-get install libssl-dev -y
+cannonbeach@insanitywave:$ sudo apt-get install curl -y
+cannonbeach@insanitywave:$ curl -sL https://deb.nodesource.com/setup_12.x -o nodesource_setup.sh
+cannonbeach@insanitywave:$ sudo chmod +x nodesource_setup.sh
+cannonbeach@insanitywave:$ sudo ./nodesource_setup.sh
+cannonbeach@insanitywave:$ sudo apt-get install nodejs -y
+cannonbeach@insanitywave:$ sudo npm install -g pm2
+cannonbeach@insanitywave:$ sudo npm install -g express
+cannonbeach@insanitywave:$ sudo npm install -g body-parser
+cannonbeach@insanitywave:$ sudo npm install -g fs
+cannonbeach@insanitywave:$ sudo npm install -g archiver
+cannonbeach@insanitywave:$ cd /var/app
+cannonbeach@insanitywave:$ sudo ln -s /usr/lib/node_modules ./node_modules
+cannonbeach@insanitywave:$ cd ..
+cannonbeach@insanitywave:$ sudo apt-get install docker.io -y
+cannonbeach@insanitywave:$ sudo apt-get install tcpdump -y
+cannonbeach@insanitywave:$ sudo apt-get install ifstat -y
+cannonbeach@insanitywave:$ sudo apt-get install zip -y
+cannonbeach@insanitywave:$ sudo apt-get install unzip -y
+cannonbeach@insanitywave:$ sudo apt-get install apache2 -y
+cannonbeach@insanitywave:$ sudo apt-get install g++ -y
+cannonbeach@insanitywave:$ sudo apt-get install libz-dev -y
+
+You need to update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
+cannonbeach@insanitywave:$ make clean
+cannonbeach@insanitywave:$ make
+cannonbeach@insanitywave:$ cp fillet ./docker
+cannonbeach@insanitywave:$ cd ./docker
+cannonbeach@insanitywave:$ sudo docker build -t dockerfillet .
+cannonbeach@insanitywave:$ cd /var/app
+cannonbeach@insanitywave:$ sudo pm2 start server.js
+cannonbeach@insanitywave:$ sudo pm2 status server
+cannonbeach@insanitywave:$ sudo pm2 startup systemd
+cannonbeach@insanitywave:$ sudo pm2 save
+
+Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
+```
+
 ![Optional Text](../master/images/mediagateway2.jpg)
 ![Optional Text](../master/images/mediagateway3.jpg)
 
