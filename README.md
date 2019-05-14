@@ -205,6 +205,25 @@ Get System Information (CPU Load, Memory, Temperature, etc.):
 http://127.0.0.1:8080/api/v1/system_information
 ```
 
+The application will also POST event messages to a third party client for the following events (this is not yet completed)
+
+```
+- Start Service (Container Start)
+- Stop Service (Container Stop)
+- No Source Signal
+- Docker Container Restart
+- SCTE35 begin/end
+- Segment Published Upload
+- Segment Published Failed Upload
+- High CPU Usage
+- Low Drive Space
+- Service Added
+- Service Removed
+- High Source Errors Over Period of Time (threshold TBD/ms)
+```
+
+And instead of building a full dashboard monitoring system on my own, I've been looking at services such as Datadog to have a nice interface for tracking the health of the generated streams.
+
 <br>
 
 ### Current Status
