@@ -1,17 +1,21 @@
 # ott-streaming-packager
 
-OTT streaming packager supporting ABR streaming for HLS and DASH
+![Optional Text](../master/images/mediagateway1.jpg)
+
+OTT live streaming encoder and packager supporting ABR streaming for HLS and DASH
 
 This application is intended to serve as a reliable and scalable OTT streaming repackager (with optional transcoding) to deliver content as part of an overall media streaming platform. There are two key variations of OTT streaming technologies that this software accommodates:
 
     HLS (HTTP Live Streaming) - Transport Stream HLS and Fragmented MP4 HLS (CMAF style)
     DASH (Dynamic Adaptive Streaming over HTTP) - Fragmented MP4 
 
-With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally trancode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.  I will put together a matrix layout of the supported modes as I get closer to a v1.0 release.
+With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally transcode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.  I also expect to have SRT support available on the input in the coming future to make it easier to deploy into the cloud.  I will put together a matrix layout of the supported modes as I get closer to a v1.0 release.
 
-## Quickstart
+There are two ways to use this application.  The first and simplest method is use to the command version of the application.  You can quickly clone the repository, compile and easily start streaming.  The Quickstart for the web application is further down in the README and is a bit more involved to get setup and running, but provides a scriptable API as well as a nice clean interface with thumbnails and other status information in the transcoding mode.  The web application is still in the early stages and I will continually be adding features for managing these types of streaming services.
 
-The software install guide here is for Ubuntu 16.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.
+## Quickstart (Command Line)
+
+The software install guide here is for Ubuntu 16.04 and 18.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.  We are running in production environments on Ubuntu with rock solid stability.
 
 ```
 cannonbeach@insanitywave:$ sudo apt install git
@@ -87,14 +91,6 @@ cannonbeach@insanitywave:$ sudo route add -net 224.0.0.0 netmask 240.0.0.0 dev e
 You should also be aware that the fillet application creates a runtime cache file in the /var/tmp directory for each instance that is run. The cache file is uniquely identified by the "--identity" flag provided as a parameter. It follows the format of: /var/tmp/hlsmux_state_NNNN where NNNN is the identifier you provided. If you want to start your session from a clean state, then you should remove this state file. All of the sequence numbering will restart and all statistics will be cleared as well. It is also good practice when updating to a new version of the software to remove that file. I do add fields to this file and I have not made it backwards compatible.  I am working on making this more configurable such that it can be migrated across different Docker containers.<br>
 <br>
 
-```
-## Statistics API
-An initial restful API is also now available (still working on adding statistics)
-curl http://10.0.0.200:18000/api/v1/status
-```
-
-<br>
-
 ## Packager Operation
 
 The packager has several different optional modes:
@@ -125,11 +121,41 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 
 ```
 cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec hevc --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,1250 --acodec aac --arate 128 --aspect 16:9 --quality 0 --stereo
+
 ````
 
 <br>
 
-## Current Status
+## Quickstart (NodeJS Web Application)
+
+5/13/19 - working on putting this together!  Please be patient!
+
+![Optional Text](../master/images/mediagateway2.jpg)
+![Optional Text](../master/images/mediagateway3.jpg)
+
+<br>
+
+### Programmable/Scriptable API (Requires the NodeJS Web Application)
+
+5/13/19 - working on writing up the documentation!  Please be patient!
+
+```
+Get Detailed Service Status:
+http://127.0.0.1:8080/api/v1/get_service_status/##
+
+Get Service Count:
+http://127.0.0.1:8080/api/v1/get_service_count
+
+Get Service List (A list of the current services and high level status but not a lot of details):
+http://127.0.0.1:8080/api/v1/get_service_list
+
+Get System Information (CPU Load, Memory, Temperature, etc.):
+http://127.0.0.1:8080/api/v1/system_information
+```
+
+<br>
+
+### Current Status
 
 (04/29/19) Web application development
 
