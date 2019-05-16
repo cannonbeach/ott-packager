@@ -95,13 +95,16 @@ cpuILoad = (function() {
 
 })();
 
-app.get('/api/v1/system_information', (req, res) => { 
-    res.send(cpuILoad());
-//    console.log(cpuILoad());
-//    var os = require('os');       
-//    console.log(os.cpus());
-//    console.log(os.totalmem());
-//    console.log(os.freemem())    
+app.get('/api/v1/system_information', (req, res) => {
+    var retdata;
+    
+    obj = new Object();
+    obj.cpuinfo = cpuILoad();
+    obj.totalmem = os.totalmem();
+    obj.freemem = os.freemem();    
+    retdata = JSON.stringify(obj);
+    console.log(retdata);        
+    res.send(retdata);
 });
 
 app.get('/api/v1/backup_services', (req, res) => {

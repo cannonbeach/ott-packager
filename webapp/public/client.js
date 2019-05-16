@@ -680,25 +680,42 @@ function update_service_status()
 	    var cpus;
 	    var cpuload_total = 0;
 	    var cpuload_avg;
-	    console.log(words.length);
-	    for (cpus = 0; cpus < words.length; cpus++) {
-		console.log(words[cpus].percent);
-		cpuload_total += words[cpus].percent;
+	    console.log(words.cpuinfo.length);
+	    for (cpus = 0; cpus < words.cpuinfo.length; cpus++) {
+		//console.log(words.cpuinfo[cpus].percent);
+		cpuload_total += words.cpuinfo[cpus].percent;
 	    }
-	    if (words.length > 0) {
-		cpuload_avg = cpuload_total / words.length;
+	    if (words.cpuinfo.length > 0) {
+		cpuload_avg = cpuload_total / words.cpuinfo.length;
 	    } else {
 		cpuload_avg = 0;
 	    }
 	    cpuload_avg = Math.round(cpuload_avg*100)/100;
-	    var cpucount = words.length;
+	    console.log('Average CPU: '+cpuload_avg);
+	    var cpucount = words.cpuinfo.length;	    
 	    var cpustring = '<p>'+cpucount+' cores</p>';
 	    var elementname_cpucount = 'cpucount';
 	    document.getElementById(elementname_cpucount).innerHTML = cpustring;
 	    
 	    var loadstring = '<p>Avg '+cpuload_avg+'%</p>';
 	    var elementname_cpuload = 'cpuload';
-	    document.getElementById(elementname_cpuload).innerHTML = loadstring;	    
+	    document.getElementById(elementname_cpuload).innerHTML = loadstring;
+
+	    var totalmem = words.totalmem / 1000000;
+	    var freemem = words.freemem / 1000000;
+	    var usedmem = totalmem - freemem;
+	    var percentused = usedmem / totalmem;
+
+	    totalmem = Math.round(totalmem*100)/100;
+	    usedmem = Math.round(usedmem*100)/100;
+	    percentused = Math.round(percentused*1000)/10;
+
+	    var totalmemstring = '<p>'+totalmem+'MB</p>';
+	    var usedmemstring = '<p>'+usedmem+'MB - '+percentused+'%</p>';
+	    var elementname_totalmem = 'totalmem';
+	    var elementname_usedmem = 'usedmem';
+	    document.getElementById(elementname_totalmem).innerHTML = totalmemstring;
+	    document.getElementById(elementname_usedmem).innerHTML = usedmemstring;
 	})      
 }
 
