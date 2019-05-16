@@ -521,11 +521,36 @@ app.post('/api/v1/start_clicked/:uid', (req, res) => {
     res.sendStatus(200);
 });
 
+function listed_service(serviceindex, servicenum) {
+    this.serviceindex = serviceindex;
+    this.servicenum = servicenum;    
+}
+
 app.get('/api/v1/list_services', (req, res) => {
     console.log('requested to list services');
 
     var files = fs.readdirSync(configFolder);
+    var serviceindex = 0;
+    var retdata;
+    
     // send list of services and quick status in json format
+    obj = new Object();
+
+    var services = [];
+    files.forEach(file => {
+        if (getExtension(file) == '.json') {
+            var fullfileConfig = configFolder+'/'+file;
+	    var fileprefix = path.basename(fullfileConfig, '.json');
+            serviceindex++;
+            var service = new listed_service(serviceindex, fileprefix);
+	    services.push(service);
+        }
+    })
+
+    obj.service_list = services;
+    retdata = JSON.stringify(obj);    
+    console.log(retdata);			    
+    res.send(retdata);                  
 });
 
 function output_stream(height, width, video_bitrate) {
