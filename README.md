@@ -128,11 +128,14 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 
 ## Quickstart (NodeJS Web Application)
 
-5/13/19 - working on putting this together!  Please be patient!
+If something doesn't work here for you, then please post a bug in GitHub.  
 
 ```
+Go into the directory that you cloned the software into and run the following commands:
+
 cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
 cannonbeach@insanitywave:$ ./setuptranscode.sh
+(VERY IMPORTANT: when you get to the x265 setup (which is towards the end of the script execution, please set ENABLE_SHARED to OFF and set ENABLE_ASSEMLBY to ON, then hit the letter 'c' for configuration and then hit 'g' for generate and exit)
 cannonbeach@insanitywave:$ sudo mkdir /var/tmp/status
 cannonbeach@insanitywave:$ sudo mkdir /var/tmp/configs
 cannonbeach@insanitywave:$ sudo mkdir /var/app
@@ -167,7 +170,7 @@ cannonbeach@insanitywave:$ sudo apt-get install apache2 -y
 cannonbeach@insanitywave:$ sudo apt-get install g++ -y
 cannonbeach@insanitywave:$ sudo apt-get install libz-dev -y
 
-You need to update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
+You need to *manually* update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
 cannonbeach@insanitywave:$ make clean
 cannonbeach@insanitywave:$ make
 cannonbeach@insanitywave:$ cp fillet ./docker
@@ -180,6 +183,8 @@ cannonbeach@insanitywave:$ sudo pm2 startup systemd
 cannonbeach@insanitywave:$ sudo pm2 save
 
 Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
+
+You will notice that the Apache web server was also installed.  You don't need to install it, but it allows you to easily serve content directly off the same system for quick testing. 
 ```
 
 ![Optional Text](../master/images/mediagateway2.jpg)
@@ -188,8 +193,6 @@ Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the
 <br>
 
 ### Programmable/Scriptable API (Requires the NodeJS Web Application)
-
-5/13/19 - working on writing up the documentation!  Please be patient!
 
 ```
 Get Detailed Service Status:
@@ -222,7 +225,7 @@ The application will also POST event messages to a third party client for the fo
 - High Source Errors Over Period of Time (threshold TBD/ms)
 ```
 
-And instead of building a full dashboard monitoring system on my own, I've been looking at services such as Datadog to have a nice interface for tracking the health of the generated streams.
+And instead of building a full dashboard monitoring system, I've been looking at services such as Datadog to have a nice interface for tracking the health of the systems and generated streams.
 
 <br>
 
