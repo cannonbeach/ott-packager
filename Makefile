@@ -32,6 +32,7 @@ ifdef ENABLE_TRANSCODE
 	INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
 	INC += -I./x265_3.0/build/linux
 	INC += -I./cblibcurl/include/curl
+	INC += -I./cbffmpeg
 	BASELIBS += -lz -ldl -lnuma -lcrypto -lssl
 endif
 

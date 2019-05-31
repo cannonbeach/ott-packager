@@ -10,14 +10,19 @@ x265download="http://ftp.videolan.org/pub/videolan/x265/x265_3.0.tar.gz"
 
 sudo apt-get update
 sudo apt-get upgrade
-sudo apt-get install build-essential
-sudo apt-get install git
-sudo apt-get install mercurial
-sudo apt-get install cmake
-sudo apt-get install cmake-curses-gui
-sudo apt-get install gdb
-sudo apt-get install g++
-sudo apt-get install libnuma-dev
+sudo apt-get install build-essential -y
+sudo apt-get install git -y
+sudo apt-get install mercurial -y
+sudo apt-get install cmake -y
+sudo apt-get install cmake-curses-gui -y
+sudo apt-get install gdb -y
+sudo apt-get install g++ -y
+sudo apt-get install libnuma-dev -y
+sudo apt-get install pkg-config -y
+sudo apt-get install autoconf -y
+sudo apt-get install libtool-bin -y
+sudo apt-get install libtool -y
+sudo apt-get install zlib1g-dev -y
 
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
