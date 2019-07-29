@@ -231,6 +231,10 @@ And instead of building a full dashboard monitoring system, I've been looking at
 
 ### Current Status
 
+(07/25/19) Short update
+
+- I've been away for awhile since my last update but I have been actively developing some new features (webdav publishing, experimenting with SRT and some cloud applications (hybrid transcoding and some on the fly experiments - more on this later) along with trying to finish the webapp for pure packaging mode).  I really haven't had a chance to get these features fully tested yet!  I have been working on some other things that "keep the lights on", so hopefully once I wrap up those other projects, I can spend more time focusing on this again.  If you have support questions, or post something in the bug tracker, it might be a slower than usual response.  If anyone ever does want to fund some of this development then pleasesend me a message.
+
 (04/29/19) Web application development
 
 - I've started pushing up the initial implementation for the web application based on NodeJS.  It is not entirely usable yet, but some of the basic functionality is starting to come together.  Please see the comments on the push for more details.  I will provide setup scripts and a configuration along with a detailed tutorial on how to use the NodeJS web application as soon as a first version is ready.
