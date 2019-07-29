@@ -98,6 +98,9 @@ typedef struct _scale_struct_
     int     output_stride[4];
 } scale_struct;
 
+#define THUMBNAIL_WIDTH   176
+#define THUMBNAIL_HEIGHT  144
+
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source, int splice_point, int64_t splice_duration, int64_t splice_duration_remaining);
 
 int save_frame_as_jpeg(fillet_app_struct *core, AVFrame *pFrame)
@@ -111,17 +114,21 @@ int save_frame_as_jpeg(fillet_app_struct *core, AVFrame *pFrame)
     int encodedFrame = 0;
 
     jpegContext->bit_rate = 250000;
-    jpegContext->width = 176;
-    jpegContext->height = 144;
+    jpegContext->width = THUMBNAIL_WIDTH;
+    jpegContext->height = THUMBNAIL_HEIGHT;
     jpegContext->time_base= (AVRational){1,30};
     jpegContext->pix_fmt = AV_PIX_FMT_YUVJ420P;
+    
     avcodec_open2(jpegContext, jpegCodec, NULL);
     av_init_packet(&packet);
     avcodec_encode_video2(jpegContext, &packet, pFrame, &encodedFrame);
+    
     snprintf(filename, MAX_FILENAME_SIZE-1, "/var/www/html/thumbnail%d.jpg", core->cd->identity);
     JPEG = fopen(filename, "wb");
-    fwrite(packet.data, 1, packet.size, JPEG);
-    fclose(JPEG);
+    if (JPEG) {
+        fwrite(packet.data, 1, packet.size, JPEG);
+        fclose(JPEG);
+    }
     av_free_packet(&packet);
     avcodec_close(jpegContext);
     return 0;
@@ -174,8 +181,8 @@ void *video_thumbnail_thread(void *context)
             jpeg_frame->flags = 0;
             jpeg_frame->channels = 0;
             jpeg_frame->channel_layout = 0;
-            jpeg_frame->width = 176;
-            jpeg_frame->height = 144;
+            jpeg_frame->width = THUMBNAIL_WIDTH;
+            jpeg_frame->height = THUMBNAIL_HEIGHT;
             jpeg_frame->interlaced_frame = 0;
             jpeg_frame->top_field_first = 0;
 
@@ -314,7 +321,7 @@ void *video_encode_thread_x265(void *context)
                     x265_data[current_encoder].param->subpelRefine = 5;
                     x265_data[current_encoder].param->maxNumMergeCand = 2;
                     x265_data[current_encoder].param->maxNumReferences = 3;
-                    x265_data[current_encoder].param->bframes = 3;  // set configuration                    
+                    x265_data[current_encoder].param->bframes = 3;  // set configuration
                 } else {  // ENCODER_QUALITY_CRAZY
                     x265_data[current_encoder].param->rdLevel = 5;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
@@ -675,6 +682,15 @@ void *video_encode_thread_x264(void *context)
                 x264_data[current_encoder].param.i_keyint_min = 1;
                 x264_data[current_encoder].param.i_fps_num = msg->fps_num;
                 x264_data[current_encoder].param.i_fps_den = msg->fps_den;
+
+                // i was not able to get alignment with scene change detection enabled
+                // because at different resolutions it seems that the scene change
+                // detector gets triggered and other resolutions it doesn't
+                // so we end up with different idr sync points
+                // to solve the scenecut issue, we can put the scene detector
+                // outside of the encoder and then tell all of the encoders
+                // at once to put in an idr sync frame
+                // anyone want to write some scene change detection code?
                 x264_data[current_encoder].param.i_scenecut_threshold = 0;  // need to keep abr alignment
                 x264_data[current_encoder].param.i_bframe_adaptive = 0;                
                 x264_data[current_encoder].param.i_bframe_pyramid = 0;
@@ -1190,7 +1206,6 @@ void *video_prepare_thread(void *context)
                     break;
                 }
 
-                //fprintf(stderr,"OUTPUT READY: %d   PTS:%ld DTS:%ld\n", output_ready, msg->pts, msg->dts);
                 if (output_ready) {                    
                     // get deinterlaced frame
                     // deinterlaced_frame is where the video is located now
@@ -1199,7 +1214,7 @@ void *video_prepare_thread(void *context)
 
                     if (thumbnail_scaler == NULL) {
                         thumbnail_scaler = sws_getContext(width, height, AV_PIX_FMT_YUV420P,
-                                                          176, 144, AV_PIX_FMT_YUV420P,
+                                                          THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, AV_PIX_FMT_YUV420P,
                                                           SWS_BICUBIC, NULL, NULL, NULL);
                     }
 
@@ -1210,7 +1225,7 @@ void *video_prepare_thread(void *context)
                         thumbnail_output = (scale_struct*)malloc(sizeof(scale_struct));
                         av_image_alloc(thumbnail_output->output_data,
                                        thumbnail_output->output_stride,
-                                       176, 144, AV_PIX_FMT_YUV420P, 1);                        
+                                       THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, AV_PIX_FMT_YUV420P, 1);                        
                         sws_scale(thumbnail_scaler,
                                   (const uint8_t * const*)deinterlaced_frame->data,
                                   deinterlaced_frame->linesize,
