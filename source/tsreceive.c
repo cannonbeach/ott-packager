@@ -60,6 +60,12 @@ void *udp_source_thread(void *context)
     int i;
     int active_source_index;
     int64_t no_signal_counter = 0;
+    int scanned;
+    int num_ipaddr0;
+    int num_ipaddr1;
+    int num_ipaddr2;
+    int num_ipaddr3;
+    int mcast_flag = 0;
     
 #define MAX_UDP_BUFFER_READ 2048
     pthread_mutex_lock(&start_lock);
@@ -80,10 +86,28 @@ void *udp_source_thread(void *context)
     core->input_signal = 0;
     core->source_interruptions = 0;
 
+    scanned = sscanf(core->fillet_input[source_count].udp_source_ipaddr,"%3d.%3d.%3d.%3d",
+                     &num_ipaddr0,
+                     &num_ipaddr1,
+                     &num_ipaddr2,
+                     &num_ipaddr3);
+
+    fprintf(stderr,"SESSION:%d (TSRECEIVE) STATUS: PARSING SOURCE ADDRESS %3d.%3d.%3d.%3d  SCANNED:%d\n",
+            core->session_id,
+            num_ipaddr0,
+            num_ipaddr1,
+            num_ipaddr2,
+            num_ipaddr3,
+            scanned);
+
+    if (num_ipaddr0 >= 224) {
+        mcast_flag = 1;
+    }
+    
     udp_socket = socket_udp_open(core->fillet_input[source_count].interface,
 				 core->fillet_input[source_count].udp_source_ipaddr,
 				 core->fillet_input[source_count].udp_source_port,
-				 0, UDP_FLAG_INPUT, 1);
+				 mcast_flag, UDP_FLAG_INPUT, 1);
     active_source_index = source_count;
     
     source_count++;

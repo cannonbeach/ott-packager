@@ -1957,6 +1957,8 @@ int main(int argc, char **argv)
      int c;
      int loop_count = 0;
 
+     socket_udp_global_init();
+     
      signal(SIGSEGV, crash_handler);
 
      config_data.window_size = DEFAULT_WINDOW_SIZE;

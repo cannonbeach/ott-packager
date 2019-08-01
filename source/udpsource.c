@@ -190,6 +190,7 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
 
     local_addr.sin_family = AF_INET;    
     if (flags == UDP_FLAG_INPUT) {
+        fprintf(stderr,"status: setting receiver socket size to: %d\n", size);
         retcode = setsockopt(new_socket, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
         if (retcode < 0) {
 	    socket_udp_close(new_socket);
@@ -200,6 +201,7 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
     }
 
     if (flags == UDP_FLAG_OUTPUT) {
+        fprintf(stderr,"status: setting output socket size to: %d\n", size);
         retcode = setsockopt(new_socket, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
 	if (retcode < 0) {
 	    socket_udp_close(new_socket);
@@ -209,17 +211,21 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
 	local_addr.sin_port = htons(INADDR_ANY);
     }
 
+    fprintf(stderr,"status: binding to local address\n");
     retcode = bind(new_socket, (struct sockaddr *)&local_addr, sizeof(local_addr));
     if (retcode < 0) {
 	socket_udp_close(new_socket);
 	
 	return -1;
     }
+
+    fprintf(stderr,"status: mcast flag is: %d\n", mcast);
  
     if (mcast && flags == UDP_FLAG_OUTPUT) {
         struct in_addr my_interface;
 	uint8_t local_ttl;
-	
+
+        fprintf(stderr,"status: interface is defined as output: ttl:%d\n", ttl);
         memset(&my_interface, 0, sizeof(my_interface));
         memset((void*)&multicastreq, 0, sizeof(multicastreq));	
 	if (ttl > 32) {
@@ -244,8 +250,11 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
 	    }
 	}		
     } else {
+        fprintf(stderr,"status: interface is defined as input: %s\n", host);
 	for (s = 0; s < UDP_MAX_SOCKETS; s++) {
+            fprintf(stderr,"status: checking for available receive socket(%d): %d\n", s, socket_table[s].unused);
 	    if (socket_table[s].unused) {
+                fprintf(stderr,"status: using socket index %d!\n", s);
 		socket_table[s].unused = 0;
 		socket_table[s].udp_socket = new_socket;
 		socket_table[s].mcast = mcast;
@@ -253,15 +262,19 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
 		    socket_table[s].multicastreq.imr_interface.s_addr = interface_address.s_addr;
 		    socket_table[s].multicastreq.imr_multiaddr.s_addr = ip_addr.s_addr;
 
+                    fprintf(stderr,"status: Sending out IGMP JOIN request on interface: %s\n", host);
 		    setsockopt(new_socket, IPPROTO_IP, IP_ADD_MEMBERSHIP,
 			       &socket_table[s].multicastreq, 
 			       sizeof(socket_table[s].multicastreq));
-		}
+		} else {
+                    fprintf(stderr,"status: unicast interface: %s\n", host);
+                }
 		break;
 	    }
 	}
     }
 
+    fprintf(stderr,"status: newly created socket: %d\n", new_socket);
     return new_socket;
 }
 
