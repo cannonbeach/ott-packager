@@ -163,6 +163,11 @@ typedef struct _config_options_struct_ {
     char             manifest_hls[MAX_STR_SIZE];
     char             manifest_fmp4[MAX_STR_SIZE];
 
+    char             cdn_username[MAX_STR_SIZE];
+    char             cdn_password[MAX_STR_SIZE];
+    char             cdn_server[MAX_STR_SIZE];
+    char             management_server[MAX_STR_SIZE];    
+
     int              window_size;
     int              segment_length;
     int              rollover_size;
@@ -333,6 +338,7 @@ typedef struct _fillet_app_struct_
     sorted_frame_struct           *audio_frame_data[MAX_FRAME_DATA_SYNC_AUDIO];
 
     void                          *event_queue;
+    void                          *webdav_queue;
 
     hlsmux_struct                 *hlsmux;
 

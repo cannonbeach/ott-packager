@@ -401,8 +401,12 @@ void *status_thread(void *context)
         curl = curl_easy_init();
         optional_data = curl_slist_append(optional_data, "Content-Type: application/json");
         optional_data = curl_slist_append(optional_data, "Expect:");
-        
-        build_response_transcode(core, response_buffer, &content_length, 0);
+
+        if (core->transcode_enabled) {
+            build_response_transcode(core, response_buffer, &content_length, 0);
+        } else {
+            build_response_repackage(core, response_buffer, &content_length, 0);
+        }
 
         fprintf(stderr,"%s", response_buffer);
 

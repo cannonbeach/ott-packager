@@ -28,6 +28,8 @@
 #include <stdint.h>
 #include <unistd.h>
 
+#define MAX_SMALLBUF_SIZE 256
+
 typedef struct _dataqueue_message_struct_ {
 	int             buffer_type;
 	unsigned long   buffer_size;
@@ -51,8 +53,9 @@ typedef struct _dataqueue_message_struct_ {
         int             splice_point;
         int64_t         splice_duration;
         int64_t         splice_duration_remaining;
+        char            smallbuf[MAX_SMALLBUF_SIZE];
         uint8_t         *caption_buffer;
-    	void            *buffer;
+    	void            *buffer;    
 } dataqueue_message_struct;
 
 #if defined(__cplusplus)

@@ -99,6 +99,9 @@ static struct option long_options[] = {
      {"manifest-fmp4", required_argument, 0, 'F'},
      {"webvtt", no_argument, &enable_webvtt, 'W'},     
      {"astreams", required_argument, 0, 'T'},
+     {"cdnusername", required_argument, 0, '7'},
+     {"cdnpassword", required_argument, 0, '8'},
+     {"cdnserver", required_argument, 0, '9'},
 #if defined(ENABLE_TRANSCODE)
      {"transcode", no_argument, &enable_transcode, 'z'},
      {"outputs", required_argument, 0, 'o'},              // number of output profiles
@@ -244,6 +247,10 @@ static int destroy_fillet_core(fillet_app_struct *core)
         dataqueue_destroy(core->event_queue);
         core->event_queue = NULL;
     }
+    if (core->webdav_queue) {
+        dataqueue_destroy(core->webdav_queue);
+        core->webdav_queue = NULL;
+    }
     memory_destroy(core->fillet_msg_pool);
     memory_destroy(core->frame_msg_pool);
     memory_destroy(core->compressed_video_pool);
@@ -273,6 +280,7 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
 #endif // ENABLE_TRANSCODE        
     core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
     core->event_queue = (void*)dataqueue_create();
+    core->webdav_queue = (void*)dataqueue_create();
     
     memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
 
@@ -681,7 +689,34 @@ static int parse_input_options(int argc, char **argv)
                   fprintf(stderr,"STATUS: Limiting audio streams to: %d\n", audio_streams);
               }
               break;
-	  case 'u':
+          case '7':
+              if (optarg) {
+                  snprintf(config_data.cdn_username,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: CDN username specified: %s\n", config_data.cdn_username);
+              } else {
+                  fprintf(stderr,"ERROR: Invalid username specified\n");
+                  return -1;
+              }
+              break;
+          case '8':
+              if (optarg) {
+                  snprintf(config_data.cdn_password,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: CDN password specified\n");
+              } else {
+                  fprintf(stderr,"ERROR: Invalid password specified\n");
+                  return -1;
+              }              
+              break;
+          case '9':
+              if (optarg) {
+                  snprintf(config_data.cdn_server,MAX_STR_SIZE-1,"%s",optarg);
+                  fprintf(stderr,"STATUS: CDN url specified: %s\n", config_data.cdn_server);
+              } else {
+                  fprintf(stderr,"ERROR: Invalid url specified\n");
+                  return -1;
+              }              
+              break;            
+          case 'u':
 	      if (optarg) {
 		  config_data.identity = atoi(optarg);
 		  if (config_data.identity < 0) {
@@ -2006,12 +2041,15 @@ int main(int argc, char **argv)
          fprintf(stderr,"       --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]\n");
          fprintf(stderr,"       --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]\n");
          fprintf(stderr,"       --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]\n");
-         fprintf(stderr,"       --webvtt        [ENABLE WEBVTT CAPTION OUTPUT]\n");
+         fprintf(stderr,"       --webvtt        [ENABLE WEBVTT CAPTION OUTPUT]\n");         
+         fprintf(stderr,"       --cdnusername   [USERNAME FOR WEBDAV ACCOUNT]\n");
+         fprintf(stderr,"       --cdnpassword   [PASSWORD FOR WEBDAV ACCOUNT]\n");
+         fprintf(stderr,"       --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]\n");
 	 fprintf(stderr,"\n");
 #if defined(ENABLE_TRANSCODE)
          fprintf(stderr,"TRANSCODE OPTIONS\n");
          fprintf(stderr,"       --transcode   [ENABLE TRANSCODER AND NOT JUST PACKAGING]\n");
-         fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT PROFILES TO BE TRANSCODED]\n");
+         fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT LADDER BITRATE PROFILES TO BE TRANSCODED]\n");
          fprintf(stderr,"       --vcodec      [VIDEO CODEC - needs to be hevc or h264]\n");
          fprintf(stderr,"       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720]\n");
          fprintf(stderr,"       --vrate       [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500]\n");
@@ -2090,7 +2128,8 @@ int main(int argc, char **argv)
          core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
      }
 
-     hlsmux_create(core);     
+     hlsmux_create(core);
+     start_webdav_threads(core);
      
      sync_thread_running = 1;
      pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);  
@@ -2252,11 +2291,12 @@ int main(int argc, char **argv)
      }
      pthread_join(client_thread_id, NULL);
 cleanup_main_app:
+     stop_webdav_threads(core);     
      if (core->hlsmux) {
          hlsmux_destroy(core->hlsmux);
          core->hlsmux = NULL;
      }
-     destroy_fillet_core(core);         
+     destroy_fillet_core(core);
      fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
      
      return 0;

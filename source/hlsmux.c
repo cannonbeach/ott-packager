@@ -32,6 +32,7 @@
 #include "crc.h"
 #include "mp4core.h"
 #include "hlsmux.h"
+#include "webdav.h"
 
 #define MAX_STREAM_NAME       256
 #define MAX_TEXT_SIZE         512
@@ -1262,7 +1263,22 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
 	fprintf(video_manifest,"video_stream%d_%ld.ts\n", source, next_sequence_number);
     }
 
-    fclose(video_manifest);    
+    fclose(video_manifest);
+
+    if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {        
+        dataqueue_message_struct *msg;
+        msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+        if (msg) {
+            snprintf(msg->smallbuf, MAX_SMALLBUF_SIZE-1, "%s", stream_name); // this is the directory on the local server which is what we want
+            msg->buffer = NULL;
+            msg->buffer_type = WEBDAV_UPLOAD;            
+            dataqueue_put_front(core->webdav_queue, msg);
+        } else {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }      
+    }// end checking for cdn availability   
     
     return 0;
 }
@@ -1308,6 +1324,21 @@ static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stre
     }
 
     fclose(audio_manifest);
+
+    if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {        
+        dataqueue_message_struct *msg;
+        msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+        if (msg) {
+            snprintf(msg->smallbuf, MAX_SMALLBUF_SIZE-1, "%s", stream_name); // this is the directory on the local server which is what we want
+            msg->buffer = NULL;
+            msg->buffer_type = WEBDAV_UPLOAD;            
+            dataqueue_put_front(core->webdav_queue, msg);
+        } else {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }      
+    }// end checking for cdn availability
     
     return 0;
 }
@@ -1322,6 +1353,7 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
     int i;
     int j;
     int num_sources = core->num_sources;
+    int create_dir = 0;
 
 #if defined(ENABLE_TRANSCODE)
     if (core->transcode_enabled) {
@@ -1335,10 +1367,12 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
 
     if (stat(core->cd->manifest_directory, &sb) == 0 && S_ISDIR(sb.st_mode)) {
 	fprintf(stderr,"STATUS: Manifest directory exists: %s\n", core->cd->manifest_directory);
+        create_dir = 0;
     } else {
 	fprintf(stderr,"STATUS: Manifest directory does not exist: %s (CREATING)\n", core->cd->manifest_directory);
 	mkdir(core->cd->manifest_directory, 0700);
 	fprintf(stderr,"STATUS: Done creating manifest directory\n");
+        create_dir = 1;
     }
 
     snprintf(master_manifest_filename,MAX_STREAM_NAME-1,"%s/%s",core->cd->manifest_directory,core->cd->manifest_hls);
@@ -1428,6 +1462,38 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
     
     fclose(master_manifest);
 
+    if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {        
+        dataqueue_message_struct *msg;
+
+        if (create_dir) {
+            //create the directory on the server via MKCOL
+            //chance are if the directory doesn't exist locally
+            //then it doesn't exist on the server
+            //we don't want to try to recreate the directory each time though
+            msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+            if (msg) {
+                msg->buffer = NULL;
+                msg->buffer_type = WEBDAV_CREATE; //we will create the cdn_server directory
+                dataqueue_put_front(core->webdav_queue, msg);            
+            } else {
+                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                        core->session_id);
+                exit(0);
+            }
+        }
+        msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+        if (msg) {
+            snprintf(msg->smallbuf, MAX_SMALLBUF_SIZE-1, "%s", master_manifest_filename); // this is the directory on the local server which is what we want
+            msg->buffer = NULL;
+            msg->buffer_type = WEBDAV_UPLOAD;            
+            dataqueue_put_front(core->webdav_queue, msg);
+        } else {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }      
+    }// end checking for cdn availability    
+
     return 0;
 }
 
@@ -1466,8 +1532,8 @@ static int update_mp4_video_manifest(fillet_app_struct *core, stream_struct *str
 	fprintf(video_manifest,"video%d/segment%ld.mp4\n", source, next_sequence_number);
     }
 
-    fclose(video_manifest);    
-    
+    fclose(video_manifest);
+
     return 0;
 }
 
@@ -2091,13 +2157,43 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
 }
 
 
-static int end_ts_fragment(fillet_app_struct *core, stream_struct *stream, int source, int sub_stream)
+static int end_ts_fragment(fillet_app_struct *core, stream_struct *stream, int source, int sub_stream, int video)
 {
+    int cdn_upload = 0;
+    
     if (stream->output_ts_file) {
 	fclose(stream->output_ts_file);
 	stream->output_ts_file = NULL;
 	stream->fragments_published++;
     }
+
+    if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {
+	char stream_name[MAX_STREAM_NAME];
+        dataqueue_message_struct *msg;        
+        //this is also done in the start_ts_fragment
+        if (video) {
+            snprintf(stream_name, MAX_STREAM_NAME-1, "%s/video_stream%d_%ld.ts", core->cd->manifest_directory, source, stream->file_sequence_number);
+        } else {
+            snprintf(stream_name, MAX_STREAM_NAME-1, "%s/audio_stream%d_substream_%d_%ld.ts", core->cd->manifest_directory, source, sub_stream, stream->file_sequence_number);	    
+        }
+        //send message to webdav thread for upload
+        //base url is: core->cd->cdn_server        - it doesn't need to match the manifest directory tag since it can be uploaded anywhere and we are keeping the
+        //                                           manifest in the same directory as the transport files right now. this could be changed, to accommodate archival
+        //                                           but for now we'll keep it simple and straightforward to setup
+
+        msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+        if (msg) {
+            snprintf(msg->smallbuf, MAX_SMALLBUF_SIZE-1, "%s", stream_name); // this is the directory on the local server which is what we want
+            msg->buffer = NULL;
+            msg->buffer_type = WEBDAV_UPLOAD;
+            
+            dataqueue_put_front(core->webdav_queue, msg);
+        } else {
+            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                    core->session_id);
+            exit(0);
+        }      
+    }// end checking for cdn availability
     
     return 0;
 }
@@ -2812,7 +2908,7 @@ void *mux_pump_thread(void *context)
                     sidx_time = 0;
                     sidx_duration = 0;
 		    if (core->cd->enable_ts_output) {
-			end_ts_fragment(core, &hlsmux->video[source], source, 0); // substream is 0 for video
+			end_ts_fragment(core, &hlsmux->video[source], source, 0, IS_VIDEO); // substream is 0 for video
 		    } else {
                         hlsmux->video[source].fragments_published++;
                     }
@@ -3302,7 +3398,7 @@ void *mux_pump_thread(void *context)
                 int64_t duration_time;
                 
 		if (core->cd->enable_ts_output) {				    		
-		    end_ts_fragment(core, &hlsmux->audio[source][sub_stream], source, sub_stream);
+		    end_ts_fragment(core, &hlsmux->audio[source][sub_stream], source, sub_stream, IS_AUDIO);
 		} else {
                     hlsmux->audio[source][sub_stream].fragments_published++;
                 }
