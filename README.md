@@ -89,6 +89,22 @@ This will write the manifests into the /var/www/html/hls directory (this is a co
 ```
 cannonbeach@insanitywave:$ sudo route add -net 224.0.0.0 netmask 240.0.0.0 dev eth0
 ```
+<br>
+In addition to having the multicast route in place, you may also need to turn off the reverse-path filter for multicast traffic:
+In /etc/sysctl.conf, there are multiple entries that control reverse-path filtering. In some instances depending on how your network is setup and where the source is coming from, you may have to disable reverse-path filtering.  Older variations of Linux had this enabled by default, but it can cause issues with multicast coming from a different subnet.  
+
+<br>
+
+```
+net.ipv4.conf.default.rp_filter=0
+net.ipv4.conf.all.rp_filter=0
+```
+
+After you've made those changes, please run the following for the changes to take effect
+
+```
+sudo sysctl -p 
+````
 
 <br>
 You should also be aware that the fillet application creates a runtime cache file in the /var/tmp directory for each instance that is run. The cache file is uniquely identified by the "--identity" flag provided as a parameter. It follows the format of: /var/tmp/hlsmux_state_NNNN where NNNN is the identifier you provided. If you want to start your session from a clean state, then you should remove this state file. All of the sequence numbering will restart and all statistics will be cleared as well. It is also good practice when updating to a new version of the software to remove that file. I do add fields to this file and I have not made it backwards compatible.  I am working on making this more configurable such that it can be migrated across different Docker containers.<br>
