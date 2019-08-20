@@ -48,8 +48,11 @@ PACKAGING OPTIONS
        --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]
        --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]
        --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]
-       --webvtt
-       --astreams
+       --webvtt        [ENABLE WEBVTT CAPTION ENCODING]
+       --cdnusername   [USERNAME FOR WEBDAV ACCOUNT]
+       --cdnpassword   [PASSWORD FOR WEBDAV ACCOUNT]
+       --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]       
+       --astreams      [NUMBER OF SOURCE AUDIO STREAMS TO ENABLE]
 
 TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
        --transcode     [ENABLE TRANSCODER AND NOT JUST PACKAGING]
