@@ -205,7 +205,7 @@ Get Service Count:
 http://127.0.0.1:8080/api/v1/get_service_count
 
 Get Service List (A list of the current services and high level status but not a lot of details):
-http://127.0.0.1:8080/api/v1/get_service_list
+http://127.0.0.1:8080/api/v1/list_services
 
 Get System Information (CPU Load, Memory, Temperature, etc.):
 http://127.0.0.1:8080/api/v1/system_information
