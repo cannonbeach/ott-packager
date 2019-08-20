@@ -339,6 +339,7 @@ typedef struct _fillet_app_struct_
 
     void                          *event_queue;
     void                          *webdav_queue;
+    void                          *signal_queue;
 
     hlsmux_struct                 *hlsmux;
 

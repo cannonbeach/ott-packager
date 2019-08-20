@@ -3,7 +3,7 @@ CXX=g++
 CFLAGS=-g -c -O2 -m64 -Wall -Wfatal-errors -funroll-loops -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function
 SRC=./source
 INC=-I./include
-OBJS=crc.o tsdecode.o fgetopt.o mempool.o transvideo.o transaudio.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o webdav.o
+OBJS=crc.o tsdecode.o fgetopt.o mempool.o transvideo.o transaudio.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o webdav.o esignal.o
 LIB=libfillet.a
 BASELIBS=
 
@@ -83,6 +83,9 @@ tsdecode.o: $(SRC)/tsdecode.c
 
 webdav.o: $(SRC)/webdav.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/webdav.c
+
+esignal.o: $(SRC)/esignal.c
+	$(CC) $(CFLAGS) $(INC) $(SRC)/esignal.c
 
 crc.o: $(SRC)/crc.c
 	$(CC) $(CFLAGS) $(INC) $(SRC)/crc.c

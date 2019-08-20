@@ -51,6 +51,7 @@
 #include "hlsmux.h"
 #include "mp4core.h"
 #include "background.h"
+#include "webdav.h"
 #if defined(ENABLE_TRANSCODE)
 #include "transvideo.h"
 #include "transaudio.h"
@@ -251,6 +252,10 @@ static int destroy_fillet_core(fillet_app_struct *core)
         dataqueue_destroy(core->webdav_queue);
         core->webdav_queue = NULL;
     }
+    if (core->signal_queue) {
+        dataqueue_destroy(core->signal_queue);
+        core->signal_queue = NULL;
+    }
     memory_destroy(core->fillet_msg_pool);
     memory_destroy(core->frame_msg_pool);
     memory_destroy(core->compressed_video_pool);
@@ -281,6 +286,7 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
     core->event_queue = (void*)dataqueue_create();
     core->webdav_queue = (void*)dataqueue_create();
+    core->signal_queue = (void*)dataqueue_create();
     
     memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
 
