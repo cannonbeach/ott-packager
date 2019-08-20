@@ -279,7 +279,10 @@ app.post('/api/v1/newsource', (req, res) => {
     console.log('received new source request');
     console.log('body is ',req.body);
 
-    var nextconfig = configFolder+'/'+seconds_since_epoch()+'.json';
+    //this could cause a collision if multiple services are created at the exact same time
+    //so we should look at adding another modifier 
+    var servicenum = seconds_since_epoch();
+    var nextconfig = configFolder+'/'+servicenum+'.json';
     
     fs.writeFile(nextconfig, JSON.stringify(req.body), (err) => {
 	if (err) {
@@ -293,7 +296,14 @@ app.post('/api/v1/newsource', (req, res) => {
 	console.log('updated active configurations: ', activeconfigurations);
     });
 
-    res.send(req.body);    
+    var retdata;    
+  
+    obj = new Object();
+
+    obj.servicenum = servicenum;
+    retdata = JSON.stringify(obj);    
+    console.log(retdata);			    
+    res.send(retdata);                  
 });
 
 app.post('/api/v1/status_update/:uid', (req, res) => {
@@ -744,7 +754,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 	//that is the best we can do
 	
 	
-	console.log('serice was not found ', req.params.uid);
+	console.log('service was not found ', req.params.uid);
 	res.sendStatus(404);  // service not found
     } else {
 	//console.log('service was fine ', req.params.uid);
