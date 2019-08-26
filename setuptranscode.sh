@@ -105,7 +105,7 @@ echo "Installing libcurl from cannonbeach fork"
 git clone https://github.com/cannonbeach/curl.git ./cblibcurl
 cd cblibcurl
 ./buildconf
-./configure --prefix=/usr --enable-static --enable-pthreads --without-ssl
+./configure --prefix=/usr --enable-static --enable-pthreads --without-ssl --without-librtmp --without-libidn2 --without-nghttp2
 make -j8
 cd ..
 
@@ -120,4 +120,3 @@ cd linux
 make -j8
 
 echo "Done!"
-
