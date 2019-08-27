@@ -36,6 +36,7 @@
 #include <math.h>
 #include <syslog.h>
 #include "transaudio.h"
+#include "esignal.h"
 
 #if defined(ENABLE_TRANSCODE)
 
@@ -187,7 +188,7 @@ void *audio_encode_thread(void *context)
             
             if (aac_errcode != AACENC_OK) {
                 fprintf(stderr,"error: unable to encode aac audio!\n");
-                // exit?
+                send_signal(core, SIGNAL_ENCODE_ERROR, "Audio Encode Error");
             }
             source_buffer_size -= requested_length;
             if (source_buffer_size < 0) {
@@ -206,7 +207,8 @@ void *audio_encode_thread(void *context)
                 
                 encoded_output_buffer = (uint8_t*)memory_take(core->compressed_audio_pool, output_size);
                 if (!encoded_output_buffer) {
-                    // handle this
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Compressed Audio Buffers");
+                    exit(0);
                 }
                 memcpy(encoded_output_buffer, output_buffer, output_size);
 
@@ -313,6 +315,7 @@ void *audio_decode_thread(void *context)
                     } else {
                         //unknown media type- report error and quit!
                         fprintf(stderr,"error: unknown media type - unable to process sample\n");
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_UNKNOWN, "Uknown Audio Format");                        
                         exit(0);
                     }
                     decode_parser = av_parser_init(decode_codec->id);
@@ -364,6 +367,7 @@ void *audio_decode_thread(void *context)
                             retcode);
                     if (retcode < 0) {
                         fprintf(stderr,"error: unable to parse audio frame - sorry - buffersize:%d\n", incoming_audio_buffer_size);
+                        send_signal(core, SIGNAL_PARSE_ERROR, "Audio Parse Error");
                         break;
                     }                                          
 
@@ -388,8 +392,8 @@ void *audio_decode_thread(void *context)
                             */
                             
                     if (retcode < 0) {
-                        //error decoding audio frame-report!
                         fprintf(stderr,"error: unable to decode audio frame - sorry - buffersize:%d\n", decode_pkt->size);
+                        send_signal(core, SIGNAL_DECODE_ERROR, "Audio Decode Error");
                         break;
                     }
 
@@ -532,6 +536,7 @@ void *audio_decode_thread(void *context)
                                     diff_audio < -quit_threshold) {
                                     fprintf(stderr,"fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
                                     syslog(LOG_ERR,"fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
+                                    send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (AUDIO)");
                                     exit(0);
                                 }
                             }
@@ -541,7 +546,8 @@ void *audio_decode_thread(void *context)
                         
                         // check size of updated_output_buffer_size+1
                         if (updated_output_buffer_size > 65535 || updated_output_buffer_size < 0) {
-                            fprintf(stderr,"warning: output buffer size is excessively large or malformed: %d \n", updated_output_buffer_size); 
+                            fprintf(stderr,"warning: output buffer size is excessively large or malformed: %d \n", updated_output_buffer_size);
+                            send_signal(core, SIGNAL_MALFORMED_DATA, "Malformed Audio Detected");
                             updated_output_buffer_size = 65535;
                         }
                         
@@ -549,6 +555,7 @@ void *audio_decode_thread(void *context)
                         if (!decoded_audio_buffer) {
                             fprintf(stderr,"fatal error: unable to obtain decoded_audio_buffer from pool!\n");
                             syslog(LOG_ERR,"fatal error: unable to obtain decoded_audio_buffer from pool!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Audio Buffers");
                             exit(0);
                         }
                         // check size
@@ -584,6 +591,7 @@ void *audio_decode_thread(void *context)
                             if (!filler_decoded_audio_buffer) {
                                 fprintf(stderr,"fatal error: unable to obtain filler_decoded_audio_buffer from pool!\n");
                                 syslog(LOG_ERR,"fatal error: unable to obtain filler_decoded_audio_buffer from pool!\n");
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Audio Buffers");                                
                                 exit(0);                            
                             }
                             memset(filler_decoded_audio_buffer, 0, updated_output_buffer_size);
@@ -597,6 +605,9 @@ void *audio_decode_thread(void *context)
                                 encode_msg->sample_rate = decode_avctx->sample_rate;
                                 encode_msg->first_pts = first_decoded_pts;
                                 dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
+                            } else {
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
+                                exit(0);                                
                             }
                             current_sample_out++;
                             actual_audio_data += updated_output_buffer_size;
@@ -604,6 +615,7 @@ void *audio_decode_thread(void *context)
                             
                             syslog(LOG_INFO,"SILENCE INSERTION-MISSING AUDIO!! MAINTAINING A/V SYNC\n");
                             fprintf(stderr,"SILENCE INSERTION-MISSING AUDIO!! MAINTAINING A/V SYNC\n");
+                            send_signal(core, SIGNAL_INSERT_SILENCE, "Inserting Silence To Maintain A/V Sync");                            
                             
                             total_audio_time_output = (int64_t)((double)ticks_per_sample * (double)actual_audio_data);
                             output_pts_full_time = (int64_t)first_decoded_pts + (int64_t)total_audio_time_output;
@@ -616,6 +628,7 @@ void *audio_decode_thread(void *context)
                             decoded_audio_buffer = NULL;
                             actual_audio_data -= updated_output_buffer_size;
                             diff_audio += updated_output_buffer_size;
+                            send_signal(core, SIGNAL_DROP_AUDIO, "Dropping Audio Samples To Maintain A/V Sync");
                         } else {                                            
                             encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                             if (encode_msg) {
@@ -627,6 +640,9 @@ void *audio_decode_thread(void *context)
                                 encode_msg->sample_rate = decode_avctx->sample_rate;
                                 encode_msg->first_pts = first_decoded_pts;
                                 dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);                        
+                            } else {
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
+                                exit(0);
                             }
                             current_sample_out++;
                         }
@@ -640,7 +656,8 @@ void *audio_decode_thread(void *context)
             memory_return(core->fillet_msg_pool, msg);
             msg = NULL;
         } else {
-            //report error condition!
+            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
+            exit(0);
         }
     }
 

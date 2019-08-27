@@ -33,6 +33,7 @@
 #include "mp4core.h"
 #include "hlsmux.h"
 #include "webdav.h"
+#include "esignal.h"
 
 #define MAX_STREAM_NAME       256
 #define MAX_TEXT_SIZE         512
@@ -1175,7 +1176,31 @@ static int end_mp4_fragment(fillet_app_struct *core, stream_struct *stream, int 
             snprintf(stream_name_link, MAX_STREAM_NAME-1, "%s/segment%ld.mp4", local_dir, segment_time); //stream->media_sequence_number);
             syslog(LOG_INFO,"HLSMUX: WRITING OUT %s (%s)\n", stream_name_link, stream_name);
             symlink(stream_name, stream_name_link);
-        }        
+            send_signal(core, SIGNAL_SEGMENT_WRITTEN, stream_name_link);
+
+            /*
+            if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {
+                dataqueue_message_struct *msg;        
+                //this is also done in the start_end_fragment
+                //send message to webdav thread for upload
+                //base url is: core->cd->cdn_server        - it doesn't need to match the manifest directory tag since it can be uploaded anywhere and we are keeping the
+                //                                           manifest in the same directory as the transport files right now. this could be changed, to accommodate archival
+                //                                           but for now we'll keep it simple and straightforward to setup
+                msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                if (msg) {
+                    snprintf(msg->smallbuf, MAX_SMALLBUF_SIZE-1, "%s", stream_name); // this is the directory on the local server which is what we want
+                    msg->buffer = NULL;
+                    msg->buffer_type = WEBDAV_UPLOAD;
+                    
+                    dataqueue_put_front(core->webdav_queue, msg);
+                } else {
+                    fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                            core->session_id);
+                    exit(0);
+                }      
+            }// end checking for cdn availability
+            */
+        }
     }
     
     return 0;
@@ -1265,6 +1290,8 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
 
     fclose(video_manifest);
 
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, stream_name);
+
     if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {        
         dataqueue_message_struct *msg;
         msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
@@ -1324,6 +1351,8 @@ static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stre
     }
 
     fclose(audio_manifest);
+
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, stream_name);    
 
     if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {        
         dataqueue_message_struct *msg;
@@ -1462,6 +1491,8 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
     
     fclose(master_manifest);
 
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, master_manifest_filename);    
+
     if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {        
         dataqueue_message_struct *msg;
 
@@ -1534,6 +1565,8 @@ static int update_mp4_video_manifest(fillet_app_struct *core, stream_struct *str
 
     fclose(video_manifest);
 
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, stream_name);    
+
     return 0;
 }
 
@@ -1572,6 +1605,8 @@ static int update_mp4_audio_manifest(fillet_app_struct *core, stream_struct *str
     }
 
     fclose(audio_manifest);
+
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, stream_name);    
     
     return 0;
 }
@@ -2054,6 +2089,9 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     fprintf(master_manifest,"</MPD>\n");    
 
     fclose(master_manifest);
+
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, master_manifest_filename);
+
     return 0;
 }
 
@@ -2152,6 +2190,8 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
     }
     
     fclose(master_manifest);
+
+    send_signal(core, SIGNAL_MANIFEST_WRITTEN, master_manifest_filename);    
     
     return 0;
 }
@@ -2160,22 +2200,23 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
 static int end_ts_fragment(fillet_app_struct *core, stream_struct *stream, int source, int sub_stream, int video)
 {
     int cdn_upload = 0;
+    char stream_name[MAX_STREAM_NAME];
+    if (video) {
+        snprintf(stream_name, MAX_STREAM_NAME-1, "%s/video_stream%d_%ld.ts", core->cd->manifest_directory, source, stream->file_sequence_number);
+    } else {
+        snprintf(stream_name, MAX_STREAM_NAME-1, "%s/audio_stream%d_substream_%d_%ld.ts", core->cd->manifest_directory, source, sub_stream, stream->file_sequence_number);	    
+    }    
     
     if (stream->output_ts_file) {
 	fclose(stream->output_ts_file);
 	stream->output_ts_file = NULL;
 	stream->fragments_published++;
     }
+    send_signal(core, SIGNAL_SEGMENT_WRITTEN, stream_name);
 
     if ((strlen(core->cd->cdn_server) > 0) && (strlen(core->cd->cdn_username) > 0) && (strlen(core->cd->cdn_password) > 0)) {
-	char stream_name[MAX_STREAM_NAME];
         dataqueue_message_struct *msg;        
         //this is also done in the start_ts_fragment
-        if (video) {
-            snprintf(stream_name, MAX_STREAM_NAME-1, "%s/video_stream%d_%ld.ts", core->cd->manifest_directory, source, stream->file_sequence_number);
-        } else {
-            snprintf(stream_name, MAX_STREAM_NAME-1, "%s/audio_stream%d_substream_%d_%ld.ts", core->cd->manifest_directory, source, sub_stream, stream->file_sequence_number);	    
-        }
         //send message to webdav thread for upload
         //base url is: core->cd->cdn_server        - it doesn't need to match the manifest directory tag since it can be uploaded anywhere and we are keeping the
         //                                           manifest in the same directory as the transport files right now. this could be changed, to accommodate archival

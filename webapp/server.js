@@ -1,5 +1,29 @@
+/*****************************************************************************                                                                                                                             
+  Copyright (C) 2018-2019 John William
+
+  This program is free software; you can redistribute it and/or modify                                                                                                                                     
+  it under the terms of the GNU General Public License as published by                                                                                                                                     
+  the Free Software Foundation; either version 2 of the License, or                                                                                                                                        
+  (at your option) any later version.                                                                                                                                                                      
+                                                                                                                                                                                                           
+  This program is distributed in the hope that it will be useful,                                                                                                                                          
+  but WITHOUT ANY WARRANTY; without even the implied warranty of                                                                                                                                           
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                                                                                                                                            
+  GNU General Public License for more details.                                                                                                                                                             
+                                                                                                                                                                                                           
+  You should have received a copy of the GNU General Public License                                                                                                                                        
+  along with this program; if not, write to the Free Software                                                                                                                                              
+  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.                                                                                                      
+                                                                                                                                                                                                           
+  This program is also available under a commercial license with                                                                                                                                           
+  customization/support packages and additional features.  For more                                                                                                                                        
+  information, please contact us at cannonbeachgoonie@gmail.com                                                                                                                                          
+                                                                                                                                                                                                         
+******************************************************************************/
+
 console.log('Server-side code running');
 
+const { createLogger, transports, format } = require('winston');
 var exec = require('child_process').exec;
 var os = require('os');
 var networkInterfaces = os.networkInterfaces( );
@@ -13,6 +37,22 @@ app.use(bodyParser.json());
 
 // serve files from the public directory
 app.use(express.static('public'));
+
+const logfilename = '/var/log/eventlog.log';
+
+const logger = createLogger({
+    level: 'info',
+    format: format.combine(
+        format.json(),
+        format.timestamp()
+    ),
+    transports: [
+        new transports.File( {
+            filename: logfilename,
+            level: 'info'
+        })
+    ]
+});
 
 const configFolder = '/var/tmp/configs';
 const statusFolder = '/var/tmp/status';
@@ -103,7 +143,7 @@ app.get('/api/v1/system_information', (req, res) => {
     obj.totalmem = os.totalmem();
     obj.freemem = os.freemem();    
     retdata = JSON.stringify(obj);
-    console.log(retdata);        
+    //console.log(retdata);        
     res.send(retdata);
 });
 
@@ -144,7 +184,7 @@ app.get('/api/v1/get_service_count', (req, res) => {
     obj.services = services;
 
     retdata = JSON.stringify(obj);
-    console.log(retdata);
+    //console.log(retdata);
 
     res.send(retdata);    
 });
@@ -180,16 +220,16 @@ app.get('/api/v1/get_control_page', (req, res) => {
 	    var configdata = fs.readFileSync(fullfile, 'utf8');
 	    var words = JSON.parse(configdata);
 	    var fileprefix = path.basename(fullfile, '.json');
-	    
+
 	    listedfiles++;
-	    console.log(listedfiles);
+	    //console.log(listedfiles);
 
 	    html += '<tr>';
 	    html += '<td>' + configindex + '</td>';
 	    html += '<td>' + words.sourcename + '</td>';
             html += '<td>';
-	    html += '<button style="width:95%" id=\'start_button'+configindex+'\'>Start </button><br>';
-	    html += '<button style="width:95%" id=\'stop_button'+configindex+'\'>Stop </button><br>';
+	    html += '<button style="width:95%" id=\'start_service'+configindex+'\'>Start </button><br>';
+	    html += '<button style="width:95%" id=\'stop_service'+configindex+'\'>Stop </button><br>';
 	    html += '<button hidden style="width:95%" id=\'reset_button'+configindex+'\'>Reset</button>';
 	    html += '</td>';
 	    html += '<td><div id=\'active'+configindex+'\'>';  
@@ -240,47 +280,73 @@ app.post('/api/v1/restore_services', (req, res) => {
     //
 });
 
-app.post('/api/v1/removesource/:uid', (req, res) => {
+app.post('/api/v1/remove_service/:uid', (req, res) => {
     console.log('received remove source request: ', req.params.uid);
 
     var files = fs.readdirSync(configFolder);    
-    
+    var responding = 0;
     var listedfiles = 0;
     
     files.forEach(file => {
 	console.log(getExtension(file));
 	if (getExtension(file) == '.json') {
 	    var configindex = listedfiles + 1;
-	    if (configindex == req.params.uid) {	
-		var removeConfig = configFolder+'/'+file;
+            var fullfile = configFolder+'/'+file;
+	    var fileprefix = path.basename(fullfile, '.json');            
+	    if ((configindex == req.params.uid) || (fileprefix == req.params.uid)) {	
+		var removeConfig = fullfile;
 		var removeStatus = statusFolder+'/' + file;
 
+		activeconfigurations--;                   
 		try {
 		    fs.unlinkSync(removeStatus)
 		} catch(err) {
 		    console.error(err)
 		}
-		
+
+		responding = 1;
 		try {
 		    fs.unlinkSync(removeConfig)
+                    var retdata;
+                    var current_status = 'success';
+                    obj = new Object();
+                    obj.status = current_status;
+                    retdata = JSON.stringify(obj);    
+                    console.log(retdata);			    
+                    res.send(retdata);                                                                                
 		} catch(err) {
 		    console.error(err)
+                    var retdata;
+                    var current_status = 'failed';
+                    obj = new Object();
+                    obj.status = current_status;
+                    retdata = JSON.stringify(obj);    
+                    console.log(retdata);			    
+                    res.send(retdata);                                                                                
 		}
-		activeconfigurations--;   
 	    }
 	    listedfiles++;
 	}
     });
-    
-    res.send(req.body);
+
+    if (!responding) {
+        var retdata;
+        var current_status = 'invalid';
+        obj = new Object();
+        obj.status = current_status;
+        retdata = JSON.stringify(obj);    
+        console.log(retdata);			    
+        res.send(retdata);
+    }
 });
 
-app.post('/api/v1/newsource', (req, res) => {
+app.post('/api/v1/new_service', (req, res) => {
     console.log('received new source request');
     console.log('body is ',req.body);
 
     //this could cause a collision if multiple services are created at the exact same time
-    //so we should look at adding another modifier 
+    //so we should look at adding another modifier
+    //if the file already exists, we should wait and try again
     var servicenum = seconds_since_epoch();
     var nextconfig = configFolder+'/'+servicenum+'.json';
     
@@ -303,12 +369,12 @@ app.post('/api/v1/newsource', (req, res) => {
     obj.servicenum = servicenum;
     retdata = JSON.stringify(obj);    
     console.log(retdata);			    
-    res.send(retdata);                  
+    res.send(retdata);
 });
 
 app.post('/api/v1/status_update/:uid', (req, res) => {
     console.log('received status update from: ', req.params.uid);
-    console.log('body is ',req.body);
+    //console.log('body is ',req.body);
 
     var nextstatus = statusFolder+'/'+req.params.uid+'.json';
 
@@ -320,28 +386,34 @@ app.post('/api/v1/status_update/:uid', (req, res) => {
 	console.log('File has been created: ', nextstatus);
     });
 	
-    //res.sendStatus(200);
     res.send(req.body);
 });
 
-app.post('/api/v1/stop_clicked/:uid', (req, res) => {
+app.post('/api/v1/signal/:uid', (req, res) => {
+    console.log('receive event signal from: ', req.params.uid);
+    console.log('body is ', req.body);
+    //logger.info(req.body);
+    res.send(req.body);
+});
+
+app.post('/api/v1/stop_service/:uid', (req, res) => {
     console.log('stop button pressed: ', req.params.uid);
 
     var files = fs.readdirSync(configFolder);
     var listedfiles = 0;
-
+    var responding = 0;
+    
     files.forEach(file => {
 	console.log(getExtension(file));
 	if (getExtension(file) == '.json') {
+	    var fullfile = configFolder+'/'+file;
+	    var fileprefix = path.basename(fullfile, '.json');            
 	    var configindex = listedfiles + 1;
-	    if (configindex == req.params.uid) {	
-		var fullfile = configFolder+'/'+file;
+	    if ((configindex == req.params.uid) || (fileprefix == req.params.uid)) {	
 		var statusfile = statusFolder+'/'+file;
 		var configdata = fs.readFileSync(fullfile, 'utf8');
 		var words = JSON.parse(configdata);
 		console.log('this service maps to current file: ', fullfile);
-
-		var fileprefix = path.basename(fullfile, '.json');
 		console.log('the file prefix is: ', fileprefix);
 
 		var touchfile = statusFolder+'/'+fileprefix+'.lock';
@@ -350,30 +422,65 @@ app.post('/api/v1/stop_clicked/:uid', (req, res) => {
 		var stop_cmd = 'sudo docker stop livestream'+fileprefix;
 		var rm_cmd = 'sudo docker rm livestream'+fileprefix;
 
-		fs.unlinkSync(statusfile)
+                if (fs.existsSync(statusfile)) {
+		    fs.unlinkSync(statusfile)
+                }
 		
 		console.log('stop command: ', stop_cmd);
+                responding = 1;
 		exec(stop_cmd, (err, stdout, stderr) => {
 		    if (err) {
 			console.log('Unable to stop Docker container');
+                        var retdata;
+                        var current_status = 'failed';
+                        obj = new Object();
+                        obj.status = current_status;
+                        retdata = JSON.stringify(obj);    
+                        console.log(retdata);			    
+                        res.send(retdata);
 		    } else {
+                        var failed_sent = 0;
 			try {
 			    console.log('removing status file: ', statusfile);
 			    fs.unlinkSync(statusfile);
 			} catch (errremove) {
 			    console.error(errremove);
-			}			
-			console.log('Stopped Docker container- now removing it');
-			console.log('remove command: ', rm_cmd);			
-			exec(rm_cmd, (err, stdout, stderr) => {
-			    if (err) {
-				console.log('Unable to remove Docker container');
-				fs.unlinkSync(touchfile);
-			    } else {
-				console.log('Removed Docker container');
-				fs.unlinkSync(touchfile);
-			    }
-			});
+                            failed_sent = 1;
+                            var retdata;
+                            var current_status = 'failed';
+                            obj = new Object();
+                            obj.status = current_status;
+                            retdata = JSON.stringify(obj);    
+                            console.log(retdata);			    
+                            res.send(retdata);                                                                                        
+			}
+                        if (!failed_sent) {
+			    console.log('Stopped Docker container- now removing it');
+			    console.log('remove command: ', rm_cmd);			
+			    exec(rm_cmd, (err, stdout, stderr) => {
+			        if (err) {
+				    console.log('Unable to remove Docker container');
+				    fs.unlinkSync(touchfile);
+                                    var retdata;
+                                    var current_status = 'failed';
+                                    obj = new Object();
+                                    obj.status = current_status;
+                                    retdata = JSON.stringify(obj);    
+                                    console.log(retdata);			    
+                                    res.send(retdata);                                                            
+			        } else {
+				    console.log('Removed Docker container');
+				    fs.unlinkSync(touchfile);
+                                    var retdata;
+                                    var current_status = 'success';
+                                    obj = new Object();
+                                    obj.status = current_status;
+                                    retdata = JSON.stringify(obj);    
+                                    console.log(retdata);			    
+                                    res.send(retdata);                                                            
+			        }                            
+                            });
+                        }
 		    }
 		});		
 	    }
@@ -381,29 +488,54 @@ app.post('/api/v1/stop_clicked/:uid', (req, res) => {
 	}
     });
 
-    res.sendStatus(200);    
+    if (!responding) {
+        var retdata;
+        var current_status = 'invalid';
+        obj = new Object();
+        obj.status = current_status;
+        retdata = JSON.stringify(obj);    
+        console.log(retdata);			    
+        res.send(retdata);
+    }    
 });
 
-app.post('/api/v1/start_clicked/:uid', (req, res) => {
+function os_func() {
+    this.execCommand = function(cmd) {
+        return new Promise((resolve, reject) => {
+            exec(cmd, (err, stdout, stderr) => {
+                if (err) {
+                    reject(err);
+                    return;
+                }
+                resolve(stdout)
+            });
+        })
+    }
+}
+
+app.post('/api/v1/start_service/:uid', (req, res) => {
     const click = {clickTime: new Date()};
     console.log(click);    
     console.log('start button pressed: ', req.params.uid);
 
     var files = fs.readdirSync(configFolder);
     var listedfiles = 0;
+    var valid_service = 0;
+    var responding = 0;
 
     files.forEach(file => {
 	console.log(getExtension(file));
 	if (getExtension(file) == '.json') {
+	    var fullfile = configFolder+'/'+file;
+	    var fileprefix = path.basename(fullfile, '.json');            
 	    var configindex = listedfiles + 1;
-	    if (configindex == req.params.uid) {	
-		var fullfile = configFolder+'/'+file;
+	    if ((configindex == req.params.uid) || (fileprefix == req.params.uid)) {	
 		var configdata = fs.readFileSync(fullfile, 'utf8');
 		var words = JSON.parse(configdata);
 		console.log('this service maps to current file: ', fullfile);
-
-		var fileprefix = path.basename(fullfile, '.json');
 		console.log('the file prefix is: ', fileprefix);
+
+                valid_service = 1;
 
 		var touchfile = statusFolder+'/'+fileprefix+'.lock';
 		fs.closeSync(fs.openSync(touchfile, 'w'));		
@@ -512,23 +644,50 @@ app.post('/api/v1/start_clicked/:uid', (req, res) => {
 		    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 --scte35 --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --identity '+fileprefix+' --hls --dash --astreams '+astreams+' '+manifest_string;
 		    
 		    console.log('start command: ', start_cmd);
+
+                    responding = 1;
 		    exec(start_cmd, (err, stdout, stderr) => {
 			if (err) {
+                            var retdata;
+                            var current_status = 'failed';
+                            
 			    console.log('Unable to run Docker');
 			    fs.unlinkSync(touchfile);			    
-			    // not working- send different status code back to client side
+                            obj = new Object();
+                            obj.status = current_status;
+                            retdata = JSON.stringify(obj);    
+                            console.log(retdata);			    
+                            res.send(retdata);                        
 			} else {
+                            var retdata;
+                            var current_status = 'success';
+                            
 			    console.log('Started Docker container');
-			    fs.unlinkSync(touchfile);			    
+			    fs.unlinkSync(touchfile);
+
+                            obj = new Object();
+                            obj.status = current_status;
+                            retdata = JSON.stringify(obj);    
+                            console.log(retdata);			    
+                            res.send(retdata);                                                
 			}
-		    });
+		    });                   
+                
 		}//transcode operation done
 	    }
 	    listedfiles++;
 	}
     });
 
-    res.sendStatus(200);
+    if (!responding) {
+        var retdata;
+        var current_status = 'invalid';
+        obj = new Object();
+        obj.status = current_status;
+        retdata = JSON.stringify(obj);    
+        console.log(retdata);			    
+        res.send(retdata);
+    }
 });
 
 function listed_service(serviceindex, servicenum) {
@@ -559,7 +718,7 @@ app.get('/api/v1/list_services', (req, res) => {
 
     obj.service_list = services;
     retdata = JSON.stringify(obj);    
-    console.log(retdata);			    
+    //console.log(retdata);			    
     res.send(retdata);                  
 });
 
@@ -583,8 +742,10 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
     files.forEach(file => {
 	if (getExtension(file) == '.json') {
 	    var configindex = listedfiles + 1;
+	    var fullfileStatus = statusFolder+'/'+file;
+	    var fileprefix = path.basename(fullfileStatus, '.json');            
 	    console.log('get_service_status: checking configindex ', configindex, ' looking for ', req.params.uid);
-	    if (configindex == req.params.uid) {
+	    if ((configindex == req.params.uid) || (fileprefix == req.params.uid)) {
 		var fullfileStatus = statusFolder+'/'+file;
 		var fullfileConfig = configFolder+'/'+file;
 		var fileprefix = path.basename(fullfileStatus, '.json');
@@ -593,7 +754,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 		    if (fs.existsSync(fullfileStatus)) {
 			var configdata = fs.readFileSync(fullfileStatus, 'utf8');		
 			if (configdata) {
-			    console.log(configdata);
+			    //console.log(configdata);
 			    var words = JSON.parse(configdata);
 			    var uptime;
 			    
@@ -654,7 +815,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    obj.output_streams = streams;
 			    retdata = JSON.stringify(obj);
 			    
-			    console.log(retdata);
+			    //console.log(retdata);
 			    
 			    res.send(retdata);
 			    sent = 1;
@@ -663,7 +824,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 		    } else if (fs.existsSync(fullfileConfig)) {
 			var configdata = fs.readFileSync(fullfileConfig, 'utf8');		
 			if (configdata) {
-			    console.log(configdata);
+			    //console.log(configdata);
 			    var words = JSON.parse(configdata);
 			    var uptime;
 			    
@@ -676,8 +837,8 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    obj.input_signal = 0;
 			    obj.input_interface = words.inputinterface1;
 			    obj.source_ip = words.ipaddr_primary;
-			    console.log('interface:',words.inputinterface1);
-			    console.log('ipaddr_primary:',words.ipaddr_primary);
+			    //console.log('interface:',words.inputinterface1);
+			    //console.log('ipaddr_primary:',words.ipaddr_primary);
 			    obj.source_width = 0;
 			    obj.source_height = 0;
 			    obj.fpsnum = 0;
@@ -728,7 +889,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
 			    obj.output_streams = 0;//null;//streams;
 			    retdata = JSON.stringify(obj);
 			    
-			    console.log(retdata);
+			    //console.log(retdata);
 
 			    res.status(200);
 			    res.send(retdata);

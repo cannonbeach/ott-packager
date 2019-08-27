@@ -40,9 +40,9 @@ document.addEventListener('click',function(e){
     if (strncmp(buttonString,'start',5) == 0) {
 	console.log('the start button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	var clickedButton = '/api/v1/start_clicked/'+button_number;
+	var clickedButton = '/api/v1/start_service/'+button_number;
 	var resetbuttonString = 'reset_button'+button_number;
-	var stopbuttonString = 'stop_button'+button_number;
+	var stopbuttonString = 'stop_service'+button_number;
 	var resetButton = document.getElementById(resetbuttonString);
 	var stopButton = document.getElementById(stopbuttonString);
 	currentButton.disabled = true;
@@ -63,9 +63,9 @@ document.addEventListener('click',function(e){
     } else if (strncmp(buttonString,'stop',4) == 0) {
 	console.log('the stop button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	var clickedButton = '/api/v1/stop_clicked/'+button_number;	
+	var clickedButton = '/api/v1/stop_service/'+button_number;	
 	var resetbuttonString = 'reset_button'+button_number;
-	var startbuttonString = 'start_button'+button_number;
+	var startbuttonString = 'start_service'+button_number;
 	var resetButton = document.getElementById(resetbuttonString);
 	var startButton = document.getElementById(startbuttonString);
 	currentButton.disabled = true;	
@@ -102,7 +102,7 @@ document.addEventListener('click',function(e){
     } else if (strncmp(buttonString,"remove",6) == 0) {
 	console.log('the remove button was pressed');
 	var currentButton = document.getElementById(buttonString);
-	var clickedButton = '/api/v1/removesource/'+button_number;
+	var clickedButton = '/api/v1/remove_service/'+button_number;
 
 	var result = confirm("Are you sure you want to remove this service?");
 	if (result) {
@@ -349,7 +349,7 @@ submit_button_transcode.addEventListener('click', function(e) {
 	
 	console.log(JSON.parse(postdata));
 
-	const url = "/api/v1/newsource";
+	const url = "/api/v1/new_service";
 	const requestinfo = {
 	    method: 'POST',	    
 	    headers: {
@@ -428,9 +428,9 @@ function request_service_status(service)
 	    } else {
 		var elementname_active = 'active'+service;
 		var elementname_uptime = 'uptime'+service;
-		var stopbuttonString = 'stop_button'+service;
+		var stopbuttonString = 'stop_service'+service;
 		var resetbuttonString = 'reset_button'+service;
-		var startbuttonString = 'start_button'+service;		
+		var startbuttonString = 'start_service'+service;		
 		var stopButton = document.getElementById(stopbuttonString);
 		var resetButton = document.getElementById(resetbuttonString);
 		var startButton = document.getElementById(startbuttonString);
@@ -451,9 +451,9 @@ function request_service_status(service)
 	    if (get_uptime == -1) {
 		var elementname_active = 'active'+service;
 		var elementname_uptime = 'uptime'+service;
-		var stopbuttonString = 'stop_button'+service;
+		var stopbuttonString = 'stop_service'+service;
 		var resetbuttonString = 'reset_button'+service;
-		var startbuttonString = 'start_button'+service;		
+		var startbuttonString = 'start_service'+service;		
 		var stopButton = document.getElementById(stopbuttonString);
 		var resetButton = document.getElementById(resetbuttonString);
 		var startButton = document.getElementById(startbuttonString);
@@ -473,8 +473,8 @@ function request_service_status(service)
 		startButton.disabled = false;		
 	    } else {
 		var input_signal = service_words.input_signal;
-		var startbuttonString = 'start_button'+service;
-		var stopbuttonString = 'stop_button'+service;
+		var startbuttonString = 'start_service'+service;
+		var stopbuttonString = 'stop_service'+service;
 		var resetbuttonString = 'reset_button'+service;	    
 		var startButton = document.getElementById(startbuttonString);
 		var stopButton = document.getElementById(stopbuttonString);

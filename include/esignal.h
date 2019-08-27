@@ -42,6 +42,23 @@
 #define SIGNAL_LOW_DISK_SPACE        0x0b
 #define SIGNAL_INPUT_SIGNAL_LOCKED   0x0c
 #define SIGNAL_INPUT_ERRORS          0x0d  //hit specific error threshold
+#define SIGNAL_SEGMENT_WRITTEN       0x0f
+#define SIGNAL_MANIFEST_WRITTEN      0x10
+#define SIGNAL_FRAME_REPEAT          0x11
+#define SIGNAL_INSERT_SILENCE        0x12
+#define SIGNAL_DROP_AUDIO            0x13
+#define SIGNAL_DECODE_ERROR          0x14
+#define SIGNAL_ENCODE_ERROR          0x15
+#define SIGNAL_PARSE_ERROR           0x16
+#define SIGNAL_MALFORMED_DATA        0x17
+
+#define SIGNAL_DIRECT_ERROR_AVSYNC   0xe0
+#define SIGNAL_DIRECT_ERROR_MSGPOOL  0xe1
+#define SIGNAL_DIRECT_ERROR_RAWPOOL  0xe2
+#define SIGNAL_DIRECT_ERROR_NALPOOL  0xe3
+#define SIGNAL_DIRECT_ERROR_UNKNOWN  0xe4
+#define SIGNAL_DIRECT_ERROR_IP       0xe5
+#define SIGNAL_DIRECT_ERROR_CPU      0xe6
 
 #define SIGNAL_UNKNOWN_VIDEO_TYPE    0xf1
 #define SIGNAL_UNKNOWN_AUDIO_TYPE    0xf2
@@ -53,7 +70,9 @@ extern "C" {
 
     int start_signal_thread(fillet_app_struct *core);
     int stop_signal_thread(fillet_app_struct *core);
-
+    int send_signal(fillet_app_struct *core, int signal_type, const char *message);
+    int send_direct_error(fillet_app_struct *core, int signal_type, const char *message);        
+    
 #if defined(__cplusplus)
 }
 #endif // __cplusplus

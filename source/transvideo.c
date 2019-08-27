@@ -1,5 +1,5 @@
 /*****************************************************************************                                                                                                                          
-  Copyright (C) 2018 Fillet                                                                                                                                                                             
+  Copyright (C) 2018-2019 John William                                                                                                                                                                             
                                                                                                                                                                                                          
   This program is free software; you can redistribute it and/or modify                                                                                                                                     
   it under the terms of the GNU General Public License as published by                                                                                                                                     
@@ -39,6 +39,7 @@
 #include "fillet.h"
 #include "dataqueue.h"
 #include "transvideo.h"
+#include "esignal.h"
 
 #if defined(ENABLE_TRANSCODE)
 
@@ -473,6 +474,7 @@ void *video_encode_thread_x265(void *context)
                 nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, nalsize);
                 if (!nal_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers");                    
                     exit(0);                    
                 }
                 for (nal_idx = 0; nal_idx < nal_count; nal_idx++) {
@@ -882,6 +884,7 @@ void *video_encode_thread_x264(void *context)
                 nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, output_size);
                 if (!nal_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H264)");
                     exit(0);                                                            
                 }
                 memcpy(nal_buffer, x264_data[current_queue].nal->p_payload, output_size);
@@ -1236,6 +1239,7 @@ void *video_prepare_thread(void *context)
                         thumbnail_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (!thumbnail_msg) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain thumbnail_msg!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (Thumbnail)");
                             exit(0);                                                                                            
                         }
                         thumbnail_msg->buffer = thumbnail_output;                        
@@ -1285,6 +1289,7 @@ void *video_prepare_thread(void *context)
                         deinterlaced_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                         if (!deinterlaced_buffer) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain deinterlaced_buffer!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");                            
                             exit(0);                                                
                         }
                         sourcey = (uint8_t*)scaled_output[current_output].output_data[0];
@@ -1339,17 +1344,21 @@ void *video_prepare_thread(void *context)
                             sync_diff < -fps) {
                             syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
                             fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO)");
                             exit(0);                                                                                                                        
                         }
 
                         if (sync_diff < -1) {
+                            send_signal(core, SIGNAL_FRAME_REPEAT, "Repeating Video Frame To Maintain A/V Sync");
+                            
                             uint8_t *repeated_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                             if (repeated_buffer) {
-                                memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);
+                                memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);                                
 
                                 encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                                 if (!encode_msg) {
                                     fprintf(stderr,"FATAL ERROR: unable to obtain encode_msg!!\n");
+                                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
                                     exit(0);                                                                                            
                                 }
                                 encode_msg->buffer = repeated_buffer;
@@ -1380,6 +1389,7 @@ void *video_prepare_thread(void *context)
                                 dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);                                
                             } else {
                                 fprintf(stderr,"FATAL ERROR: unable to obtain repeated_buffer!!\n");
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");
                                 exit(0);
                             }
                         }
@@ -1387,6 +1397,7 @@ void *video_prepare_thread(void *context)
                         encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (!encode_msg) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain encode_msg!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
                             exit(0);                            
                         }
                         encode_msg->buffer = deinterlaced_buffer;
@@ -1665,6 +1676,7 @@ void *video_decode_thread(void *context)
                     output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                     if (!output_video_frame) {
                         fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");
                         exit(0);
                     }
 
@@ -1814,6 +1826,7 @@ void *video_decode_thread(void *context)
                         dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);                        
                     } else {
                         fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");                        
                         exit(0);                                               
                     }
                 }
@@ -1855,6 +1868,7 @@ int start_video_transcode_threads(fillet_app_struct *core)
         pthread_create(&video_encode_thread_id, NULL, video_encode_thread_x264, (void*)core);
     } else {
         fprintf(stderr,"error: unknown video encoder selected! fail!\n");
+        //signal-unsupported video encoder type
         exit(0);
     }
 

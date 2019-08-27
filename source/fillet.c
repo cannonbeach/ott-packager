@@ -52,6 +52,7 @@
 #include "mp4core.h"
 #include "background.h"
 #include "webdav.h"
+#include "esignal.h"
 #if defined(ENABLE_TRANSCODE)
 #include "transvideo.h"
 #include "transaudio.h"
@@ -298,8 +299,13 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->fillet_msg_pool = memory_create(MAX_MSG_BUFFERS, 0);
     core->frame_msg_pool = memory_create(MAX_FRAME_BUFFERS, 0);
 #endif
-    // this will limit memory usage for transcode so that it never turns into a
-    // neverending malloc causing other instances of the app to fail
+    //this will limit memory usage for transcode so that it never turns into a
+    //neverending malloc causing other instances of the app to fail
+    //
+    //these should be mode over to preallocations to prevent heap fragmentation
+    //while running for longer periods of time
+    //heap fragmentation will add more kernel load- for now this is alright
+    //since we are aware of the tradeoffs regarding this choice
     core->compressed_video_pool = memory_create(MAX_VIDEO_COMPRESSED_BUFFERS, 0);
     core->compressed_audio_pool = memory_create(MAX_AUDIO_COMPRESSED_BUFFERS, 0);
     core->raw_video_pool = memory_create(MAX_VIDEO_RAW_BUFFERS, 0);
@@ -1195,6 +1201,7 @@ static void *frame_sync_thread(void *context)
             if (enable_transcode) {
                 fprintf(stderr,"SESSION:%d (MAIN) STATUS: RESTARTING APPLICATION\n", core->session_id);
                 // setup Docker container do a restart
+                send_direct_error(core, SIGNAL_SERVICE_RESTART, "Unrecoverable Discontinuity Detected - Restarting Service");
                 exit(0);
             }
                 
@@ -1260,6 +1267,7 @@ static void *frame_sync_thread(void *context)
                         } else {
                             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                                     core->session_id);
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
                             exit(0);
                         }
 		    } else {
@@ -1304,6 +1312,7 @@ static void *frame_sync_thread(void *context)
                     } else {
                         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                                 core->session_id);
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
                         exit(0);
                     }
 		} else {
@@ -1347,6 +1356,7 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     if (!new_frame) {
         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                 core->session_id);
+        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");        
         exit(0);
     }
     
@@ -1411,6 +1421,7 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     if (!new_frame) {
         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                 core->session_id);
+        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");        
         exit(0);
     }  
     new_frame->buffer = new_buffer;
@@ -1562,8 +1573,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     core->scte35_duration = scte35_data->pts_duration;
                     core->scte35_duration_remaining = scte35_data->pts_duration;
                     core->scte35_triggered = 0;
+                    send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
                     //pts_adjustment- non-zero
                 } else {
+                    //additional modes needs to be included
+                    //non pts_duration mode
+                    //also need to look for signal back to network feed
                     core->scte35_ready = 0;
                 }
             } else {
@@ -1660,6 +1675,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (!new_buffer) {
             fprintf(stderr,"SESSION:%d (MAIN) STATUS: unable to obtain compressed video buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
+            send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Video NAL Buffers - Check CPU LOAD!");
             exit(0);
         }
 	memcpy(new_buffer, sample, sample_size);
@@ -1668,6 +1684,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (!new_frame) {
             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
+            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
             exit(0);          
         }      
 	new_frame->buffer = new_buffer;
@@ -1708,6 +1725,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     core->scte35_duration = 0;
                     new_frame->splice_point = 2; // splice back point
                     core->scte35_ready = 0;
+                    send_signal(core, SIGNAL_SCTE35_END, "SCTE35 Out Of Network Detected (IN)");
                     core->scte35_last_pts_diff = 0;
                 } else {
                     new_frame->splice_point = 0;
@@ -1781,6 +1799,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             } else {
                 fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                         core->session_id);
+                send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");                            
                 exit(0);
             }
 #endif // ENABLE_TRANSCODE            
@@ -1856,6 +1875,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (!new_buffer) {
             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain compressed audio buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
+            send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Compressed Audio Buffers - Check CPU LOAD!");                        
             exit(0);
         }        
 	memcpy(new_buffer, sample, sample_size);
@@ -1897,6 +1917,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (!new_frame) {
             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
+            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
             exit(0);
         }
 	new_frame->buffer = new_buffer;
@@ -1946,6 +1967,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             } else {
                 fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                         core->session_id);
+                send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");                
                 exit(0);
             }
 #endif // ENABLE_TRANSCODE
@@ -2119,6 +2141,8 @@ int main(int argc, char **argv)
      register_message_callback(message_dispatch, (void*)core);
      register_frame_callback(receive_frame, (void*)core);
 
+     start_signal_thread(core);     
+
      for (i = 0; i < config_data.active_sources; i++) {
          struct in_addr addr;	     
          snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
@@ -2129,6 +2153,7 @@ int main(int argc, char **argv)
              if (strlen(config_data.active_source[i].active_ip) == 0) {
                  fprintf(stderr,"\n\nNO IP ADDRESS WAS SPECIFIED\n\n");                
              }
+             send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");             
              exit(0);
          }
          core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
@@ -2184,11 +2209,12 @@ int main(int argc, char **argv)
 #if defined(ENABLE_TRANSCODE)
 #define WAIT_THRESHOLD_WARNING 3
 #define WAIT_THRESHOLD_ERROR   10
-#define WAIT_THRESHOLD_FAIL    30        
+#define WAIT_THRESHOLD_FAIL    30
 #define LEVEL_CHECK_THRESHOLD  500
          if (core->transcode_enabled) {
              if (loop_count >= LEVEL_CHECK_THRESHOLD) {
-                 int n;                 
+                 char signal_msg[MAX_STR_SIZE];
+                 int n;
 
                  int video_decode_frames_waiting;
                  int video_deinterlace_frames_waiting;
@@ -2208,32 +2234,44 @@ int main(int argc, char **argv)
                          memory_unused(core->compressed_video_pool),
                          memory_unused(core->compressed_audio_pool),
                          memory_unused(core->raw_video_pool),
-                         memory_unused(core->raw_audio_pool));                 
+                         memory_unused(core->raw_audio_pool));
 
                  video_decode_frames_waiting = dataqueue_get_size(core->transvideo->input_queue);
                  if (video_decode_frames_waiting > WAIT_THRESHOLD_ERROR) {
                      syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                             core->session_id,
                             n,
-                            video_decode_frames_waiting);                                              
+                            video_decode_frames_waiting);
+
+                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Decode Queue High (%d) - Check CPU Resources!", video_decode_frames_waiting);
+                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
                  } else if (video_decode_frames_waiting > WAIT_THRESHOLD_WARNING) {
                      syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                             core->session_id,
                             n,
-                            video_decode_frames_waiting);                    
-                 } 
+                            video_decode_frames_waiting);
+
+                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Decode Queue High (%d) - Check CPU Resources!", video_decode_frames_waiting);
+                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
+                 }
 
                  video_deinterlace_frames_waiting = dataqueue_get_size(core->preparevideo->input_queue);
                  if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_ERROR) {
                      syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                             core->session_id,
                             n,
-                            video_deinterlace_frames_waiting);                                              
+                            video_deinterlace_frames_waiting);
+
+                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Deinterlace Queue High (%d) - Check CPU Resources!", video_deinterlace_frames_waiting);
+                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
                  } else if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_WARNING) {
                      syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                             core->session_id,
                             n,
-                            video_deinterlace_frames_waiting);                    
+                            video_deinterlace_frames_waiting);
+
+                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Deinterlace Queue High (%d) - Check CPU Resources!", video_deinterlace_frames_waiting);
+                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
                  }                 
                  
                  for (n = 0; n < core->cd->num_outputs; n++) {
@@ -2251,17 +2289,25 @@ int main(int argc, char **argv)
                                  core->session_id,
                                  n,
                                  video_encode_frames_waiting);
+                         
+                         send_direct_error(core, SIGNAL_DIRECT_ERROR_CPU, "Video Encoder Fell Too Far Behind - Check CPU Resources!");
                          exit(0);
                      } else if (video_encode_frames_waiting > WAIT_THRESHOLD_ERROR) {
                          syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                                 core->session_id,
                                 n,
-                                video_encode_frames_waiting);                         
+                                video_encode_frames_waiting);
+
+                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Encode Queue High (%d) - Check CPU Resources!", video_encode_frames_waiting);
+                         send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
                      } else if (video_encode_frames_waiting > WAIT_THRESHOLD_WARNING) {
                          syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                                 core->session_id,
                                 n,
                                 video_encode_frames_waiting);
+
+                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Encode Queue High (%d) - Check CPU Resources!", video_encode_frames_waiting);
+                         send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
                      }
                  }
                  loop_count = 0;
@@ -2297,7 +2343,8 @@ int main(int argc, char **argv)
      }
      pthread_join(client_thread_id, NULL);
 cleanup_main_app:
-     stop_webdav_threads(core);     
+     stop_webdav_threads(core);
+     stop_signal_thread(core);
      if (core->hlsmux) {
          hlsmux_destroy(core->hlsmux);
          core->hlsmux = NULL;
