@@ -38,7 +38,7 @@ else
     exit
 fi
 
-echo "STATUS-checking for ./webapp/client.js"
+echo "STATUS-checking for ./webapp/public/client.js"
 if [ -f "./webapp/public/client.js" ]; then
     echo "STATUS- found client.js- installing"    
     sudo cp ./webapp/public/client.js /var/app/public
@@ -48,7 +48,7 @@ else
     exit
 fi
 
-echo "STATUS-checking for ./webapp/index.html"
+echo "STATUS-checking for ./webapp/public/index.html"
 if [ -f "./webapp/public/index.html" ]; then
     echo "STATUS- found index.html- installing"
     sudo cp ./webapp/public/index.html /var/app/public
@@ -103,6 +103,8 @@ echo "STATUS- installing fs (global)"
 sudo npm install -g fs
 echo "STATUS- install archiver (global)"
 sudo npm install -g archiver
+echo "STATUS- install winston logger (global)"
+sudp npm install -g winston
 echo "STATUS- creating node_modules symbolic link to current directory"
 sudo ln -s /usr/lib/node_modules ./node_modules
 popd
