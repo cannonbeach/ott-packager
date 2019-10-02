@@ -104,7 +104,7 @@ sudo npm install -g fs
 echo "STATUS- install archiver (global)"
 sudo npm install -g archiver
 echo "STATUS- install winston logger (global)"
-sudp npm install -g winston
+sudo npm install -g winston
 echo "STATUS- creating node_modules symbolic link to current directory"
 sudo ln -s /usr/lib/node_modules ./node_modules
 popd
