@@ -171,11 +171,10 @@ void *udp_source_thread(void *context)
             core->input_signal = 0;
             no_signal_counter++;
 
-            snprintf(signal_msg, MAX_STR_SIZE-1, "No Input Signal Detected @ %s:%d:%s",
+            snprintf(signal_msg, MAX_STR_SIZE-1, "%s:%d:%s",
                      core->fillet_input[active_source_index].udp_source_ipaddr,
                      core->fillet_input[active_source_index].udp_source_port,
-                     core->fillet_input[active_source_index].interface);                        
-
+                     core->fillet_input[active_source_index].interface);
             send_signal(core, SIGNAL_NO_INPUT_SIGNAL, signal_msg);            
             
 	    continue;
@@ -188,10 +187,11 @@ void *udp_source_thread(void *context)
 		int total_packets = bytes / 188;
 		if (total_packets > 0) {
                     if (core->input_signal == 0) {
-                        snprintf(signal_msg, MAX_STR_SIZE-1, "Input Signal Detected @ %s:%d:%s",
+                        snprintf(signal_msg, MAX_STR_SIZE-1, "%s:%d:%s",
                                  core->fillet_input[active_source_index].udp_source_ipaddr,
                                  core->fillet_input[active_source_index].udp_source_port,
-                                 core->fillet_input[active_source_index].interface);            
+                                 core->fillet_input[active_source_index].interface);
+                        
                         send_signal(core, SIGNAL_INPUT_SIGNAL_LOCKED, signal_msg);                                    
                     }
                     core->input_signal = 1;

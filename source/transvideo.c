@@ -491,7 +491,7 @@ void *video_encode_thread_x265(void *context)
                 nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, nalsize);
                 if (!nal_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers");                    
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers - Restarting Service");
                     exit(0);                    
                 }
                 for (nal_idx = 0; nal_idx < nal_count; nal_idx++) {
@@ -894,7 +894,7 @@ void *video_encode_thread_x264(void *context)
                 nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, output_size);
                 if (!nal_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H264)");
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H264) - Restarting Service");
                     exit(0);                                                            
                 }
                 memcpy(nal_buffer, x264_data[current_queue].nal->p_payload, output_size);
@@ -1079,7 +1079,7 @@ void *video_scale_thread(void *context)
                 deinterlaced_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                 if (!deinterlaced_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain deinterlaced_buffer!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");                            
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service"); 
                     exit(0);
                 }
                 sourcey = (uint8_t*)scaled_output[current_output].output_data[0];
@@ -1110,7 +1110,7 @@ void *video_scale_thread(void *context)
                 encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                 if (!encode_msg) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain encode_msg!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
                     exit(0);                            
                 }
                 encode_msg->buffer = deinterlaced_buffer;
@@ -1419,7 +1419,7 @@ void *video_prepare_thread(void *context)
                         thumbnail_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (!thumbnail_msg) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain thumbnail_msg!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (Thumbnail)");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (Thumbnail) - Restarting Service");
                             exit(0);                                                                                            
                         }
                         thumbnail_msg->buffer = thumbnail_output;                        
@@ -1445,7 +1445,7 @@ void *video_prepare_thread(void *context)
                         deinterlaced_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                         if (!deinterlaced_buffer) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain deinterlaced_buffer!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");                            
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service");
                             exit(0);
                         }
                         sourcey = (uint8_t*)deinterlaced_frame->data[0]; //scaled_output[current_output].output_data[0];
@@ -1498,7 +1498,7 @@ void *video_prepare_thread(void *context)
                             sync_diff < -fps) {
                             syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
                             fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO)");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO) - Restarting Service");
                             exit(0);                                                                                                                        
                         }
 
@@ -1512,7 +1512,7 @@ void *video_prepare_thread(void *context)
                                 scale_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                                 if (!scale_msg) {
                                     fprintf(stderr,"FATAL ERROR: unable to obtain scale_msg!!\n");
-                                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
+                                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
                                     exit(0);                                                                                            
                                 }
                                 scale_msg->buffer = repeated_buffer;
@@ -1549,7 +1549,7 @@ void *video_prepare_thread(void *context)
                                 dataqueue_put_front(core->scalevideo->input_queue, scale_msg);                                
                             } else {
                                 fprintf(stderr,"FATAL ERROR: unable to obtain repeated_buffer!!\n");
-                                send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service");
                                 exit(0);
                             }
                         }
@@ -1557,7 +1557,7 @@ void *video_prepare_thread(void *context)
                         scale_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (!scale_msg) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain scale_msg!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
                             exit(0);                            
                         }
                         scale_msg->buffer = deinterlaced_buffer;
@@ -1733,7 +1733,7 @@ void *video_decode_thread(void *context)
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
                     } else {
                         fprintf(stderr,"error: unknown source video codec type- failing!\n");
-                        //unknown media type- report error and quit!
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_UNKNOWN, "Unknown Video Format - Restarting Service");                        
                         exit(0);
                     }
                     decode_avctx = avcodec_alloc_context3(decode_codec);
@@ -1761,6 +1761,7 @@ void *video_decode_thread(void *context)
                 if (retcode < 0) {
                     //error decoding video frame-report!
                     fprintf(stderr,"error: unable to decode video frame - sorry\n");
+                    send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");                    
                 }
 
                 while (retcode >= 0) {
@@ -1830,7 +1831,7 @@ void *video_decode_thread(void *context)
                     output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                     if (!output_video_frame) {
                         fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers");
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service");
                         exit(0);
                     }
 
@@ -1980,7 +1981,7 @@ void *video_decode_thread(void *context)
                         dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);                        
                     } else {
                         fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers");                        
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
                         exit(0);                                               
                     }
                 }

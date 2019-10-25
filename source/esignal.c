@@ -34,6 +34,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <time.h>
 #include "fillet.h"
 #include "dataqueue.h"
 #include "esignal.h"
@@ -42,6 +43,7 @@
 #endif
 
 #define MAX_SIGNAL_RESPONSE_SIZE 1024
+#define MAX_FORMATTED_TIME 128    
 
 static volatile int signal_thread_running = 0;
 static pthread_t signal_thread_id;
@@ -144,11 +146,24 @@ void signal_management_interface(fillet_app_struct *core, char *signal_buffer, i
 
 int send_direct_error(fillet_app_struct *core, int signal_type, const char *message)
 {
+    time_t currenttime;
+    struct tm currentUTC;
+    char formattedtime[MAX_FORMATTED_TIME];
+    int64_t id = (int64_t)core->cd->identity;    
+    
+    currenttime = time(NULL);
+    gmtime_r(&currenttime, &currentUTC);    
+    strftime(formattedtime,MAX_FORMATTED_TIME-1,"%Y-%m-%dT%H:%M:%SZ",&currentUTC);
+    
     snprintf(error_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
              "{\n"
+             "    \"time\": \"%s\",\n"
+             "    \"id\": %ld,\n"                                      
              "    \"status\": \"fatal error\",\n"
              "    \"message\": \"(%s)\"\n"
              "}\n",
+             formattedtime,
+             id,
              message);
     signal_management_interface(core, error_buffer, strlen(error_buffer));
     return 0;
@@ -167,32 +182,53 @@ void *signal_thread(void *context)
             msg = (dataqueue_message_struct*)dataqueue_take_back(core->signal_queue);
         }
         if (signal_thread_running) {
+            time_t currenttime;
+            struct tm currentUTC;
+            char formattedtime[MAX_FORMATTED_TIME];
+            int64_t id = (int64_t)core->cd->identity;
+            
+            currenttime = time(NULL);
+            gmtime_r(&currenttime, &currentUTC);    
+            strftime(formattedtime,MAX_FORMATTED_TIME-1,"%Y-%m-%dT%H:%M:%SZ",&currentUTC);
+            
             int buffer_type = msg->buffer_type;
 
-            //void signal_management_interface(fillet_app_struct *core, char *signal_buffer, int signal_buffer_length)            
-                       
             if (buffer_type == SIGNAL_START_SERVICE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"service started\"\n"                         
-                         "}\n");                
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_STOP_SERVICE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"service stopped\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_NO_INPUT_SIGNAL) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"warning\",\n"
-                         "    \"message\": \"no input signal detected\"\n"
-                         "}\n");
+                         "    \"message\": \"no input signal detected\",\n"
+                         "    \"source\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         id,
+                         msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_SERVICE_RESTART) {
@@ -201,137 +237,205 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_SCTE35_START) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"scte35 out of network start\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                
             }
             if (buffer_type == SIGNAL_SCTE35_END) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"scte35 out of network done\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                               
             }
             if (buffer_type == SIGNAL_SEGMENT_PUBLISHED) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"segment successfully published\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                
             }            
             if (buffer_type == SIGNAL_SEGMENT_FAILED) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"error\",\n"
                          "    \"message\": \"segment publish failed\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                
             }
             if (buffer_type == SIGNAL_HIGH_CPU) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"warning\",\n"
                          "    \"message\": \"high cpu usage detected\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                                
             }
             if (buffer_type == SIGNAL_LOW_DISK_SPACE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"                         
+                         "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
                          "    \"message\": \"disk space is low\"\n"
-                         "}\n");
+                         "}\n",
+                         formattedtime,
+                         id);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_INPUT_SIGNAL_LOCKED) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
-                         "    \"message\": \"input signal locked\"\n"
-                         "}\n");
+                         "    \"message\": \"input signal locked\",\n"
+                         "    \"source\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         id,
+                         msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                
             }
             if (buffer_type == SIGNAL_SEGMENT_WRITTEN) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
-                         "    \"message\": \"segment written (%s)\"\n"
+                         "    \"message\": \"segment written\",\n"
+                         "    \"filename\": \"%s\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                              
             }
             if (buffer_type == SIGNAL_MANIFEST_WRITTEN) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"success\",\n"
-                         "    \"message\": \"manifest written (%s)\"\n"
+                         "    \"message\": \"manifest written\",\n"
+                         "    \"filename\": \"%s\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));                              
             }
             if (buffer_type == SIGNAL_FRAME_REPEAT) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"warning\",\n"
                          "    \"message\": \"frame repeat (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_INSERT_SILENCE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"warning\",\n"
                          "    \"message\": \"silence insert (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_DROP_AUDIO) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"warning\",\n"
                          "    \"message\": \"dropping audio (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_DECODE_ERROR) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                        
                          "    \"status\": \"error\",\n"
                          "    \"message\": \"decode error (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_ENCODE_ERROR) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"                         
+                         "    \"id\": %ld,\n"
                          "    \"status\": \"error\",\n"
                          "    \"message\": \"encode error (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }            
             if (buffer_type == SIGNAL_PARSE_ERROR) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"error\",\n"
                          "    \"message\": \"parse error (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_MALFORMED_DATA) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
+                         "    \"time\": \"%s\",\n"
+                         "    \"id\": %ld,\n"                         
                          "    \"status\": \"error\",\n"
                          "    \"message\": \"malformed data (%s)\"\n"
                          "}\n",
+                         formattedtime,
+                         id,
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }                                    
