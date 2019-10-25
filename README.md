@@ -268,22 +268,23 @@ I suggest you be resourceful and try to debug things.  These types of systems ar
 While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You should also add the eventlog.log to the logrotate.conf on your Ubuntu system to prevent your drive from filling up.  I'll include instructions on this after I finalize the logging format.
 
 ```
-{"status":"success","message":"segment written (/var/www/html/cbs/video_stream0_74.ts)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/video0.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/video0fmp4.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/master.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/fmp4.m3u8)","level":"info"}
-{"status":"success","message":"segment written (/var/www/html/cbs/audio_stream0_substream_0_74.ts)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/audio0_substream0.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/audio0_substream0_fmp4.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/master.mpd)","level":"info"}
-{"status":"success","message":"segment written (/var/www/html/cbs/video_stream1_74.ts)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/video1.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/video1fmp4.m3u8)","level":"info"}
-{"status":"success","message":"segment written (/var/www/html/cbs/video_stream2_74.ts)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/video2.m3u8)","level":"info"}
-{"status":"success","message":"manifest written (/var/www/html/cbs/video2fmp4.m3u8)","level":"info"}
-{"status":"success","message":"segment written (/var/www/html/cbs/video_stream3_74.ts)","level":"info"}
+{"time":"2019-10-25T21:34:37Z","id":1571765102,"status":"success","message":"manifest written","filename":"/var/www/html/nbc/video3fmp4.m3u8","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"success","message":"segment written","filename":"/var/www/html/nbc/video_stream0_96.ts","level":"info"}
+{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"success","message":"segment written","filename":"/var/www/html/nbc/video0/segment8378368.mp4","level":"info"}
+....
+{"time":"2019-10-25T21:35:05Z","id":1571765102,"status":"success","message":"input signal locked","source":"0.0.0.0:9500:eth0","level":"info"}
+....
+{"time":"2019-10-25T21:40:41Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
+{"time":"2019-10-25T21:41:14Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
+{"time":"2019-10-25T21:41:29Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
+{"time":"2019-10-25T21:41:29Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
+{"time":"2019-10-25T21:41:47Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
+{"time":"2019-10-25T21:41:58Z","status":"fatal error","message":"(Unrecoverable Discontinuity Detected - Restarting Service)","level":"info"}
 ```
 
 <br>
