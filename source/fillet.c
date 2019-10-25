@@ -144,6 +144,7 @@ static int create_transvideo_core(fillet_app_struct *core)
     core->transvideo = (transvideo_internal_struct*)malloc(sizeof(transvideo_internal_struct));
     core->preparevideo = (preparevideo_internal_struct*)malloc(sizeof(preparevideo_internal_struct));
     core->encodevideo = (encodevideo_internal_struct*)malloc(sizeof(encodevideo_internal_struct));
+    core->scalevideo = (scalevideo_internal_struct*)malloc(sizeof(scalevideo_internal_struct));
     
     core->transvideo->input_queue = (void*)dataqueue_create();
     core->preparevideo->input_queue = (void*)dataqueue_create();
@@ -159,6 +160,7 @@ static int create_transvideo_core(fillet_app_struct *core)
         core->encodevideo->input_queue[i] = (void*)dataqueue_create();
     }
     core->encodevideo->thumbnail_queue = (void*)dataqueue_create();
+    core->scalevideo->input_queue = (void*)dataqueue_create();
 
     start_video_transcode_threads(core);
     start_audio_transcode_threads(core);
@@ -177,6 +179,7 @@ static int destroy_transvideo_core(fillet_app_struct *core)
         dataqueue_destroy(core->encodevideo->input_queue[i]);
         core->encodevideo->input_queue[i] = NULL;
     }
+    dataqueue_destroy(core->scalevideo->input_queue);
     for (i = 0; i < MAX_AUDIO_SOURCES; i++) {
         dataqueue_destroy(core->transaudio[i]->input_queue);
         core->transaudio[i]->input_queue = NULL;
@@ -188,7 +191,7 @@ static int destroy_transvideo_core(fillet_app_struct *core)
         core->encodeaudio[i] = NULL;
     }
     dataqueue_destroy(core->encodevideo->thumbnail_queue);
-    core->encodevideo->thumbnail_queue = NULL;
+    core->encodevideo->thumbnail_queue = NULL;    
     dataqueue_destroy(core->preparevideo->input_queue);
     core->preparevideo->input_queue = NULL;
     dataqueue_destroy(core->transvideo->input_queue);
@@ -197,8 +200,10 @@ static int destroy_transvideo_core(fillet_app_struct *core)
     core->preparevideo = NULL;
     free(core->transvideo);
     core->transvideo = NULL;
+    free(core->scalevideo);
+    core->scalevideo = NULL;
     free(core->encodevideo);
-    core->encodevideo = NULL;
+    core->encodevideo = NULL;    
     
     return 0;
 }

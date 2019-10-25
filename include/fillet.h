@@ -141,6 +141,10 @@ typedef struct _encodevideo_internal_struct_ {
     void                   *thumbnail_queue;
 } encodevideo_internal_struct;
 
+typedef struct _scalevideo_internal_struct_ {
+    void                   *input_queue;
+} scalevideo_internal_struct;
+
 typedef struct _encodeaudio_internal_struct_ {
     void                   *input_queue;
 } encodeaudio_internal_struct;
@@ -378,6 +382,7 @@ typedef struct _fillet_app_struct_
     preparevideo_internal_struct  *preparevideo;
     transvideo_internal_struct    *transvideo;
     encodevideo_internal_struct   *encodevideo;
+    scalevideo_internal_struct    *scalevideo;
     transaudio_internal_struct    *transaudio[MAX_AUDIO_SOURCES];
     encodeaudio_internal_struct   *encodeaudio[MAX_AUDIO_SOURCES];
 #endif // ENABLE_TRANSCODE
