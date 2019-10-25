@@ -155,53 +155,22 @@ Go into the directory that you cloned the software into and run the following co
 cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
 cannonbeach@insanitywave:$ ./setuptranscode.sh
 (VERY IMPORTANT: when you get to the x265 setup (which is towards the end of the script execution, please set ENABLE_SHARED to OFF and set ENABLE_ASSEMLBY to ON, then hit the letter 'c' for configuration and then hit 'g' for generate and exit)
-cannonbeach@insanitywave:$ sudo mkdir /var/tmp/status
-cannonbeach@insanitywave:$ sudo mkdir /var/tmp/configs
-cannonbeach@insanitywave:$ sudo mkdir /var/app
-cannonbeach@insanitywave:$ sudo mkdir /var/app/public
-cannonbeach@insanitywave:$ sudo cp ./webapp/server.js /var/app
-cannonbeach@insanitywave:$ sudo cp ./webapp/public/client.js /var/app/public
-cannonbeach@insanitywave:$ sudo cp ./webapp/public/index.html /var/app/public
-cannonbeach@insanitywave:$ sudo cp ./webapp/package.json /var/app
-cannonbeach@insanitywave:$ sudo apt-get update -y
-cannonbeach@insanitywave:$ sudo apt-get upgrade -y
-cannonbeach@insanitywave:$ sudo apt-get install build-essential -y
-cannonbeach@insanitywave:$ sudo apt-get install libssl-dev -y
-cannonbeach@insanitywave:$ sudo apt-get install curl -y
-cannonbeach@insanitywave:$ curl -sL https://deb.nodesource.com/setup_12.x -o nodesource_setup.sh
-cannonbeach@insanitywave:$ sudo chmod +x nodesource_setup.sh
-cannonbeach@insanitywave:$ sudo ./nodesource_setup.sh
-cannonbeach@insanitywave:$ sudo apt-get install nodejs -y
-cannonbeach@insanitywave:$ sudo npm install -g pm2
-cannonbeach@insanitywave:$ sudo npm install -g express
-cannonbeach@insanitywave:$ sudo npm install -g body-parser
-cannonbeach@insanitywave:$ sudo npm install -g fs
-cannonbeach@insanitywave:$ sudo npm install -g archiver
-cannonbeach@insanitywave:$ cd /var/app
-cannonbeach@insanitywave:$ sudo ln -s /usr/lib/node_modules ./node_modules
-cannonbeach@insanitywave:$ cd ..
-cannonbeach@insanitywave:$ sudo apt-get install docker.io -y
-cannonbeach@insanitywave:$ sudo apt-get install tcpdump -y
-cannonbeach@insanitywave:$ sudo apt-get install ifstat -y
-cannonbeach@insanitywave:$ sudo apt-get install zip -y
-cannonbeach@insanitywave:$ sudo apt-get install unzip -y
-cannonbeach@insanitywave:$ sudo apt-get install apache2 -y
-cannonbeach@insanitywave:$ sudo apt-get install g++ -y
-cannonbeach@insanitywave:$ sudo apt-get install libz-dev -y
+
+cannonbeach@insanitywave:$ chmod +x setupsystem.sh
+cannonbeach@insanitywave:$ ./setupsystem.sh
 
 You need to *manually* update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
 cannonbeach@insanitywave:$ make clean
 cannonbeach@insanitywave:$ make
 cannonbeach@insanitywave:$ cp fillet ./docker
 cannonbeach@insanitywave:$ cd ./docker
+*IMPORTANT* If you are building using Docker and are using Ubuntu 18.04, then you should update the Dockerfile to Ubuntu 18.04 instead of 16.04.  Change: FROM ubuntu:16.04 to FROM ubuntu:18.04 which is the first line of the Dockerfile.
 cannonbeach@insanitywave:$ sudo docker build -t dockerfillet .
 cannonbeach@insanitywave:$ cd /var/app
 cannonbeach@insanitywave:$ sudo pm2 start server.js
 cannonbeach@insanitywave:$ sudo pm2 status server
 cannonbeach@insanitywave:$ sudo pm2 startup systemd
 cannonbeach@insanitywave:$ sudo pm2 save
-
-*IMPORTANT* If you are building using Docker and are using Ubuntu 18.04, then you should update the Dockerfile to Ubuntu 18.04 instead of 16.04.
 
 Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
 
