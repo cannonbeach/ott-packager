@@ -250,9 +250,15 @@ And instead of building a full dashboard monitoring system, I've been looking at
 
 ### Current Status
 
+(10/25/19) It's almost Halloween!  Trick r' Treat!
+
+- I pushed some changes up today that fix a performance issue that some of you have come across when running on lower clock speed CPU platforms (higher core and lower clock speed) along with having a high number of multi-resolution output profiles.  I had originally put the deinterlacer into the same thread as the scalers and it was just too much work for one thread.  I went ahead and separated the work across multiple threads now.  This also sets things up for me to implement frame rate conversion across output streams.
+- I am also planning on sharing some benchmarks based on some older Intel platforms so that'll give you guys an idea on how to provision things accordingly.  I've also done a lot of testing on Google Cloud and AWS but the tests are tricky there because it's difficult for me to stream higher bitrate content to the cloud with my current internet connection.
+- I do have some additional changes on the webapp, but I've been slow to get things implemented.  I know a lot of you are not using the webapp (or may have added your own customizations).  I've seen a couple of variations that have been customized and would love to get some of those changes pushed upstream.
+
 (07/25/19) Short update
 
-- I've been away for awhile since my last update but I have been actively developing some new features (webdav publishing, experimenting with SRT and some cloud applications (hybrid transcoding and some on the fly experiments - more on this later) along with trying to finish the webapp for pure packaging mode).  I really haven't had a chance to get these features fully tested yet!  I have been working on some other things that "keep the lights on", so hopefully once I wrap up those other projects, I can spend more time focusing on this again.  If you have support questions, or post something in the bug tracker, it might be a slower than usual response.  If anyone ever does want to fund some of this development then pleasesend me a message.
+- I've been away for awhile since my last update but I have been actively developing some new features (webdav publishing, experimenting with SRT and some cloud applications (hybrid transcoding and some on the fly experiments - more on this later) along with trying to finish the webapp for pure packaging mode).  I really haven't had a chance to get these features fully tested yet!  I have been working on some other things that "keep the lights on", so hopefully once I wrap up those other projects, I can spend more time focusing on this again.  If you have support questions, or post something in the bug tracker, it might be a slower than usual response.  If anyone ever does want to fund some of this development then please send me a message.
 
 (04/29/19) Web application development
 
