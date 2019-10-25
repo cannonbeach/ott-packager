@@ -251,6 +251,17 @@ ffprobe udp://@:5000
 that'll quickly identify if something is on that port, etc.
 
 ```
+4. If the webapp is not responding....
+
+```
+Check inside /var/tmp/status for .lock files.  If the Docker container got out of sync from the webapp, then you may need to manaully delete the .lock file for the specific configuration you are having problems with.
+The configuration files are also stored in /var/www/configs.
+```
+
+5. If you need to change a config setting....
+```
+You can change config settings manually by editing the .json files in /var/www/configs
+```
 
 I suggest you be resourceful and try to debug things.  These types of systems are not always easy to setup.
 
