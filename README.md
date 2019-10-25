@@ -201,6 +201,8 @@ cannonbeach@insanitywave:$ sudo pm2 status server
 cannonbeach@insanitywave:$ sudo pm2 startup systemd
 cannonbeach@insanitywave:$ sudo pm2 save
 
+*IMPORTANT* If you are building using Docker and are using Ubuntu 18.04, then you should update the Dockerfile to Ubuntu 18.04 instead of 16.04.
+
 Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
 
 You will notice that the Apache web server was also installed.  You don't need to install it, but it allows you to easily serve content directly off the same system for quick testing. 
@@ -225,9 +227,12 @@ http://127.0.0.1:8080/api/v1/list_services
 
 Get System Information (CPU Load, Memory, Temperature, etc.):
 http://127.0.0.1:8080/api/v1/system_information
+
+(see Wiki for a use case for the transcoding API)
+
 ```
 
-The application will also POST event messages to a third party client for the following events (this is not yet completed)
+The application will also POST event messages to a third party client (or log) for the following events.  The Winston logging system is being used now within the NodeJS framework, so it is quite easy to extend this to meet your own needs.
 
 ```
 - Start Service (Container Start)
@@ -241,10 +246,65 @@ The application will also POST event messages to a third party client for the fo
 - Low Drive Space
 - Service Added
 - Service Removed
+- Silence Inserted
+- Frame Dropped
+- Frame Repeated
 - High Source Errors Over Period of Time (threshold TBD/ms)
 ```
 
-And instead of building a full dashboard monitoring system, I've been looking at services such as Datadog to have a nice interface for tracking the health of the systems and generated streams.
+And instead of building a full dashboard monitoring system, I've been looking at other open source services to have a nice interface for tracking the health of the systems and generated streams.  
+
+### Troubleshooting
+
+There is nothing more frustrating when you clone an open source project off of GitHub and can't get it to compile or work!  I do my best to make sure everything works within the context of the resources I have available to me.  I am not doing nightly builds and do not have a complicated autotest framework.  I work on this in my spare time so it's possible something may slip by.   *If something doesn't work, then please reach out to me or post a bug in the "Issues" section.*  I know the instructions and setup scripts are a bit extensive and detailed, but if you follow them line by line they *do* work.
+
+I am currently using Winston to log messages back through the NodeJS interace.  Here is a sample of the logging information provided which is currently logged to /var/log/eventlog.log on the "Host" system.  I have not finalized this format because I'd like to add the docker container identifier to this along with some additional supporting data (like time of day, IP address, etc).  
+
+Some troubleshooting tips:
+1. You can run the webapp through the command line and see messages on the console:
+```
+
+cd /var/app
+sudo node server.js
+
+```
+2. You can run the fillet app *outside* of the Docker container
+3. You can use tools like *tcpdump* and *ffprobe* to check for incoming signals on different interfaces
+
+```
+
+sudo tcpdump -n udp -i eth0
+this will quickly tell if you are receiving content
+
+or 
+
+ffprobe udp://@:5000
+that'll quickly identify if something is on that port, etc.
+
+```
+
+I suggest you be resourceful and try to debug things.  These types of systems are not always easy to setup.
+
+While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You should also add the eventlog.log to the logrotate.conf on your Ubuntu system to prevent your drive from filling up.  I'll include instructions on this after I finalize the logging format.
+
+```
+{"status":"success","message":"segment written (/var/www/html/cbs/video_stream0_74.ts)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/video0.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/video0fmp4.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/master.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/fmp4.m3u8)","level":"info"}
+{"status":"success","message":"segment written (/var/www/html/cbs/audio_stream0_substream_0_74.ts)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/audio0_substream0.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/audio0_substream0_fmp4.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/master.mpd)","level":"info"}
+{"status":"success","message":"segment written (/var/www/html/cbs/video_stream1_74.ts)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/video1.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/video1fmp4.m3u8)","level":"info"}
+{"status":"success","message":"segment written (/var/www/html/cbs/video_stream2_74.ts)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/video2.m3u8)","level":"info"}
+{"status":"success","message":"manifest written (/var/www/html/cbs/video2fmp4.m3u8)","level":"info"}
+{"status":"success","message":"segment written (/var/www/html/cbs/video_stream3_74.ts)","level":"info"}
+```
 
 <br>
 
