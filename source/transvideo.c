@@ -734,10 +734,12 @@ void *video_encode_thread_x264(void *context)
                     x264_data[current_encoder].param.i_bframe = 3;
                 }
 
+                x264_data[current_encoder].param.b_sliced_threads = 0;
+                
 //#define ENABLE_SLICED_THREADS
 #if defined(ENABLE_SLICED_THREADS)
-                x264_data[current_encoder].param.b_sliced_threads = 0;
-
+                x264_data[current_encoder].param.b_sliced_threads = 1;
+                
                 // these values were derived from testing across several different cloud instances- seem 
                 if (output_width > 960 && output_height > 540) {                    
                     x264_data[current_encoder].param.i_threads = 12;
@@ -746,7 +748,14 @@ void *video_encode_thread_x264(void *context)
                     x264_data[current_encoder].param.i_threads = 6;
                     x264_data[current_encoder].param.i_slice_count = 4;
                 }
-#endif
+#else
+                //tradeoff-quality vs performance                
+                if (output_width > 960 && output_height > 540) {                    
+                    x264_data[current_encoder].param.i_threads = 12;
+                } else {
+                    x264_data[current_encoder].param.i_threads = 6;
+                }
+#endif                
 
                 if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {                    
                     x264_param_apply_profile(&x264_data[current_encoder].param,"baseline");
@@ -1615,13 +1624,13 @@ void *video_prepare_thread(void *context)
                             }
                         }
                     
-                        fprintf(stderr,"SENDING VIDEO FRAME TO SCALER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
-                                scale_msg->pts,
-                                scale_msg->dts,
-                                scale_msg->aspect_num,
-                                scale_msg->aspect_den);
-
                         if (scale_msg) {
+                            fprintf(stderr,"SENDING VIDEO FRAME TO SCALER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
+                                    scale_msg->pts,
+                                    scale_msg->dts,
+                                    scale_msg->aspect_num,
+                                    scale_msg->aspect_den);
+                            
                             dataqueue_put_front(core->scalevideo->input_queue, scale_msg);
                         }
                     }
