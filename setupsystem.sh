@@ -1,14 +1,14 @@
 #!/bin/bash
 
 echo "STATUS- creating /var/tmp/configs directory"
-if [ ! -d "/var/www/configs" ]; then
+if [ ! -d "/var/tmp/configs" ]; then
     sudo mkdir /var/tmp/configs
 else
     echo "STATUS- /var/tmp/configs already exists"
 fi
 
 echo "STATUS- creating /var/tmp/status directory"
-if [ ! -d "/var/www/status" ]; then
+if [ ! -d "/var/tmp/status" ]; then
     sudo mkdir /var/tmp/status
 else
     echo "STATUS- /var/tmp/status already exists"
