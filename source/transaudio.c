@@ -531,7 +531,7 @@ void *audio_decode_thread(void *context)
                                 //and if things are just really bad and unrecoverable for some unknown reason
                                 //then we'll just have the application quit out based on some threshold
                                 //and rely on the docker container to restart the application in a known healthy state
-                                int quit_threshold = 16384*output_channels;
+                                int quit_threshold = 32768*output_channels;
                                 if (diff_audio > quit_threshold ||
                                     diff_audio < -quit_threshold) {
                                     fprintf(stderr,"fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
