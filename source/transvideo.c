@@ -62,7 +62,7 @@ static volatile int video_thumbnail_thread_running = 0;
 static pthread_t video_decode_thread_id;
 static pthread_t video_scale_thread_id;
 static pthread_t video_prepare_thread_id;
-static pthread_t video_encode_thread_id;
+static pthread_t video_encode_thread_id[MAX_TRANS_OUTPUTS];
 static pthread_t video_thumbnail_thread_id;
 
 typedef struct _x264_encoder_struct_ {
@@ -115,6 +115,11 @@ typedef struct _encoder_opaque_struct_ {
     int64_t     splice_duration_remaining;
     int64_t     frame_count_pts;
 } encoder_opaque_struct;
+
+typedef struct _thread_start_struct_ {
+    fillet_app_struct   *core;
+    int                 index;
+} thread_start_struct;
 
 #define THUMBNAIL_WIDTH   176
 #define THUMBNAIL_HEIGHT  144
@@ -218,38 +223,32 @@ void *video_thumbnail_thread(void *context)
 
 void *video_encode_thread_x265(void *context)
 {
-    fillet_app_struct *core = (fillet_app_struct*)context;
+    thread_start_struct *start = (thread_start_struct*)context;
+    fillet_app_struct *core = (fillet_app_struct*)start->core;    
     dataqueue_message_struct *msg;
-    int current_queue;
-    int current_encoder;
-    int num_outputs = core->cd->num_outputs;
+    int current_encoder = start->index;
     x265_encoder_struct x265_data[MAX_TRANS_OUTPUTS];
 
-    for (current_encoder = 0; current_encoder < num_outputs; current_encoder++) {
-        x265_data[current_encoder].api = NULL;
-        x265_data[current_encoder].encoder = NULL;
-        x265_data[current_encoder].param = NULL;
-        x265_data[current_encoder].pic_in = (x265_picture*)&x265_data[current_encoder].pic_orig;
-        x265_data[current_encoder].pic_recon = (x265_picture*)&x265_data[current_encoder].pic_out;
-        x265_data[current_encoder].p_nal = NULL;
-        x265_data[current_encoder].p_current_nal = NULL;
-        x265_data[current_encoder].frame_count_pts = 1;
-        x265_data[current_encoder].frame_count_dts = 0;
-    }
+    free(start);
+    x265_data[current_encoder].api = NULL;
+    x265_data[current_encoder].encoder = NULL;
+    x265_data[current_encoder].param = NULL;
+    x265_data[current_encoder].pic_in = (x265_picture*)&x265_data[current_encoder].pic_orig;
+    x265_data[current_encoder].pic_recon = (x265_picture*)&x265_data[current_encoder].pic_out;
+    x265_data[current_encoder].p_nal = NULL;
+    x265_data[current_encoder].p_current_nal = NULL;
+    x265_data[current_encoder].frame_count_pts = 1;
+    x265_data[current_encoder].frame_count_dts = 0;
 
     while (video_encode_thread_running) {
         // loop across the input queues and feed the encoders
-        for (current_queue = 0; current_queue < num_outputs; current_queue++) {
-            msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
+        {
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
             while (!msg && video_encode_thread_running) {
                 usleep(100);
-                msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
+                msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
             }
 
-            //Managing all of the encoding from a single thread to keep the output synchronized prior to the sorted queue
-            //If performance becomes an issue, I can separate these into individual threads which will run better especially
-            //with extensive use of yuv scaling and memcpy.
-            int current_encoder = current_queue;
             int output_width = core->cd->transvideo_info[current_encoder].width;
             int output_height = core->cd->transvideo_info[current_encoder].height;
             uint32_t sar_width;
@@ -421,7 +420,7 @@ void *video_encode_thread_x265(void *context)
                         memory_return(core->fillet_msg_pool, msg);
                         msg = NULL;
                     }
-                    msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
+                    msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
                 }
                 goto cleanup_video_encode_thread;
             }
@@ -460,7 +459,7 @@ void *video_encode_thread_x265(void *context)
             x265_data[current_encoder].pic_in->planes[0] = video;
             x265_data[current_encoder].pic_in->planes[1] = video + (output_width * output_height);
             x265_data[current_encoder].pic_in->planes[2] = x265_data[current_encoder].pic_in->planes[1] + (owhalf*ohhalf);
-            x265_data[current_encoder].pic_in->pts = x265_data[current_queue].frame_count_pts;
+            x265_data[current_encoder].pic_in->pts = x265_data[current_encoder].frame_count_pts;
 
             nal_count = 0;
             frames = x265_data[current_encoder].api->encoder_encode(x265_data[current_encoder].encoder,
@@ -469,7 +468,7 @@ void *video_encode_thread_x265(void *context)
                                                                     x265_data[current_encoder].pic_in,
                                                                     x265_data[current_encoder].pic_recon);
 
-            x265_data[current_queue].frame_count_pts++;
+            x265_data[current_encoder].frame_count_pts++;
 
             if (frames > 0) {
                 uint8_t *nal_buffer;
@@ -537,23 +536,23 @@ void *video_encode_thread_x265(void *context)
                     }
                 }
                 
-                /*encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)x264_data[current_queue].pic_out.opaque;
+                /*encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)x264_data[current_encoder].pic_out.opaque;
                 int64_t opaque_int64 = 0;
                 if (opaque_output) {
                     splice_point = opaque_output->splice_point;
                     splice_duration = opaque_output->splice_duration;
                     splice_duration_remaining = opaque_output->splice_duration_remaining;
                     opaque_int64 = opaque_output->frame_count_pts;            
-                    //int64_t opaque_int64 = (int64_t)x264_data[current_queue].pic_out.opaque;                    
+                    //int64_t opaque_int64 = (int64_t)x264_data[current_encoder].pic_out.opaque;                    
                 }
                 double opaque_double = (double)opaque_int64;
                 */
 
-                double opaque_double = (double)x265_data[current_queue].pic_recon->pts;
+                double opaque_double = (double)x265_data[current_encoder].pic_recon->pts;
                 pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
-                dts = (int64_t)((double)x265_data[current_queue].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
+                dts = (int64_t)((double)x265_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
-                x265_data[current_queue].frame_count_dts++;
+                x265_data[current_encoder].frame_count_dts++;
                 //need to pass this data through
                 splice_point = 0;
                 splice_duration = 0;
@@ -566,7 +565,7 @@ void *video_encode_thread_x265(void *context)
                        pts, dts);
 #endif                
                 
-                video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_queue, splice_point, splice_duration, splice_duration_remaining);
+                video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_encoder, splice_point, splice_duration, splice_duration_remaining);
             }
                    
             if (msg) {
@@ -580,43 +579,34 @@ void *video_encode_thread_x265(void *context)
 
 cleanup_video_encode_thread:
 
-    for (current_encoder = 0; current_encoder < num_outputs; current_encoder++) {
-        //x265_data[current_encoder].api->encoder_close();        
-    }
+    //x265_data[current_encoder].api->encoder_close();        
     
     return NULL;
 }
 
 void *video_encode_thread_x264(void *context)
 {
-    fillet_app_struct *core = (fillet_app_struct*)context;
-    dataqueue_message_struct *msg;
-    int current_queue;
-    int current_encoder;
-    int num_outputs = core->cd->num_outputs;
+    thread_start_struct *start = (thread_start_struct*)context;
+    fillet_app_struct *core = (fillet_app_struct*)start->core;    
+    dataqueue_message_struct *msg;    
+    int current_encoder = start->index;
     x264_encoder_struct x264_data[MAX_TRANS_OUTPUTS];
 #define MAX_SEI_PAYLOAD_SIZE 512    
 
-    for (current_encoder = 0; current_encoder < num_outputs; current_encoder++) {
-        x264_data[current_encoder].h = NULL;
-        x264_data[current_encoder].frame_count_pts = 1;
-        x264_data[current_encoder].frame_count_dts = 0;
-    }
+    free(start);
+    x264_data[current_encoder].h = NULL;
+    x264_data[current_encoder].frame_count_pts = 1;
+    x264_data[current_encoder].frame_count_dts = 0;   
     
     while (video_encode_thread_running) {
         // loop across the input queues and feed the encoders
-        for (current_queue = 0; current_queue < num_outputs; current_queue++) {
-            msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
+        {
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
             while (!msg && video_encode_thread_running) {
                 usleep(100);
-                msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
+                msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
             }
 
-            //Managing all of the encoding from a single thread to keep the output synchronized prior to the sorted queue
-            //If performance becomes an issue, I can separate these into individual threads which will run better especially
-            //with extensive use of yuv scaling and memcpy.
-            int current_encoder = current_queue;
-            
             if (!x264_data[current_encoder].h) {
                 int output_width = core->cd->transvideo_info[current_encoder].width;
                 int output_height = core->cd->transvideo_info[current_encoder].height;
@@ -785,7 +775,7 @@ void *video_encode_thread_x264(void *context)
                         memory_return(core->fillet_msg_pool, msg);
                         msg = NULL;                                        
                     }
-                    msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_queue]);
+                    msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
                 }
                 goto cleanup_video_encode_thread;
             }
@@ -811,28 +801,28 @@ void *video_encode_thread_x264(void *context)
                     splice_duration,
                     splice_duration_remaining);
 
-            x264_data[current_queue].pic.i_pts = msg->pts;
-            x264_data[current_queue].pic.i_dts = msg->dts;
+            x264_data[current_encoder].pic.i_pts = msg->pts;
+            x264_data[current_encoder].pic.i_dts = msg->dts;
 
             encoder_opaque_struct *opaque_data = (encoder_opaque_struct*)malloc(sizeof(encoder_opaque_struct));
             if (opaque_data) {
                 opaque_data->splice_point = splice_point;
                 opaque_data->splice_duration = splice_duration;
                 opaque_data->splice_duration_remaining = splice_duration_remaining;
-                opaque_data->frame_count_pts = x264_data[current_queue].frame_count_pts;
+                opaque_data->frame_count_pts = x264_data[current_encoder].frame_count_pts;
             }
             
-            x264_data[current_queue].pic.opaque = (void*)opaque_data;
+            x264_data[current_encoder].pic.opaque = (void*)opaque_data;
             
-            memcpy(x264_data[current_queue].pic.img.plane[0],
+            memcpy(x264_data[current_encoder].pic.img.plane[0],
                    video,
-                   x264_data[current_queue].y_size);
-            memcpy(x264_data[current_queue].pic.img.plane[1],
-                   video + x264_data[current_queue].y_size,
-                   x264_data[current_queue].uv_size);
-            memcpy(x264_data[current_queue].pic.img.plane[2],
-                   video + x264_data[current_queue].y_size + x264_data[current_queue].uv_size,
-                   x264_data[current_queue].uv_size);
+                   x264_data[current_encoder].y_size);
+            memcpy(x264_data[current_encoder].pic.img.plane[1],
+                   video + x264_data[current_encoder].y_size,
+                   x264_data[current_encoder].uv_size);
+            memcpy(x264_data[current_encoder].pic.img.plane[2],
+                   video + x264_data[current_encoder].y_size + x264_data[current_encoder].uv_size,
+                   x264_data[current_encoder].uv_size);
 
             if (msg->caption_buffer) {
 //#define DISABLE_CAPTIONS
@@ -841,10 +831,10 @@ void *video_encode_thread_x264(void *context)
                 caption_buffer = (uint8_t*)malloc(MAX_SEI_PAYLOAD_SIZE);
                 if (caption_buffer) {
                     memset(caption_buffer, 0, MAX_SEI_PAYLOAD_SIZE);
-                    x264_data[current_queue].pic.extra_sei.payloads = (x264_sei_payload_t*)malloc(sizeof(x264_sei_payload_t));
+                    x264_data[current_encoder].pic.extra_sei.payloads = (x264_sei_payload_t*)malloc(sizeof(x264_sei_payload_t));
                     //check
-                    if (x264_data[current_queue].pic.extra_sei.payloads) {                    
-                        memset(x264_data[current_queue].pic.extra_sei.payloads, 0, sizeof(x264_sei_payload_t));
+                    if (x264_data[current_encoder].pic.extra_sei.payloads) {                    
+                        memset(x264_data[current_encoder].pic.extra_sei.payloads, 0, sizeof(x264_sei_payload_t));
                         caption_buffer[0] = 0xb5;
                         caption_buffer[1] = 0x00;
                         caption_buffer[2] = 0x31;
@@ -854,11 +844,11 @@ void *video_encode_thread_x264(void *context)
                         }
                         //fprintf(stderr,"status: encoding caption buffer\n");
                         memcpy(caption_buffer+3, msg->caption_buffer, msg->caption_size);
-                        x264_data[current_queue].pic.extra_sei.payloads[0].payload = caption_buffer;
-                        x264_data[current_queue].pic.extra_sei.payloads[0].payload_size = msg->caption_size+3;
-                        x264_data[current_queue].pic.extra_sei.num_payloads = 1;
-                        x264_data[current_queue].pic.extra_sei.payloads[0].payload_type = 4;
-                        x264_data[current_queue].pic.extra_sei.sei_free = free;
+                        x264_data[current_encoder].pic.extra_sei.payloads[0].payload = caption_buffer;
+                        x264_data[current_encoder].pic.extra_sei.payloads[0].payload_size = msg->caption_size+3;
+                        x264_data[current_encoder].pic.extra_sei.num_payloads = 1;
+                        x264_data[current_encoder].pic.extra_sei.payloads[0].payload_type = 4;
+                        x264_data[current_encoder].pic.extra_sei.sei_free = free;
                     } else {
                         free(caption_buffer);
                         // fail
@@ -874,27 +864,27 @@ void *video_encode_thread_x264(void *context)
                 msg->caption_buffer = NULL;
                 msg->caption_size = 0;
             } else {
-                x264_data[current_queue].pic.extra_sei.num_payloads = 0;
-                x264_data[current_queue].pic.extra_sei.payloads = NULL;
+                x264_data[current_encoder].pic.extra_sei.num_payloads = 0;
+                x264_data[current_encoder].pic.extra_sei.payloads = NULL;
             }
 
             if (splice_point == 1 || splice_point == 2) {
                 syslog(LOG_INFO,"SCTE35(%d)- INSERTING IDR FRAME DURING SPLICE POINT: %d\n",
-                       current_queue, splice_point);
-                x264_data[current_queue].pic.i_type = X264_TYPE_IDR;
+                       current_encoder, splice_point);
+                x264_data[current_encoder].pic.i_type = X264_TYPE_IDR;
             } else {
-                x264_data[current_queue].pic.i_type = X264_TYPE_AUTO;
+                x264_data[current_encoder].pic.i_type = X264_TYPE_AUTO;
             }
             
-            output_size = x264_encoder_encode(x264_data[current_queue].h,
-                                              &x264_data[current_queue].nal,
-                                              &x264_data[current_queue].i_nal,
-                                              &x264_data[current_queue].pic,
-                                              &x264_data[current_queue].pic_out);
+            output_size = x264_encoder_encode(x264_data[current_encoder].h,
+                                              &x264_data[current_encoder].nal,
+                                              &x264_data[current_encoder].i_nal,
+                                              &x264_data[current_encoder].pic,
+                                              &x264_data[current_encoder].pic_out);
 
-            x264_data[current_queue].frame_count_pts++;
+            x264_data[current_encoder].frame_count_pts++;
 
-            if (x264_data[current_queue].i_nal > 0) {
+            if (x264_data[current_encoder].i_nal > 0) {
                 uint8_t *nal_buffer;
                 double output_fps = 30000.0/1001.0;
                 double ticks_per_frame_double = (double)90000.0/(double)output_fps;
@@ -906,7 +896,7 @@ void *video_encode_thread_x264(void *context)
                     send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H264) - Restarting Service");
                     exit(0);                                                            
                 }
-                memcpy(nal_buffer, x264_data[current_queue].nal->p_payload, output_size);
+                memcpy(nal_buffer, x264_data[current_encoder].nal->p_payload, output_size);
                 
                 if (x264_data[current_encoder].param.i_fps_den > 0) {
                     output_fps = (double)x264_data[current_encoder].param.i_fps_num / (double)x264_data[current_encoder].param.i_fps_den;
@@ -918,29 +908,29 @@ void *video_encode_thread_x264(void *context)
                 /*
                   fprintf(stderr,"RECEIVED ENCODED FRAME OUTPUT:%d FRAME COUNT DISPLAY ORDER:%ld  CURRENT TS:%ld\n",
                   output_size,
-                  (int64_t)x264_data[current_queue].pic_out.opaque,
-                  (int64_t)x264_data[current_queue].pic_out.opaque * (int64_t)ticks_per_frame_double + (int64_t)vstream->first_timestamp);
+                  (int64_t)x264_data[current_encoder].pic_out.opaque,
+                  (int64_t)x264_data[current_encoder].pic_out.opaque * (int64_t)ticks_per_frame_double + (int64_t)vstream->first_timestamp);
                 */
                 
-                pts = x264_data[current_queue].pic_out.i_pts;
-                dts = x264_data[current_queue].pic_out.i_dts;
+                pts = x264_data[current_encoder].pic_out.i_pts;
+                dts = x264_data[current_encoder].pic_out.i_dts;
 
-                encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)x264_data[current_queue].pic_out.opaque;
+                encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)x264_data[current_encoder].pic_out.opaque;
                 int64_t opaque_int64 = 0;
                 if (opaque_output) {
                     splice_point = opaque_output->splice_point;
                     splice_duration = opaque_output->splice_duration;
                     splice_duration_remaining = opaque_output->splice_duration_remaining;
                     opaque_int64 = opaque_output->frame_count_pts;            
-                    //int64_t opaque_int64 = (int64_t)x264_data[current_queue].pic_out.opaque;                    
+                    //int64_t opaque_int64 = (int64_t)x264_data[current_encoder].pic_out.opaque;                    
                 }
                 double opaque_double = (double)opaque_int64;
                 
                 pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
-                dts = (int64_t)((double)x264_data[current_queue].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
+                dts = (int64_t)((double)x264_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
-                x264_data[current_queue].frame_count_dts++;
-                video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_queue, splice_point, splice_duration, splice_duration_remaining);
+                x264_data[current_encoder].frame_count_dts++;
+                video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_encoder, splice_point, splice_duration, splice_duration_remaining);
             }            
                    
             if (msg) {
@@ -957,10 +947,8 @@ cleanup_video_encode_thread:
     // it's possible for some of the caption data to get
     // orphaned if we don't flush out the encoder
     // planning to switch over to pools so this will not become an issue       
-    for (current_encoder = 0; current_encoder < num_outputs; current_encoder++) {
-        if (x264_data[current_encoder].h) {
-            x264_encoder_close(x264_data[current_encoder].h);
-        }
+    if (x264_data[current_encoder].h) {
+        x264_encoder_close(x264_data[current_encoder].h);    
     }
     
     return NULL;
@@ -2022,14 +2010,29 @@ cleanup_video_decoder_thread:
 
 int start_video_transcode_threads(fillet_app_struct *core)
 {
+    int num_outputs = core->cd->num_outputs;
+    int i;    
+    
     video_encode_thread_running = 1;
 
     // for now we don't allow mixing the video codec across the streams
     // mixing will come later once i get some other things figured out
     if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
-        pthread_create(&video_encode_thread_id, NULL, video_encode_thread_x265, (void*)core);        
-    } else if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_H264) {    
-        pthread_create(&video_encode_thread_id, NULL, video_encode_thread_x264, (void*)core);
+        for (i = 0; i < num_outputs; i++) {
+            thread_start_struct *start;
+            start = (thread_start_struct*)malloc(sizeof(thread_start_struct));
+            start->index = i;
+            start->core = core;
+            pthread_create(&video_encode_thread_id[i], NULL, video_encode_thread_x265, (void*)start);
+        }
+    } else if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_H264) {
+        for (i = 0; i < num_outputs; i++) {
+            thread_start_struct *start;
+            start = (thread_start_struct*)malloc(sizeof(thread_start_struct));
+            start->index = i;
+            start->core = core;            
+            pthread_create(&video_encode_thread_id[i], NULL, video_encode_thread_x264, (void*)start);
+        }
     } else {
         fprintf(stderr,"error: unknown video encoder selected! fail!\n");
         //signal-unsupported video encoder type
@@ -2053,6 +2056,9 @@ int start_video_transcode_threads(fillet_app_struct *core)
 
 int stop_video_transcode_threads(fillet_app_struct *core)
 {
+    int num_outputs = core->cd->num_outputs;
+    int i;    
+    
     video_decode_thread_running = 0;
     pthread_join(video_decode_thread_id, NULL);
 
@@ -2066,7 +2072,9 @@ int stop_video_transcode_threads(fillet_app_struct *core)
     pthread_join(video_thumbnail_thread_id, NULL);
     
     video_encode_thread_running = 0;
-    pthread_join(video_encode_thread_id, NULL);
+    for (i = 0; i < num_outputs; i++) {
+        pthread_join(video_encode_thread_id[i], NULL);
+    }
     
     return 0;
 }
