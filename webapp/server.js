@@ -54,6 +54,7 @@ const logger = createLogger({
     ]
 });
 
+const scanFolder = '/var/tmp/scan';
 const configFolder = '/var/tmp/configs';
 const statusFolder = '/var/tmp/status';
 const apacheFolder = '/var/www/html';
@@ -184,9 +185,13 @@ app.get('/api/v1/get_service_count', (req, res) => {
     obj.services = services;
 
     retdata = JSON.stringify(obj);
-    //console.log(retdata);
-
     res.send(retdata);    
+});
+
+app.get('/api/v1/get_scan_data', (req, res) => {
+    var html = '';
+    var i;
+    
 });
 
 app.get('/api/v1/get_control_page', (req, res) => {
@@ -392,7 +397,7 @@ app.post('/api/v1/status_update/:uid', (req, res) => {
 app.post('/api/v1/signal/:uid', (req, res) => {
     console.log('receive event signal from: ', req.params.uid);
     console.log('body is ', req.body);
-    //logger.info(req.body);
+    logger.info(req.body);
     res.send(req.body);
 });
 
@@ -419,9 +424,7 @@ app.post('/api/v1/stop_service/:uid', (req, res) => {
 		var touchfile = statusFolder+'/'+fileprefix+'.lock';
 		fs.closeSync(fs.openSync(touchfile, 'w'));
 
-		var stop_cmd = 'sudo docker stop livestream'+fileprefix;
-		var rm_cmd = 'sudo docker rm livestream'+fileprefix;
-
+		var stop_cmd = 'sudo docker rm -f livestream'+fileprefix;
                 if (fs.existsSync(statusfile)) {
 		    fs.unlinkSync(statusfile)
                 }
@@ -445,6 +448,7 @@ app.post('/api/v1/stop_service/:uid', (req, res) => {
 			    fs.unlinkSync(statusfile);
 			} catch (errremove) {
 			    console.error(errremove);
+			    fs.unlinkSync(touchfile); // remove this?
                             failed_sent = 1;
                             var retdata;
                             var current_status = 'failed';
@@ -455,32 +459,16 @@ app.post('/api/v1/stop_service/:uid', (req, res) => {
                             res.send(retdata);                                                                                        
 			}
                         if (!failed_sent) {
-			    console.log('Stopped Docker container- now removing it');
-			    console.log('remove command: ', rm_cmd);			
-			    exec(rm_cmd, (err, stdout, stderr) => {
-			        if (err) {
-				    console.log('Unable to remove Docker container');
-				    fs.unlinkSync(touchfile);
-                                    var retdata;
-                                    var current_status = 'failed';
-                                    obj = new Object();
-                                    obj.status = current_status;
-                                    retdata = JSON.stringify(obj);    
-                                    console.log(retdata);			    
-                                    res.send(retdata);                                                            
-			        } else {
-				    console.log('Removed Docker container');
-				    fs.unlinkSync(touchfile);
-                                    var retdata;
-                                    var current_status = 'success';
-                                    obj = new Object();
-                                    obj.status = current_status;
-                                    retdata = JSON.stringify(obj);    
-                                    console.log(retdata);			    
-                                    res.send(retdata);                                                            
-			        }                            
-                            });
-                        }
+			    console.log('Stopped and Removed Docker container');
+			    fs.unlinkSync(touchfile);
+                            var retdata;
+                            var current_status = 'success';
+                            obj = new Object();
+                            obj.status = current_status;
+                            retdata = JSON.stringify(obj);    
+                            console.log(retdata);			    
+                            res.send(retdata);                                                            
+			}                            
 		    }
 		});		
 	    }
@@ -687,6 +675,118 @@ app.post('/api/v1/start_service/:uid', (req, res) => {
         retdata = JSON.stringify(obj);    
         console.log(retdata);			    
         res.send(retdata);
+    }
+});
+
+function scan_response_video(streamindex, avtype, codec, width, height, framerate, bitrate, pid) {
+    this.streamindex = streamindex;
+    this.avtype = avtype;
+    this.codec = codec;
+    this.width = width;
+    this.height = height;
+    this.framerate = framerate;
+    this.bitrate = bitrate;
+    this.pid = pid;
+}
+
+function scan_response_audio(streamindex, avtype, codec, channels, samplerate, bitrate, pid) {
+    this.streamindex = streamindex;
+    this.avtype = avtype;
+    this.codec = codec;
+    this.channels = channels;
+    this.samplerate = samplerate;
+    this.bitrate = bitrate;
+    this.pid = pid;
+}
+
+function scan_response_data(streamindex, avtype, codec, pid) {
+    this.streamindex = streamindex;
+    this.avtype = avtype;
+    this.codec = codec;
+    this.pid = pid;
+}
+
+app.post('/api/v1/scan', (req, res) => {
+    console.log('request to scan a service');
+    
+    console.log('body is: ', req.body);
+
+    var words = req.body;
+    var sources = words.services;
+    var i;
+    var streams = [];
+
+    console.log('sources: ', sources);
+    for (i = 0; i < sources; i++) {
+        var service_data = JSON.parse(words.service_list);        
+        console.log('service_data: ', service_data[i]);
+        console.log('serviceip/port: ', service_data[i].serviceip);
+        console.log('serviceinterface: ', service_data[i].serviceinterface);
+
+        var retdata;
+        var scan_cmd = 'ffprobe -v quiet -timeout 5 -print_format json -show_format -show_streams udp://'+service_data[i].serviceip;
+        
+        console.log('running: ', scan_cmd);
+        
+        exec(scan_cmd, (err, stdout, stderr) => {
+	    if (err) {
+                var retdata;
+                var current_status = 'failed';
+                
+	        console.log('Unable to run ffprobe');
+                
+                obj = new Object();
+                obj.status = current_status;
+                retdata = JSON.stringify(obj);    
+                console.log(retdata);			    
+                res.send(retdata);                        
+	    } else {
+                var retdata;
+                var current_status = 'success';
+                
+	        console.log('ffprobe run successfully');
+
+                var scan_data = stdout;
+
+                var parsed_data = JSON.parse(scan_data);
+                var nb_streams = parsed_data.format.nb_streams;
+                
+                console.log('nb_streams ', nb_streams);
+                var s;
+                for (s = 0; s < nb_streams; s++) {
+                    var new_stream;
+
+                    var codec_name = parsed_data.streams[s].codec_name;
+                    var codec_type = parsed_data.streams[s].codec_type;
+                    console.log('codec: ', codec_name);
+                    if (codec_type === "video") {
+                        var width = parsed_data.streams[s].width;
+                        var height = parsed_data.streams[s].height;
+                        var bit_rate = parsed_data.streams[s].bit_rate;
+                        var framerate = parsed_data.streams[s].avg_frame_rate;
+                        var pid = parsed_data.streams[s].id;
+                        var service = new scan_response_video(s, codec_type, codec_name, width, height, framerate, bit_rate, pid);
+                        streams.push(service);
+                    } else if (codec_type === "audio") {
+                        var bit_rate = parsed_data.streams[s].bit_rate;
+                        var channels = parsed_data.streams[s].channels;
+                        var pid = parsed_data.streams[s].id;
+                        var samplerate = parsed_data.streams[s].sample_rate;                       
+                        var service = new scan_response_audio(s, codec_type, codec_name, channels, samplerate, bit_rate, pid);
+                        streams.push(service);
+                    } else {
+                        // do nothing for now
+                    }
+                }
+
+                console.log("response: ", streams);
+                
+                obj = new Object();
+                obj.scan_result = streams;
+                var retdata = JSON.stringify(obj);
+                res.send(retdata); 
+	    }
+        });      
     }
 });
 
