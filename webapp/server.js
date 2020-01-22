@@ -48,8 +48,12 @@ const logger = createLogger({
     ),
     transports: [
         new transports.File( {
+	    level: 'info',
             filename: logfilename,
-            level: 'info'
+            json: true,
+	    maxsize: 5242880,
+	    maxFiles: 10,
+	    colorize: true
         })
     ]
 });
