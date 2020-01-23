@@ -1,24 +1,23 @@
-/*****************************************************************************                                                                                                                          
-  Copyright (C) 2018-2019 John William                                                                                                                                                                             
-                                                                                                                                                                                                         
-  This program is free software; you can redistribute it and/or modify                                                                                                                                     
-  it under the terms of the GNU General Public License as published by                                                                                                                                     
-  the Free Software Foundation; either version 2 of the License, or                                                                                                                                        
-  (at your option) any later version.                                                                                                                                                                      
-                                                                                                                                                                                                          
-  This program is distributed in the hope that it will be useful,                                                                                                                                          
-  but WITHOUT ANY WARRANTY; without even the implied warranty of                                                                                                                                           
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                                                                                                                                            
-  GNU General Public License for more details.                                                                                                                                                             
-                                                                                                                                                                                                           
-  You should have received a copy of the GNU General Public License                                                                                                                                        
-  along with this program; if not, write to the Free Software                                                                                                                                              
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.                                                                                                                               
-                                                                                                                                                                                                           
-  This program is also available under a commercial license with                                                                                                                                           
-  customization/support packages and additional features.  For more                                                                                                                                        
-  information, please contact us at cannonbeachgoonie@gmail.com                                                                                                                                            
-                                                                                                                                                                                                           
+/*****************************************************************************
+  Copyright (C) 2018-2020 John William
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
+
 ******************************************************************************/
 
 #include <stdlib.h>
@@ -67,11 +66,11 @@ static pthread_t video_thumbnail_thread_id;
 
 typedef struct _x264_encoder_struct_ {
     x264_t           *h;
-    x264_nal_t       *nal;    
+    x264_nal_t       *nal;
     x264_param_t     param;
     x264_picture_t   pic;
     x264_picture_t   pic_out;
-    int              i_nal;    
+    int              i_nal;
     int              y_size;
     int              uv_size;
     int              width;
@@ -84,7 +83,7 @@ typedef struct _x265_encoder_struct_ {
     x265_stats       stats;
     x265_picture     pic_orig;
     x265_picture     pic_out;
-    x265_param       *param;   
+    x265_param       *param;
     x265_picture     *pic_in;
     x265_picture     *pic_recon;
     x265_api         *api;
@@ -95,26 +94,32 @@ typedef struct _x265_encoder_struct_ {
     int64_t          frame_count_dts;
 } x265_encoder_struct;
 
-typedef struct _scale_struct_
-{
-    uint8_t *output_data[4];
-    int     output_stride[4];
+typedef struct _scale_struct_ {
+    uint8_t          *output_data[4];
+    int              output_stride[4];
 } scale_struct;
 
 typedef struct _opaque_struct_ {
-    uint8_t        *caption_buffer;
-    int            caption_size;
-    int64_t        splice_duration;
-    int            splice_point;
-    int64_t        splice_duration_remaining;
+    uint8_t          *caption_buffer;
+    int              caption_size;
+    int64_t          splice_duration;
+    int              splice_point;
+    int64_t          splice_duration_remaining;
 } opaque_struct;
 
 typedef struct _encoder_opaque_struct_ {
-    int         splice_point;
-    int64_t     splice_duration;
-    int64_t     splice_duration_remaining;
-    int64_t     frame_count_pts;
+    int              splice_point;
+    int64_t          splice_duration;
+    int64_t          splice_duration_remaining;
+    int64_t          frame_count_pts;
 } encoder_opaque_struct;
+
+typedef struct _signal_struct_ {
+    int64_t          pts;
+    int              scte35_ready;
+    int64_t          scte35_duration;
+    int64_t          scte35_duration_remaining;
+} signal_struct;
 
 typedef struct _thread_start_struct_ {
     fillet_app_struct   *core;
@@ -139,13 +144,13 @@ int save_frame_as_jpeg(fillet_app_struct *core, AVFrame *pFrame)
     jpegContext->bit_rate = 250000;
     jpegContext->width = THUMBNAIL_WIDTH;
     jpegContext->height = THUMBNAIL_HEIGHT;
-    jpegContext->time_base= (AVRational){1,30};
+    jpegContext->time_base = (AVRational){1,30};
     jpegContext->pix_fmt = AV_PIX_FMT_YUVJ420P;
-    
+
     avcodec_open2(jpegContext, jpegCodec, NULL);
     av_init_packet(&packet);
     avcodec_encode_video2(jpegContext, &packet, pFrame, &encodedFrame);
-    
+
     snprintf(filename, MAX_FILENAME_SIZE-1, "/var/www/html/thumbnail%d.jpg", core->cd->identity);
     JPEG = fopen(filename, "wb");
     if (JPEG) {
@@ -153,7 +158,7 @@ int save_frame_as_jpeg(fillet_app_struct *core, AVFrame *pFrame)
         fclose(JPEG);
     }
     av_free_packet(&packet);
-    avcodec_close(jpegContext);
+    avcodec_free_context(&jpegContext);
     return 0;
 }
 
@@ -162,8 +167,8 @@ void *video_thumbnail_thread(void *context)
     fillet_app_struct *core = (fillet_app_struct*)context;
     dataqueue_message_struct *msg;
 
-    av_register_all();   
-    
+    av_register_all();
+
     while (video_thumbnail_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->thumbnail_queue);
         while (!msg && video_thumbnail_thread_running) {
@@ -210,8 +215,8 @@ void *video_thumbnail_thread(void *context)
             jpeg_frame->top_field_first = 0;
 
             save_frame_as_jpeg(core, jpeg_frame);
-            
-            av_frame_free(&jpeg_frame);            
+
+            av_frame_free(&jpeg_frame);
             av_freep(&thumbnail_output->output_data[0]);
             free(thumbnail_output);
             thumbnail_output = NULL;
@@ -224,7 +229,7 @@ void *video_thumbnail_thread(void *context)
 void *video_encode_thread_x265(void *context)
 {
     thread_start_struct *start = (thread_start_struct*)context;
-    fillet_app_struct *core = (fillet_app_struct*)start->core;    
+    fillet_app_struct *core = (fillet_app_struct*)start->core;
     dataqueue_message_struct *msg;
     int current_encoder = start->index;
     x265_encoder_struct x265_data[MAX_TRANS_OUTPUTS];
@@ -252,8 +257,8 @@ void *video_encode_thread_x265(void *context)
             int output_width = core->cd->transvideo_info[current_encoder].width;
             int output_height = core->cd->transvideo_info[current_encoder].height;
             uint32_t sar_width;
-            uint32_t sar_height;            
-            
+            uint32_t sar_height;
+
             if (!x265_data[current_encoder].encoder) {
                 x265_data[current_encoder].api = x265_api_get(8); // only 8-bit for now
                 if (!x265_data[current_encoder].api) {
@@ -269,25 +274,25 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->internalBitDepth = 8;
                 x265_data[current_encoder].param->bHighTier = 0;
                 x265_data[current_encoder].param->bRepeatHeaders = 1;
-                x265_data[current_encoder].param->bAnnexB = 1;                
+                x265_data[current_encoder].param->bAnnexB = 1;
                 x265_data[current_encoder].param->sourceWidth = output_width;
                 x265_data[current_encoder].param->sourceHeight = output_height;
                 x265_data[current_encoder].param->limitTU = 0;
                 x265_data[current_encoder].param->logLevel = X265_LOG_DEBUG;
                 x265_data[current_encoder].param->bEnableWavefront = 1;
-                x265_data[current_encoder].param->bOpenGOP = 0;                
+                x265_data[current_encoder].param->bOpenGOP = 0;
                 x265_data[current_encoder].param->fpsNum = msg->fps_num;
-                x265_data[current_encoder].param->fpsDenom = msg->fps_den;                
+                x265_data[current_encoder].param->fpsDenom = msg->fps_den;
                 x265_data[current_encoder].param->bDistributeModeAnalysis = 0;
                 x265_data[current_encoder].param->bDistributeMotionEstimation = 0;
                 x265_data[current_encoder].param->scenecutThreshold = 0;
                 x265_data[current_encoder].param->bframes = 2;  // set configuration
                 x265_data[current_encoder].param->bBPyramid = 0; // set configuration
-                x265_data[current_encoder].param->bFrameAdaptive = 0;                
+                x265_data[current_encoder].param->bFrameAdaptive = 0;
                 x265_data[current_encoder].param->rc.rateControlMode = X265_RC_ABR;
                 x265_data[current_encoder].param->rc.bitrate = core->cd->transvideo_info[current_encoder].video_bitrate;
                 x265_data[current_encoder].param->rc.vbvBufferSize = core->cd->transvideo_info[current_encoder].video_bitrate;
-                x265_data[current_encoder].param->bEnableAccessUnitDelimiters = 1;                
+                x265_data[current_encoder].param->bEnableAccessUnitDelimiters = 1;
                 x265_data[current_encoder].param->frameNumThreads = 0;
                 x265_data[current_encoder].param->interlaceMode = 0; // nope!
                 x265_data[current_encoder].param->levelIdc = 0;
@@ -300,15 +305,15 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->bEnableTemporalMvp = 0;
                 x265_data[current_encoder].param->bEnableLoopFilter = 1;
                 x265_data[current_encoder].param->bEnableSAO = 1;
-                x265_data[current_encoder].param->bEnableFastIntra = 1;                
+                x265_data[current_encoder].param->bEnableFastIntra = 1;
                 x265_data[current_encoder].param->decodedPictureHashSEI = 0;
                 x265_data[current_encoder].param->bLogCuStats = 0;
                 x265_data[current_encoder].param->lookaheadDepth = 15;
                 x265_data[current_encoder].param->lookaheadSlices = 5;
-                
+
                 if (output_width < 960) {  // sd/hd?
                     x265_data[current_encoder].param->maxCUSize = 16;
-                    x265_data[current_encoder].param->minCUSize = 8;               
+                    x265_data[current_encoder].param->minCUSize = 8;
                 } else {
                     x265_data[current_encoder].param->maxCUSize = 32;
                     x265_data[current_encoder].param->minCUSize = 16;
@@ -322,19 +327,19 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->maxNumReferences = 1;
 
                 // these really need to be tuned
-                if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_LOW) {
-                    // low is default
+                if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_BASIC) {
+                    // basic quality is default
                 } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_MEDIUM) {
                     x265_data[current_encoder].param->rdLevel = 3;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
-                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH; 
+                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH;
                     x265_data[current_encoder].param->subpelRefine = 3;
                     x265_data[current_encoder].param->maxNumMergeCand = 2;
-                    x265_data[current_encoder].param->maxNumReferences = 2;                    
+                    x265_data[current_encoder].param->maxNumReferences = 2;
                 } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_HIGH) {
                     x265_data[current_encoder].param->rdLevel = 5;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
-                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH; 
+                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH;
                     x265_data[current_encoder].param->subpelRefine = 5;
                     x265_data[current_encoder].param->maxNumMergeCand = 2;
                     x265_data[current_encoder].param->maxNumReferences = 3;
@@ -342,12 +347,12 @@ void *video_encode_thread_x265(void *context)
                 } else {  // ENCODER_QUALITY_CRAZY
                     x265_data[current_encoder].param->rdLevel = 5;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
-                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH; 
+                    x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH;
                     x265_data[current_encoder].param->subpelRefine = 5;
                     x265_data[current_encoder].param->maxNumMergeCand = 2;
                     x265_data[current_encoder].param->maxNumReferences = 3;
                     x265_data[current_encoder].param->bframes = 4;
-                }                
+                }
 
                 // vui factors
                 x265_data[current_encoder].param->vui.aspectRatioIdc = X265_EXTENDED_SAR;
@@ -356,7 +361,7 @@ void *video_encode_thread_x265(void *context)
                 if (core->cd->transvideo_info[0].aspect_num > 0 &&
                     core->cd->transvideo_info[0].aspect_den > 0) {
                     sar_width = output_height*core->cd->transvideo_info[0].aspect_num;
-                    sar_height = output_width*core->cd->transvideo_info[0].aspect_den;      
+                    sar_height = output_width*core->cd->transvideo_info[0].aspect_den;
                 } else {
                     sar_width = output_height*msg->aspect_num;
                     sar_height = output_width*msg->aspect_den;
@@ -365,7 +370,7 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->vui.sarWidth = sar_width;
                 x265_data[current_encoder].param->vui.sarHeight = sar_height;
                 x265_data[current_encoder].param->vui.transferCharacteristics = 2;
-                x265_data[current_encoder].param->vui.matrixCoeffs = 2;                
+                x265_data[current_encoder].param->vui.matrixCoeffs = 2;
                 x265_data[current_encoder].param->vui.bEnableOverscanAppropriateFlag = 0;
                 x265_data[current_encoder].param->vui.bEnableVideoSignalTypePresentFlag = 0;
                 x265_data[current_encoder].param->vui.bEnableVideoFullRangeFlag = 1;
@@ -375,31 +380,31 @@ void *video_encode_thread_x265(void *context)
                 x265_data[current_encoder].param->vui.chromaSampleLocTypeTopField = 0;
                 x265_data[current_encoder].param->vui.chromaSampleLocTypeBottomField = 0;
                 x265_data[current_encoder].param->vui.defDispWinLeftOffset = 0;
-                x265_data[current_encoder].param->vui.defDispWinTopOffset = 0;                
+                x265_data[current_encoder].param->vui.defDispWinTopOffset = 0;
                 x265_data[current_encoder].param->vui.defDispWinRightOffset = output_width;
                 x265_data[current_encoder].param->vui.defDispWinBottomOffset = output_height;
-               
+
                 // rate control factors
-                x265_data[current_encoder].param->rc.qgSize = 16;                
+                x265_data[current_encoder].param->rc.qgSize = 16;
                 x265_data[current_encoder].param->rc.vbvBufferInit = 0.9;
                 x265_data[current_encoder].param->rc.rfConstant = 26;
                 x265_data[current_encoder].param->rc.qpStep = 4;
                 x265_data[current_encoder].param->rc.qp = 28;
                 x265_data[current_encoder].param->rc.cuTree = 0;
                 x265_data[current_encoder].param->rc.complexityBlur = 25;
-                x265_data[current_encoder].param->rc.qblur = 0.6;                
+                x265_data[current_encoder].param->rc.qblur = 0.6;
                 x265_data[current_encoder].param->rc.qCompress = 0.65;
-                x265_data[current_encoder].param->rc.pbFactor = 1.2f;                
-                x265_data[current_encoder].param->rc.ipFactor = 1.4f;                
+                x265_data[current_encoder].param->rc.pbFactor = 1.2f;
+                x265_data[current_encoder].param->rc.ipFactor = 1.4f;
                 x265_data[current_encoder].param->rc.bStrictCbr = 1;
-                
+
                 // let's put the idr frames at second boundaries - make this configurable later
                 double fps = 30.0;
                 if (msg->fps_den > 0) {
                     fps = (double)((double)msg->fps_num / (double)msg->fps_den);
                 }
                 x265_data[current_encoder].param->keyframeMax = (int)((double)fps + 0.5);
-                x265_data[current_encoder].param->keyframeMin = 1;                
+                x265_data[current_encoder].param->keyframeMin = 1;
 
                 // start it up
                 x265_data[current_encoder].encoder = x265_data[current_encoder].api->encoder_open(x265_data[current_encoder].param);
@@ -449,7 +454,7 @@ void *video_encode_thread_x265(void *context)
                     splice_point,
                     splice_duration,
                     splice_duration_remaining);
-            
+
 
             x265_data[current_encoder].pic_in->colorSpace = X265_CSP_I420;
             x265_data[current_encoder].pic_in->bitDepth = 8;
@@ -480,6 +485,11 @@ void *video_encode_thread_x265(void *context)
                 int pos = 0;
                 int nalsize = 0;
 
+                if (core->video_encode_time_set == 0) {
+                    core->video_encode_time_set = 1;
+                    clock_gettime(CLOCK_MONOTONIC, &core->video_encode_time);
+                }
+
                 nalout = x265_data[current_encoder].p_nal;
                 for (nal_idx = 0; nal_idx < nal_count; nal_idx++) {
                     nalsize += nalout->sizeBytes;
@@ -490,8 +500,8 @@ void *video_encode_thread_x265(void *context)
                 nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, nalsize);
                 if (!nal_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers - Restarting Service");
-                    exit(0);                    
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H265) - Restarting Service");
+                    exit(0);
                 }
                 for (nal_idx = 0; nal_idx < nal_count; nal_idx++) {
                     int nocopy = 0;
@@ -500,7 +510,7 @@ void *video_encode_thread_x265(void *context)
                         nocopy = 1;
                     }
 
-#if defined(DEBUG_NALTYPE)                    
+#if defined(DEBUG_NALTYPE)
                     if (nalout->type == 32) {
                         syslog(LOG_INFO,"HEVC VIDEO FRAME: VPS\n");
                     } else if (nalout->type == 33) {
@@ -515,7 +525,7 @@ void *video_encode_thread_x265(void *context)
                     } else {
                         syslog(LOG_INFO,"HEVC VIDEO FRAME: 0x%x (SIZE:%d)\n", nalout->type, nalout->sizeBytes);
                     }
-#endif // DEBUG_NALTYPE                    
+#endif // DEBUG_NALTYPE
 
                     if (!nocopy) {
                         memcpy(nal_buffer + pos, nalout->payload, nalout->sizeBytes);
@@ -523,27 +533,27 @@ void *video_encode_thread_x265(void *context)
                     } else {
                         // skip aud
                     }
-                    
+
                     nalout++;
                 }
                 nalsize = pos;
                 //nalsize is the size of the nal unit
-                
+
                 if (x265_data[current_encoder].param->fpsDenom > 0) {
                     output_fps = (double)x265_data[current_encoder].param->fpsNum / (double)x265_data[current_encoder].param->fpsDenom;
                     if (output_fps > 0) {
                         ticks_per_frame_double = (double)90000.0/(double)output_fps;
                     }
                 }
-                
+
                 /*encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)x264_data[current_encoder].pic_out.opaque;
                 int64_t opaque_int64 = 0;
                 if (opaque_output) {
                     splice_point = opaque_output->splice_point;
                     splice_duration = opaque_output->splice_duration;
                     splice_duration_remaining = opaque_output->splice_duration_remaining;
-                    opaque_int64 = opaque_output->frame_count_pts;            
-                    //int64_t opaque_int64 = (int64_t)x264_data[current_encoder].pic_out.opaque;                    
+                    opaque_int64 = opaque_output->frame_count_pts;
+                    //int64_t opaque_int64 = (int64_t)x264_data[current_encoder].pic_out.opaque;
                 }
                 double opaque_double = (double)opaque_int64;
                 */
@@ -559,45 +569,45 @@ void *video_encode_thread_x265(void *context)
                 splice_duration_remaining = 0;
                 output_size = nalsize;
 
-#if defined(DEBUG_NALTYPE)                
+#if defined(DEBUG_NALTYPE)
                 syslog(LOG_INFO,"DELIVERING HEVC ENCODED VIDEO FRAME: %d   PTS:%ld  DTS:%ld\n",
                        output_size,
                        pts, dts);
-#endif                
-                
+#endif
+
                 video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_encoder, splice_point, splice_duration, splice_duration_remaining);
             }
-                   
+
             if (msg) {
                 memory_return(core->raw_video_pool, msg->buffer);
                 msg->buffer = NULL;
                 memory_return(core->fillet_msg_pool, msg);
-                msg = NULL;                
-            }                        
+                msg = NULL;
+            }
         }
     }
 
 cleanup_video_encode_thread:
 
-    //x265_data[current_encoder].api->encoder_close();        
-    
+    //x265_data[current_encoder].api->encoder_close();
+
     return NULL;
 }
 
 void *video_encode_thread_x264(void *context)
 {
     thread_start_struct *start = (thread_start_struct*)context;
-    fillet_app_struct *core = (fillet_app_struct*)start->core;    
-    dataqueue_message_struct *msg;    
+    fillet_app_struct *core = (fillet_app_struct*)start->core;
+    dataqueue_message_struct *msg;
     int current_encoder = start->index;
     x264_encoder_struct x264_data[MAX_TRANS_OUTPUTS];
-#define MAX_SEI_PAYLOAD_SIZE 512    
+#define MAX_SEI_PAYLOAD_SIZE 512
 
     free(start);
     x264_data[current_encoder].h = NULL;
     x264_data[current_encoder].frame_count_pts = 1;
-    x264_data[current_encoder].frame_count_dts = 0;   
-    
+    x264_data[current_encoder].frame_count_dts = 0;
+
     while (video_encode_thread_running) {
         // loop across the input queues and feed the encoders
         {
@@ -612,16 +622,16 @@ void *video_encode_thread_x264(void *context)
                 int output_height = core->cd->transvideo_info[current_encoder].height;
                 uint32_t sar_width;
                 uint32_t sar_height;
-                
+
                 x264_data[current_encoder].width = output_width;
                 x264_data[current_encoder].height = output_height;
                 x264_param_default_preset(&x264_data[current_encoder].param,
                                           "medium",
                                           NULL);
-                
+
                 x264_data[current_encoder].y_size = output_width * output_height;
                 x264_data[current_encoder].uv_size = (output_width * output_height) / 4;
-                
+
                 x264_data[current_encoder].param.i_csp = X264_CSP_I420;
                 x264_data[current_encoder].param.i_width = output_width;
                 x264_data[current_encoder].param.i_height = output_height;
@@ -629,7 +639,7 @@ void *video_encode_thread_x264(void *context)
                                    x264_data[current_encoder].param.i_csp,
                                    output_width,
                                    output_height);
-                
+
                 x264_data[current_encoder].param.b_interlaced = 0;
                 x264_data[current_encoder].param.b_fake_interlaced = 0;
                 x264_data[current_encoder].param.b_deterministic = 1;
@@ -639,7 +649,7 @@ void *video_encode_thread_x264(void *context)
                 x264_data[current_encoder].param.b_aud = 1;
                 x264_data[current_encoder].param.b_open_gop = 0;
                 x264_data[current_encoder].param.b_sliced_threads = 0;
-                
+
                 x264_data[current_encoder].param.rc.i_lookahead = 15;
 
                 // some people may want the filler bits, but for HLS/DASH, it's just extra baggage to carry around
@@ -651,21 +661,21 @@ void *video_encode_thread_x264(void *context)
                 x264_data[current_encoder].param.rc.i_bitrate = core->cd->transvideo_info[current_encoder].video_bitrate;
                 x264_data[current_encoder].param.rc.i_vbv_buffer_size = core->cd->transvideo_info[current_encoder].video_bitrate;
                 x264_data[current_encoder].param.rc.i_vbv_max_bitrate = core->cd->transvideo_info[current_encoder].video_bitrate;
-                
+
                 x264_data[current_encoder].param.analyse.i_me_method = X264_ME_HEX;
                 x264_data[current_encoder].param.analyse.i_subpel_refine = 3;
                 x264_data[current_encoder].param.analyse.b_dct_decimate = 1;
-                
+
                 x264_data[current_encoder].param.i_nal_hrd = X264_NAL_HRD_CBR;
                 x264_data[current_encoder].param.i_threads = 0;
-                x264_data[current_encoder].param.i_lookahead_threads = 0;                
+                x264_data[current_encoder].param.i_lookahead_threads = 0;
                 x264_data[current_encoder].param.i_slice_count = 0;
                 x264_data[current_encoder].param.i_frame_reference = 1;
 
                 if (core->cd->transvideo_info[0].aspect_num > 0 &&
                     core->cd->transvideo_info[0].aspect_den > 0) {
                     sar_width = output_height*core->cd->transvideo_info[0].aspect_num;
-                    sar_height = output_width*core->cd->transvideo_info[0].aspect_den;      
+                    sar_height = output_width*core->cd->transvideo_info[0].aspect_den;
                 } else {
                     sar_width = output_height*msg->aspect_num;
                     sar_height = output_width*msg->aspect_den;
@@ -673,8 +683,8 @@ void *video_encode_thread_x264(void *context)
                 if (sar_width > 0 && sar_height > 0) {
                     x264_data[current_encoder].param.vui.i_sar_width = sar_width;
                     x264_data[current_encoder].param.vui.i_sar_height = sar_height;
-                }                
-                
+                }
+
                 // let's put the idr frames at second boundaries - make this configurable later
                 double fps = 30.0;
                 if (msg->fps_den > 0) {
@@ -694,22 +704,22 @@ void *video_encode_thread_x264(void *context)
                 // at once to put in an idr sync frame
                 // anyone want to write some scene change detection code?
                 x264_data[current_encoder].param.i_scenecut_threshold = 0;  // need to keep abr alignment
-                x264_data[current_encoder].param.i_bframe_adaptive = 0;                
+                x264_data[current_encoder].param.i_bframe_adaptive = 0;
                 x264_data[current_encoder].param.i_bframe_pyramid = 0;
-                
+
                 // we set a base quality above and then modify things here
-                if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_LOW) {
+                if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_BASIC) {
                     x264_data[current_encoder].param.analyse.i_me_method = X264_ME_DIA;
-                    x264_data[current_encoder].param.analyse.i_subpel_refine = 3;                    
+                    x264_data[current_encoder].param.analyse.i_subpel_refine = 3;
                     x264_data[current_encoder].param.i_frame_reference = 1;
                     x264_data[current_encoder].param.rc.i_lookahead = (int)(fps+0.5)/2;
                     x264_data[current_encoder].param.i_bframe = 0;
                 } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_MEDIUM) {
                     x264_data[current_encoder].param.analyse.i_me_method = X264_ME_HEX;
-                    x264_data[current_encoder].param.analyse.i_subpel_refine = 5;                    
+                    x264_data[current_encoder].param.analyse.i_subpel_refine = 5;
                     x264_data[current_encoder].param.i_frame_reference = 3;
                     x264_data[current_encoder].param.rc.i_lookahead = (int)(fps+0.5);
-                    x264_data[current_encoder].param.i_bframe = 2;                    
+                    x264_data[current_encoder].param.i_bframe = 2;
                 } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_HIGH) {
                     x264_data[current_encoder].param.analyse.i_me_method = X264_ME_HEX;
                     x264_data[current_encoder].param.analyse.i_subpel_refine = 7;
@@ -725,13 +735,13 @@ void *video_encode_thread_x264(void *context)
                 }
 
                 x264_data[current_encoder].param.b_sliced_threads = 0;
-                
+
 //#define ENABLE_SLICED_THREADS
 #if defined(ENABLE_SLICED_THREADS)
                 x264_data[current_encoder].param.b_sliced_threads = 1;
-                
-                // these values were derived from testing across several different cloud instances- seem 
-                if (output_width > 960 && output_height > 540) {                    
+
+                // these values were derived from testing across several different cloud instances- seem
+                if (output_width > 960 && output_height > 540) {
                     x264_data[current_encoder].param.i_threads = 12;
                     x264_data[current_encoder].param.i_slice_count = 8;
                 } else {
@@ -739,41 +749,41 @@ void *video_encode_thread_x264(void *context)
                     x264_data[current_encoder].param.i_slice_count = 4;
                 }
 #else
-                //tradeoff-quality vs performance                
-                if (output_width > 960 && output_height > 540) {                    
+                //tradeoff-quality vs performance
+                if (output_width > 960 && output_height > 540) {
                     x264_data[current_encoder].param.i_threads = 12;
                 } else {
                     x264_data[current_encoder].param.i_threads = 6;
                 }
-#endif                
+#endif
 
-                if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {                    
+                if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {
                     x264_param_apply_profile(&x264_data[current_encoder].param,"baseline");
                     x264_data[current_encoder].param.b_cabac = 0;
                     x264_data[current_encoder].param.i_cqm_preset = X264_CQM_FLAT;
                     x264_data[current_encoder].param.i_bframe = 0;
                     x264_data[current_encoder].param.analyse.i_weighted_pred = 0;
-                    x264_data[current_encoder].param.analyse.b_weighted_bipred = 0;                    
-                    x264_data[current_encoder].param.analyse.b_transform_8x8 = 0;                    
+                    x264_data[current_encoder].param.analyse.b_weighted_bipred = 0;
+                    x264_data[current_encoder].param.analyse.b_transform_8x8 = 0;
                 } else if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_MAIN) {
                     x264_param_apply_profile(&x264_data[current_encoder].param,"main");
-                    x264_data[current_encoder].param.i_cqm_preset = X264_CQM_FLAT;                    
-                    x264_data[current_encoder].param.analyse.b_transform_8x8 = 0;                    
+                    x264_data[current_encoder].param.i_cqm_preset = X264_CQM_FLAT;
+                    x264_data[current_encoder].param.analyse.b_transform_8x8 = 0;
                 } else {
                     x264_param_apply_profile(&x264_data[current_encoder].param,"high");
                     x264_data[current_encoder].param.analyse.b_transform_8x8 = 1;
                 }
-                
+
                 x264_data[current_encoder].h = x264_encoder_open(&x264_data[current_encoder].param);
             }
-                        
+
             if (!video_encode_thread_running) {
                 while (msg) {
                     if (msg) {
                         memory_return(core->raw_video_pool, msg->buffer);
                         msg->buffer = NULL;
                         memory_return(core->fillet_msg_pool, msg);
-                        msg = NULL;                                        
+                        msg = NULL;
                     }
                     msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->input_queue[current_encoder]);
                 }
@@ -811,9 +821,9 @@ void *video_encode_thread_x264(void *context)
                 opaque_data->splice_duration_remaining = splice_duration_remaining;
                 opaque_data->frame_count_pts = x264_data[current_encoder].frame_count_pts;
             }
-            
+
             x264_data[current_encoder].pic.opaque = (void*)opaque_data;
-            
+
             memcpy(x264_data[current_encoder].pic.img.plane[0],
                    video,
                    x264_data[current_encoder].y_size);
@@ -826,14 +836,14 @@ void *video_encode_thread_x264(void *context)
 
             if (msg->caption_buffer) {
 //#define DISABLE_CAPTIONS
-#if !defined(DISABLE_CAPTIONS)                
+#if !defined(DISABLE_CAPTIONS)
                 uint8_t *caption_buffer;
                 caption_buffer = (uint8_t*)malloc(MAX_SEI_PAYLOAD_SIZE);
                 if (caption_buffer) {
                     memset(caption_buffer, 0, MAX_SEI_PAYLOAD_SIZE);
                     x264_data[current_encoder].pic.extra_sei.payloads = (x264_sei_payload_t*)malloc(sizeof(x264_sei_payload_t));
                     //check
-                    if (x264_data[current_encoder].pic.extra_sei.payloads) {                    
+                    if (x264_data[current_encoder].pic.extra_sei.payloads) {
                         memset(x264_data[current_encoder].pic.extra_sei.payloads, 0, sizeof(x264_sei_payload_t));
                         caption_buffer[0] = 0xb5;
                         caption_buffer[1] = 0x00;
@@ -859,7 +869,7 @@ void *video_encode_thread_x264(void *context)
                     fprintf(stderr,"error: unable to allocate memory for caption_buffer\n");
                 }
                 caption_buffer = NULL;
-#endif // DISABLE_CAPTIONS                
+#endif // DISABLE_CAPTIONS
                 free(msg->caption_buffer);
                 msg->caption_buffer = NULL;
                 msg->caption_size = 0;
@@ -875,7 +885,7 @@ void *video_encode_thread_x264(void *context)
             } else {
                 x264_data[current_encoder].pic.i_type = X264_TYPE_AUTO;
             }
-            
+
             output_size = x264_encoder_encode(x264_data[current_encoder].h,
                                               &x264_data[current_encoder].nal,
                                               &x264_data[current_encoder].i_nal,
@@ -888,30 +898,35 @@ void *video_encode_thread_x264(void *context)
                 uint8_t *nal_buffer;
                 double output_fps = 30000.0/1001.0;
                 double ticks_per_frame_double = (double)90000.0/(double)output_fps;
-                video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream                
+                video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
+
+                if (core->video_encode_time_set == 0) {
+                    core->video_encode_time_set = 1;
+                    clock_gettime(CLOCK_MONOTONIC, &core->video_encode_time);
+                }
 
                 nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, output_size);
                 if (!nal_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
                     send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H264) - Restarting Service");
-                    exit(0);                                                            
+                    exit(0);
                 }
                 memcpy(nal_buffer, x264_data[current_encoder].nal->p_payload, output_size);
-                
+
                 if (x264_data[current_encoder].param.i_fps_den > 0) {
                     output_fps = (double)x264_data[current_encoder].param.i_fps_num / (double)x264_data[current_encoder].param.i_fps_den;
                     if (output_fps > 0) {
                         ticks_per_frame_double = (double)90000.0/(double)output_fps;
                     }
                 }
-                
+
                 /*
                   fprintf(stderr,"RECEIVED ENCODED FRAME OUTPUT:%d FRAME COUNT DISPLAY ORDER:%ld  CURRENT TS:%ld\n",
                   output_size,
                   (int64_t)x264_data[current_encoder].pic_out.opaque,
                   (int64_t)x264_data[current_encoder].pic_out.opaque * (int64_t)ticks_per_frame_double + (int64_t)vstream->first_timestamp);
                 */
-                
+
                 pts = x264_data[current_encoder].pic_out.i_pts;
                 dts = x264_data[current_encoder].pic_out.i_dts;
 
@@ -921,41 +936,41 @@ void *video_encode_thread_x264(void *context)
                     splice_point = opaque_output->splice_point;
                     splice_duration = opaque_output->splice_duration;
                     splice_duration_remaining = opaque_output->splice_duration_remaining;
-                    opaque_int64 = opaque_output->frame_count_pts;            
-                    //int64_t opaque_int64 = (int64_t)x264_data[current_encoder].pic_out.opaque;                    
+                    opaque_int64 = opaque_output->frame_count_pts;
+                    //int64_t opaque_int64 = (int64_t)x264_data[current_encoder].pic_out.opaque;
                 }
                 double opaque_double = (double)opaque_int64;
-                
+
                 pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
                 dts = (int64_t)((double)x264_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
                 x264_data[current_encoder].frame_count_dts++;
                 video_sink_frame_callback(core, nal_buffer, output_size, pts, dts, current_encoder, splice_point, splice_duration, splice_duration_remaining);
-            }            
-                   
+            }
+
             if (msg) {
                 //check for orphaned caption buffer
                 memory_return(core->raw_video_pool, msg->buffer);
                 msg->buffer = NULL;
                 memory_return(core->fillet_msg_pool, msg);
-                msg = NULL;                                                        
-            }            
+                msg = NULL;
+            }
         }
     }
 cleanup_video_encode_thread:
     // since we're using malloc and not buffer pools yet
     // it's possible for some of the caption data to get
     // orphaned if we don't flush out the encoder
-    // planning to switch over to pools so this will not become an issue       
+    // planning to switch over to pools so this will not become an issue
     if (x264_data[current_encoder].h) {
-        x264_encoder_close(x264_data[current_encoder].h);    
+        x264_encoder_close(x264_data[current_encoder].h);
     }
-    
+
     return NULL;
 }
 
 void copy_image_data_to_ffmpeg(uint8_t *source, int source_width, int source_height, AVFrame *source_frame)
-{    
+{
     int row;
     uint8_t *ysrc = source;
     uint8_t *usrc = ysrc + (source_width * source_height);
@@ -994,18 +1009,18 @@ void *video_scale_thread(void *context)
     AVFrame *deinterlaced_frame = NULL;
     int i;
 
-    deinterlaced_frame = av_frame_alloc();     
-    
+    deinterlaced_frame = av_frame_alloc();
+
     for (i = 0; i < MAX_TRANS_OUTPUTS; i++) {
         output_scaler[i] = NULL;
         scaled_output[i].output_data[0] = NULL;
     }
-    
+
     while (video_scale_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->scalevideo->input_queue);
         while (!msg && video_scale_thread_running) {
             usleep(1000);
-            msg = (dataqueue_message_struct*)dataqueue_take_back(core->scalevideo->input_queue);            
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->scalevideo->input_queue);
         }
 
         if (!video_scale_thread_running) {
@@ -1032,23 +1047,23 @@ void *video_scale_thread(void *context)
             deinterlaced_frame->data[2] = deinterlaced_frame->data[1] + ((width/2)*(height/2));
             deinterlaced_frame->linesize[0] = width;
             deinterlaced_frame->linesize[1] = width/2;
-            deinterlaced_frame->linesize[2] = width/2; 
-                        
+            deinterlaced_frame->linesize[2] = width/2;
+
             for (current_output = 0; current_output < num_outputs; current_output++) {
                 int output_width = core->cd->transvideo_info[current_output].width;
                 int output_height = core->cd->transvideo_info[current_output].height;
                 int video_frame_size = 3 * output_height * output_width / 2;
                 int row;
-                        
+
                 if (output_scaler[current_output] == NULL) {
                     output_scaler[current_output] = sws_getContext(width, height, AV_PIX_FMT_YUV420P,
                                                                    output_width, output_height, AV_PIX_FMT_YUV420P,
-                                                                   SWS_BICUBIC, NULL, NULL, NULL); 
+                                                                   SWS_BICUBIC, NULL, NULL, NULL);
                     av_image_alloc(scaled_output[current_output].output_data,
                                    scaled_output[current_output].output_stride,
                                    output_width, output_height, AV_PIX_FMT_YUV420P, 1);
-                }                
-                        
+                }
+
                 fprintf(stderr,"[%d] SCALING OUTPUT FRAME TO: %d x %d\n",
                         current_output,
                         output_width,
@@ -1072,11 +1087,11 @@ void *video_scale_thread(void *context)
                 int stridev;
                 int whalf = output_width/2;
                 int hhalf = output_height/2;
-                        
+
                 deinterlaced_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                 if (!deinterlaced_buffer) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain deinterlaced_buffer!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service"); 
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (SCALE) - Restarting Service");
                     exit(0);
                 }
                 sourcey = (uint8_t*)scaled_output[current_output].output_data[0];
@@ -1107,13 +1122,13 @@ void *video_scale_thread(void *context)
                 encode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                 if (!encode_msg) {
                     fprintf(stderr,"FATAL ERROR: unable to obtain encode_msg!!\n");
-                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
-                    exit(0);                            
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (SCALE) - Restarting Service");
+                    exit(0);
                 }
                 encode_msg->buffer = deinterlaced_buffer;
                 encode_msg->buffer_size = video_frame_size;
                 encode_msg->pts = msg->pts;
-                encode_msg->dts = msg->dts;                        
+                encode_msg->dts = msg->dts;
                 encode_msg->interlaced = 0;
                 encode_msg->tff = 1;
                 encode_msg->fps_num = msg->fps_num;
@@ -1148,23 +1163,23 @@ void *video_scale_thread(void *context)
 
                 if (encode_msg) {
                     dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);
-                }                              
+                }
             }//current_output loop
             memory_return(core->raw_video_pool, msg->buffer);
             msg->buffer = NULL;
             memory_return(core->fillet_msg_pool, msg);
-            msg = NULL;            
+            msg = NULL;
         }//msg
     }//thread
 cleanup_video_scale_thread:
     for (current_output = 0; current_output < num_outputs; current_output++) {
         if (scaled_output[current_output].output_data[0]) {
-            av_freep(&scaled_output[current_output].output_data[0]);                
+            av_freep(&scaled_output[current_output].output_data[0]);
         }
-        sws_freeContext(output_scaler[current_output]);                   
+        sws_freeContext(output_scaler[current_output]);
     }
-    
-    av_frame_free(&deinterlaced_frame);                        
+
+    av_frame_free(&deinterlaced_frame);
 
     return NULL;
 }
@@ -1206,15 +1221,15 @@ void *video_prepare_thread(void *context)
     source_frame = av_frame_alloc();
     deinterlaced_frame = av_frame_alloc();
 
-#define MAX_SETTINGS_SIZE 256    
+#define MAX_SETTINGS_SIZE 256
     char settings[MAX_SETTINGS_SIZE];
     const char *filter = "yadif=0:-1:0"; //best tradeoff performance vs quality
-    
+
     while (video_prepare_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);
         while (!msg && video_prepare_thread_running) {
             usleep(1000);
-            msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);            
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);
         }
 
         if (!video_prepare_thread_running) {
@@ -1225,7 +1240,7 @@ void *video_prepare_thread(void *context)
                     memory_return(core->fillet_msg_pool, msg);
                     msg = NULL;
                 }
-                msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);                            
+                msg = (dataqueue_message_struct*)dataqueue_take_back(core->preparevideo->input_queue);
             }
             goto cleanup_video_prepare_thread;
         }
@@ -1234,7 +1249,7 @@ void *video_prepare_thread(void *context)
             int width = msg->width;
             int height = msg->height;
             int ready = 0;
-            
+
             // deinterlace the frame and scale it to the number of outputs
             // required and then feed the encoder input queues
             // for now I'm doing a blanket deinterlace
@@ -1245,12 +1260,12 @@ void *video_prepare_thread(void *context)
                 char *scaler_flags;
 
                 //!! optimization can be done here to set to the max output height
-                
+
                 snprintf(settings, MAX_SETTINGS_SIZE-1,"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
                          width,
                          height,
                          AV_PIX_FMT_YUV420P,
-                         msg->fps_den,   
+                         msg->fps_den,
                          msg->fps_num,
                          msg->aspect_num,
                          msg->aspect_den);
@@ -1304,7 +1319,7 @@ void *video_prepare_thread(void *context)
                                output_stride,
                                width, height,
                                AV_PIX_FMT_YUV420P,
-                               1);                
+                               1);
 
                 source_frame->pts = AV_NOPTS_VALUE;
                 source_frame->pkt_dts = AV_NOPTS_VALUE;
@@ -1329,10 +1344,10 @@ void *video_prepare_thread(void *context)
                 source_frame->linesize[0] = output_stride[0];
                 source_frame->linesize[1] = output_stride[1];
                 source_frame->linesize[2] = output_stride[2];
-                source_frame->linesize[3] = output_stride[3];                               
+                source_frame->linesize[3] = output_stride[3];
                 source_frame->channels = 0;
                 source_frame->channel_layout = 0;
-                
+
                 deinterlacer_ready = 1;
             }
             source_frame->pts = msg->pts;
@@ -1363,9 +1378,9 @@ void *video_prepare_thread(void *context)
                 }
                 source_frame->opaque = (void*)opaque_data;
                 opaque_data = NULL;
-            } else {               
+            } else {
                 source_frame->opaque = NULL;
-                opaque_data = NULL;                
+                opaque_data = NULL;
             }
 
             copy_image_data_to_ffmpeg(msg->buffer, width, height, source_frame);
@@ -1373,7 +1388,7 @@ void *video_prepare_thread(void *context)
             ready = av_buffersrc_add_frame_flags(deinterlacer_source,
                                                  source_frame,
                                                  AV_BUFFERSRC_FLAG_KEEP_REF);
-            
+
             while (video_prepare_thread_running) {
                 int retcode;
                 int output_ready = 1;
@@ -1386,7 +1401,7 @@ void *video_prepare_thread(void *context)
                     break;
                 }
 
-                if (output_ready) {                    
+                if (output_ready) {
                     // get deinterlaced frame
                     // deinterlaced_frame is where the video is located now
                     opaque_data = (opaque_struct*)deinterlaced_frame->opaque;
@@ -1401,11 +1416,11 @@ void *video_prepare_thread(void *context)
                     thumbnail_count++;
                     if (thumbnail_count == 150) {  // maybe use a timer instead?
                         dataqueue_message_struct *thumbnail_msg;
-                        
+
                         thumbnail_output = (scale_struct*)malloc(sizeof(scale_struct));
                         av_image_alloc(thumbnail_output->output_data,
                                        thumbnail_output->output_stride,
-                                       THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, AV_PIX_FMT_YUV420P, 1);                        
+                                       THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, AV_PIX_FMT_YUV420P, 1);
                         sws_scale(thumbnail_scaler,
                                   (const uint8_t * const*)deinterlaced_frame->data,
                                   deinterlaced_frame->linesize,
@@ -1417,14 +1432,14 @@ void *video_prepare_thread(void *context)
                         if (!thumbnail_msg) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain thumbnail_msg!!\n");
                             send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (Thumbnail) - Restarting Service");
-                            exit(0);                                                                                            
+                            exit(0);
                         }
-                        thumbnail_msg->buffer = thumbnail_output;                        
+                        thumbnail_msg->buffer = thumbnail_output;
                         dataqueue_put_front(core->encodevideo->thumbnail_queue, thumbnail_msg);
                         thumbnail_output = NULL;
                         thumbnail_count = 0;
-                    }                    
-                    
+                    }
+
                     {
                         uint8_t *outputy;
                         uint8_t *outputu;
@@ -1437,12 +1452,12 @@ void *video_prepare_thread(void *context)
                         int stridev;
                         int whalf = width/2;
                         int hhalf = height/2;
-                        int video_frame_size = 3 * height * width / 2;                        
-                        
+                        int video_frame_size = 3 * height * width / 2;
+
                         deinterlaced_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                         if (!deinterlaced_buffer) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain deinterlaced_buffer!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (PREP) - Restarting Service");
                             exit(0);
                         }
                         sourcey = (uint8_t*)deinterlaced_frame->data[0]; //scaled_output[current_output].output_data[0];
@@ -1468,12 +1483,12 @@ void *video_prepare_thread(void *context)
                             memcpy(outputv, sourcev, whalf);
                             outputv += whalf;
                             sourcev += stridev;
-                        }                        
-                        
+                        }
+
                         if (msg->fps_den > 0) {
                             fps = (double)((double)msg->fps_num / (double)msg->fps_den);
                         }
-                        
+
                         video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
                         int64_t sync_diff;
 
@@ -1496,21 +1511,21 @@ void *video_prepare_thread(void *context)
                             syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
                             fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
                             send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO) - Restarting Service");
-                            exit(0);                                                                                                                        
+                            exit(0);
                         }
 
                         if (sync_diff < -1) {
                             send_signal(core, SIGNAL_FRAME_REPEAT, "Repeating Video Frame To Maintain A/V Sync");
-                            
+
                             uint8_t *repeated_buffer = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                             if (repeated_buffer) {
-                                memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);                                
+                                memcpy(repeated_buffer, deinterlaced_buffer, video_frame_size);
 
                                 scale_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                                 if (!scale_msg) {
                                     fprintf(stderr,"FATAL ERROR: unable to obtain scale_msg!!\n");
-                                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
-                                    exit(0);                                                                                            
+                                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (VIDEO) - Restarting Service");
+                                    exit(0);
                                 }
                                 scale_msg->buffer = repeated_buffer;
                                 scale_msg->buffer_size = video_frame_size;
@@ -1524,7 +1539,7 @@ void *video_prepare_thread(void *context)
                                 scale_msg->aspect_den = msg->aspect_den;
                                 scale_msg->width = width;
                                 scale_msg->height = height;
-                                scale_msg->stream_index = -1;                                
+                                scale_msg->stream_index = -1;
                                 scale_msg->caption_buffer = NULL;
                                 scale_msg->caption_size = 0;
 
@@ -1532,21 +1547,21 @@ void *video_prepare_thread(void *context)
                                   bug here- needs to be set if during commercial break
                                 scale_msg->splice_point = opaque_data->splice_point;
                                 scale_msg->splice_duration = opaque_data->splice_duration;
-                                scale_msg->splice_duration_remaining = opaque_data->splice_duration_remaining;                                
+                                scale_msg->splice_duration_remaining = opaque_data->splice_duration_remaining;
                                 */
-                                                
+
                                 /*fprintf(stderr,"[%d] SENDING VIDEO FRAME TO ENCODER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
                                         current_output,
                                         encode_msg->pts,
                                         encode_msg->dts,
                                         encode_msg->aspect_num,
                                         encode_msg->aspect_den);*/
-                                
+
                                 deinterlaced_frame_count++;  // frames since the video start time
-                                dataqueue_put_front(core->scalevideo->input_queue, scale_msg);                                
+                                dataqueue_put_front(core->scalevideo->input_queue, scale_msg);
                             } else {
                                 fprintf(stderr,"FATAL ERROR: unable to obtain repeated_buffer!!\n");
-                                send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service");
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (SYNC) - Restarting Service");
                                 exit(0);
                             }
                         }
@@ -1554,13 +1569,13 @@ void *video_prepare_thread(void *context)
                         scale_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (!scale_msg) {
                             fprintf(stderr,"FATAL ERROR: unable to obtain scale_msg!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
-                            exit(0);                            
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (SYNC) - Restarting Service");
+                            exit(0);
                         }
                         scale_msg->buffer = deinterlaced_buffer;
                         scale_msg->buffer_size = video_frame_size;
                         scale_msg->pts = deinterlaced_frame->pkt_pts;  // or pkt_pts?
-                        scale_msg->dts = deinterlaced_frame->pkt_dts;                        
+                        scale_msg->dts = deinterlaced_frame->pkt_dts;
                         scale_msg->interlaced = 0;
                         scale_msg->tff = 1;
                         scale_msg->fps_num = msg->fps_num;
@@ -1611,18 +1626,18 @@ void *video_prepare_thread(void *context)
                                 // dropped!
                             }
                         }
-                    
+
                         if (scale_msg) {
                             fprintf(stderr,"SENDING VIDEO FRAME TO SCALER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
                                     scale_msg->pts,
                                     scale_msg->dts,
                                     scale_msg->aspect_num,
                                     scale_msg->aspect_den);
-                            
+
                             dataqueue_put_front(core->scalevideo->input_queue, scale_msg);
                         }
                     }
-                    
+
                     if (opaque_data) {
                         if (opaque_data->caption_buffer) {
                             free(opaque_data->caption_buffer);
@@ -1641,10 +1656,10 @@ void *video_prepare_thread(void *context)
             memory_return(core->raw_video_pool, msg->buffer);
             msg->buffer = NULL;
             memory_return(core->fillet_msg_pool, msg);
-            msg = NULL;                                                                            
+            msg = NULL;
         }
     }
-    
+
 cleanup_video_prepare_thread:
     if (deinterlacer_ready) {
         av_free(deinterlacer->scale_sws_opts);
@@ -1654,18 +1669,10 @@ cleanup_video_prepare_thread:
         av_freep(&output_data[0]);
         av_frame_free(&deinterlaced_frame);
         av_frame_free(&source_frame);
-        sws_freeContext(thumbnail_scaler);        
+        sws_freeContext(thumbnail_scaler);
     }
     return NULL;
 }
-
-typedef struct _signal_struct_
-{
-    int64_t pts;
-    int     scte35_ready;
-    int64_t scte35_duration;
-    int64_t scte35_duration_remaining;
-} signal_struct;
 
 void *video_decode_thread(void *context)
 {
@@ -1686,21 +1693,21 @@ void *video_decode_thread(void *context)
     int output_stride[4];
     int last_video_frame_size = -1;
 
-#define MAX_SIGNAL_WINDOW 30    
+#define MAX_SIGNAL_WINDOW 30
     signal_struct signal_data[MAX_SIGNAL_WINDOW];
     int signal_write_index = 0;
 
     memset(signal_data,0,sizeof(signal_data));
 
     fprintf(stderr,"status: starting video decode thread: %d\n", video_decode_thread_running);
-    
+
     while (video_decode_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->transvideo->input_queue);
         while (!msg && video_decode_thread_running) {
             usleep(1000);
-            msg = (dataqueue_message_struct*)dataqueue_take_back(core->transvideo->input_queue);            
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->transvideo->input_queue);
         }
-        
+
         if (!video_decode_thread_running) {
             if (msg) {
                 sorted_frame_struct *frame = (sorted_frame_struct*)msg->buffer;
@@ -1711,7 +1718,7 @@ void *video_decode_thread(void *context)
                     frame = NULL;
                 }
                 memory_return(core->fillet_msg_pool, msg);
-                msg = NULL;               
+                msg = NULL;
             }
             goto cleanup_video_decoder_thread;
         }
@@ -1730,7 +1737,7 @@ void *video_decode_thread(void *context)
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
                     } else {
                         fprintf(stderr,"error: unknown source video codec type- failing!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_UNKNOWN, "Unknown Video Format - Restarting Service");                        
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_UNKNOWN, "Unknown Video Format - Restarting Service");
                         exit(0);
                     }
                     decode_avctx = avcodec_alloc_context3(decode_codec);
@@ -1753,12 +1760,12 @@ void *video_decode_thread(void *context)
                 signal_data[signal_write_index].scte35_duration = frame->splice_duration;
                 signal_data[signal_write_index].scte35_duration_remaining = frame->splice_duration_remaining;
                 signal_write_index = (signal_write_index + 1) % MAX_SIGNAL_WINDOW;
-                
+
                 retcode = avcodec_send_packet(decode_avctx, decode_pkt);
                 if (retcode < 0) {
                     //error decoding video frame-report!
                     fprintf(stderr,"error: unable to decode video frame - sorry\n");
-                    send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");                    
+                    send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");
                 }
 
                 while (retcode >= 0) {
@@ -1783,7 +1790,7 @@ void *video_decode_thread(void *context)
                     uint8_t *v_source_video_frame;
                     int y_source_stride;
                     int uv_source_stride;
-                    
+
                     retcode = avcodec_receive_frame(decode_avctx, decode_av_frame);
                     if (retcode == AVERROR(EAGAIN) || retcode == AVERROR_EOF) {
                         break;
@@ -1793,11 +1800,16 @@ void *video_decode_thread(void *context)
                     }
                     decoder_frame_count++;
 
+                    if (core->video_decode_time_set == 0) {
+                        core->video_decode_time_set = 1;
+                        clock_gettime(CLOCK_MONOTONIC, &core->video_decode_time);
+                    }
+
                     is_frame_interlaced = decode_av_frame->interlaced_frame;
                     is_frame_tff = decode_av_frame->top_field_first;
                     source_format = decode_av_frame->format;
                     frame_height = decode_avctx->height;
-                    frame_width = decode_avctx->width;                 
+                    frame_width = decode_avctx->width;
 
                     fprintf(stderr,"STATUS: %ld:DECODED VIDEO FRAME: %dx%d (%d:%d) INTERLACED:%d (TFF:%d)\n",
                             decoder_frame_count,
@@ -1828,7 +1840,7 @@ void *video_decode_thread(void *context)
                     output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
                     if (!output_video_frame) {
                         fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers - Restarting Service");
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (DECODE) - Restarting Service");
                         exit(0);
                     }
 
@@ -1842,7 +1854,7 @@ void *video_decode_thread(void *context)
                     source_stride[1] = decode_av_frame->linesize[1];
                     source_stride[2] = decode_av_frame->linesize[2];
                     source_stride[3] = decode_av_frame->linesize[3];
-                    
+
                     if (source_format != output_format) {
                         if (!decode_converter) {
                             decode_converter = sws_getContext(frame_width, frame_height, source_format,
@@ -1875,12 +1887,12 @@ void *video_decode_thread(void *context)
                     for (row = 0; row < frame_height; row++) {
                         memcpy(y_output_video_frame, y_source_video_frame, frame_width);
                         y_output_video_frame += frame_width;
-                        y_source_video_frame += y_source_stride;                        
+                        y_source_video_frame += y_source_stride;
                     }
                     for (row = 0; row < frame_height2; row++) {
                         memcpy(u_output_video_frame, u_source_video_frame, frame_width2);
                         u_output_video_frame += frame_width2;
-                        u_source_video_frame += uv_source_stride;                        
+                        u_source_video_frame += uv_source_stride;
                     }
                     for (row = 0; row < frame_height2; row++) {
                         memcpy(v_output_video_frame, v_source_video_frame, frame_width2);
@@ -1899,7 +1911,7 @@ void *video_decode_thread(void *context)
                         if (buffer) {
                             buffer_size = caption_data->size;
                             caption_elements = buffer_size / 3;
-                            
+
                             // ffmpeg doesn't return the caption buffer with the header information
 #define CAPTION_HEADER_SIZE 7
                             caption_buffer = (uint8_t*)malloc(buffer_size+CAPTION_HEADER_SIZE);
@@ -1918,10 +1930,10 @@ void *video_decode_thread(void *context)
                         } else {
                             caption_buffer = NULL;
                             caption_size = 0;
-                        }                        
+                        }
                     }
-                    
-                    prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct)); 
+
+                    prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                     if (prepare_msg) {
                         prepare_msg->buffer = output_video_frame;
                         prepare_msg->buffer_size = video_frame_size;
@@ -1935,7 +1947,7 @@ void *video_decode_thread(void *context)
                             prepare_msg->tff = 1;
                         } else {
                             prepare_msg->tff = is_frame_tff;
-                        }                        
+                        }
                         prepare_msg->interlaced = is_frame_interlaced;
                         prepare_msg->caption_buffer = caption_buffer;
                         prepare_msg->caption_size = caption_size;
@@ -1975,11 +1987,11 @@ void *video_decode_thread(void *context)
                         core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
                         core->decoded_source_info.decoded_video_media_type = frame->media_type;
 
-                        dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);                        
+                        dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);
                     } else {
                         fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers - Restarting Service");
-                        exit(0);                                               
+                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (DECODE) - Restarting Service");
+                        exit(0);
                     }
                 }
                 memory_return(core->compressed_video_pool, frame->buffer);
@@ -2003,16 +2015,16 @@ cleanup_video_decoder_thread:
     avcodec_close(decode_avctx);
     avcodec_free_context(&decode_avctx);
     sws_freeContext(decode_converter);
-    av_freep(&output_data[0]);    
-    
+    av_freep(&output_data[0]);
+
     return NULL;
 }
 
 int start_video_transcode_threads(fillet_app_struct *core)
 {
     int num_outputs = core->cd->num_outputs;
-    int i;    
-    
+    int i;
+
     video_encode_thread_running = 1;
 
     // for now we don't allow mixing the video codec across the streams
@@ -2030,7 +2042,7 @@ int start_video_transcode_threads(fillet_app_struct *core)
             thread_start_struct *start;
             start = (thread_start_struct*)malloc(sizeof(thread_start_struct));
             start->index = i;
-            start->core = core;            
+            start->core = core;
             pthread_create(&video_encode_thread_id[i], NULL, video_encode_thread_x264, (void*)start);
         }
     } else {
@@ -2041,7 +2053,7 @@ int start_video_transcode_threads(fillet_app_struct *core)
 
     video_thumbnail_thread_running = 1;
     pthread_create(&video_thumbnail_thread_id, NULL, video_thumbnail_thread, (void*)core);
-       
+
     video_prepare_thread_running = 1;
     pthread_create(&video_prepare_thread_id, NULL, video_prepare_thread, (void*)core);
 
@@ -2050,32 +2062,32 @@ int start_video_transcode_threads(fillet_app_struct *core)
 
     video_decode_thread_running = 1;
     pthread_create(&video_decode_thread_id, NULL, video_decode_thread, (void*)core);
-    
+
     return 0;
 }
 
 int stop_video_transcode_threads(fillet_app_struct *core)
 {
     int num_outputs = core->cd->num_outputs;
-    int i;    
-    
+    int i;
+
     video_decode_thread_running = 0;
     pthread_join(video_decode_thread_id, NULL);
 
     video_scale_thread_running = 0;
     pthread_join(video_scale_thread_id, NULL);
-    
+
     video_prepare_thread_running = 0;
     pthread_join(video_prepare_thread_id, NULL);
 
     video_thumbnail_thread_running = 0;
     pthread_join(video_thumbnail_thread_id, NULL);
-    
+
     video_encode_thread_running = 0;
     for (i = 0; i < num_outputs; i++) {
         pthread_join(video_encode_thread_id[i], NULL);
     }
-    
+
     return 0;
 }
 
@@ -2089,7 +2101,7 @@ void *video_prepare_thread(void *context)
 
 void *video_decode_thread(void *context)
 {
-    fprintf(stderr,"VIDEO DECODING NOT ENABLED - PLEASE RECOMPILE IF REQUIRED\n");            
+    fprintf(stderr,"VIDEO DECODING NOT ENABLED - PLEASE RECOMPILE IF REQUIRED\n");
     return NULL;
 }
 
@@ -2116,7 +2128,3 @@ int stop_video_transcode_threads(fillet_app_struct *core)
 }
 
 #endif
-    
-
-
-

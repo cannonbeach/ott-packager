@@ -1,23 +1,22 @@
 /*****************************************************************************
-  Copyright (C) 2018 Fillet
- 
+  Copyright (C) 2018-2020 John William
+
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
- 
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
- 
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
- 
-  This program is also available under a commercial license with
-  customization/support packages and additional features.  For more 
-  information, please contact us at cannonbeachgoonie@gmail.com
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
 
 ******************************************************************************/
 
@@ -64,7 +63,7 @@ int dataqueue_count(void *queue)
         pthread_mutex_unlock(message_queue->reflock);
         return count;
     }
-    return -1;    
+    return -1;
 }
 
 int dataqueue_reset(void *queue)
@@ -82,7 +81,7 @@ int dataqueue_reset(void *queue)
         message_queue->tail = NULL;
         memory_reset(message_queue->pool);
         pthread_mutex_unlock(message_queue->reflock);
-	return 0;
+        return 0;
     }
 
     return -1;
@@ -97,7 +96,7 @@ void *dataqueue_create(void)
     }
 
     memset(message_queue, 0, sizeof(queue_struct));
- 
+
     message_queue->pool = memory_create(MAX_QUEUE_ENTRIES, sizeof(dataqueue_node_struct));
     message_queue->count = 0;
     message_queue->reflock = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
@@ -126,14 +125,14 @@ int dataqueue_get_size(void *queue)
 {
     queue_struct *message_queue = (queue_struct *)queue;
     int got_size = 0;
-    
+
     if (!message_queue) {
         return -1;
     }
     pthread_mutex_lock(message_queue->reflock);
     got_size = message_queue->count;
-    pthread_mutex_unlock(message_queue->reflock);   
-    
+    pthread_mutex_unlock(message_queue->reflock);
+
     return got_size;
 }
 
@@ -141,7 +140,7 @@ int dataqueue_put_back(void *queue, dataqueue_message_struct *message)
 {
     queue_struct *message_queue = (queue_struct *)queue;
     dataqueue_node_struct *new_node;
-    //dataqueue_node_struct *new_node = (dataqueue_node_struct *)memory_take(message_queue->pool, 0xdeadface);   
+    //dataqueue_node_struct *new_node = (dataqueue_node_struct *)memory_take(message_queue->pool, 0xdeadface);
 
     if (!message_queue) {
         return -1;
@@ -234,7 +233,7 @@ dataqueue_message_struct *dataqueue_take_back(void *queue)
         return return_message;
     }
     pthread_mutex_unlock(message_queue->reflock);
-    
+
     return NULL;
 }
 
@@ -259,14 +258,13 @@ dataqueue_message_struct *dataqueue_take_front(void *queue)
         }
         current_node->next = NULL;
         message_queue->count--;
-        return_message = current_node->message; 
+        return_message = current_node->message;
         //memory_return(message_queue->pool, current_node);
         free(current_node);
         pthread_mutex_unlock(message_queue->reflock);
         return return_message;
     }
     pthread_mutex_unlock(message_queue->reflock);
-    
+
     return NULL;
 }
-

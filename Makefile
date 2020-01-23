@@ -10,7 +10,7 @@ BASELIBS=
 #ENABLE_TRANSCODE=1
 
 ifdef ENABLE_TRANSCODE
-        ifneq ("$(wildcard ./cbfdkaac/.libs/libfdk-aac.a)","")
+	ifneq ("$(wildcard ./cbfdkaac/.libs/libfdk-aac.a)","")
 	    FILE_EXISTS = 1
 	else
 	    FILE_EXISTS = 0
@@ -19,16 +19,16 @@ ifdef ENABLE_TRANSCODE
 
 	CFLAGS += -DENABLE_TRANSCODE
 	BASELIBS += ./cbffmpeg/libavfilter/libavfilter.a \
-                    ./cbffmpeg/libavformat/libavformat.a \
+		    ./cbffmpeg/libavformat/libavformat.a \
 		    ./cbffmpeg/libswscale/libswscale.a \
 		    ./cbffmpeg/libavcodec/libavcodec.a \
-	      	    ./cbffmpeg/libavutil/libavutil.a \
+		    ./cbffmpeg/libavutil/libavutil.a \
 		    ./cbffmpeg/libavresample/libavresample.a \
 		    ./cbffmpeg/libswresample/libswresample.a \
-                    ./cbx264/libx264.a \
-                    ./cbfdkaac/.libs/libfdk-aac.a \
-                    ./cblibcurl/./lib/.libs/libcurl.a \
-	            ./x265_3.0/build/linux/libx265.a
+		    ./cbx264/libx264.a \
+		    ./cbfdkaac/.libs/libfdk-aac.a \
+		    ./cblibcurl/./lib/.libs/libcurl.a \
+		    ./x265_3.0/build/linux/libx265.a
 	INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
 	INC += -I./x265_3.0/build/linux
 	INC += -I./cblibcurl/include/curl

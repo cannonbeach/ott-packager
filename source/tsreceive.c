@@ -1,23 +1,22 @@
 /*****************************************************************************
-  Copyright (C) 2018-2019 John William
- 
+  Copyright (C) 2018-2020 John William
+
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
- 
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
- 
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
- 
-  This program is also available under a commercial license with
-  customization/support packages and additional features.  For more 
-  information, please contact us at cannonbeachgoonie@gmail.com
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
 
 ******************************************************************************/
 
@@ -68,18 +67,18 @@ void *udp_source_thread(void *context)
     int num_ipaddr3;
     int mcast_flag = 0;
     char signal_msg[MAX_STR_SIZE];
-    
+
 #define MAX_UDP_BUFFER_READ 2048
     pthread_mutex_lock(&start_lock);
-    
+
     udp_buffer = (uint8_t*)malloc(MAX_UDP_BUFFER_READ);
     udp_buffer_size = MAX_UDP_BUFFER_READ;
     tsdata = (transport_data_struct*)malloc(sizeof(transport_data_struct));
 
     memset(tsdata, 0, sizeof(transport_data_struct));
-    
+
     for (i = 0; i< MAX_ACTUAL_PIDS; i++) {
-	 tsdata->initial_pcr_base[i] = -1;
+         tsdata->initial_pcr_base[i] = -1;
     }
     tsdata->pat_program_count = -1;
     tsdata->pat_version_number = -1;
@@ -105,52 +104,53 @@ void *udp_source_thread(void *context)
     if (num_ipaddr0 >= 224) {
         mcast_flag = 1;
     }
-    
+
     udp_socket = socket_udp_open(core->fillet_input[source_count].interface,
-				 core->fillet_input[source_count].udp_source_ipaddr,
-				 core->fillet_input[source_count].udp_source_port,
-				 mcast_flag, UDP_FLAG_INPUT, 1);
+                                 core->fillet_input[source_count].udp_source_ipaddr,
+                                 core->fillet_input[source_count].udp_source_port,
+                                 mcast_flag, UDP_FLAG_INPUT, 1);
     active_source_index = source_count;
-    
+
     source_count++;
     memset(tsdata->pmt_version, -1, sizeof(tsdata->pmt_version));
 
     pthread_mutex_unlock(&start_lock);
 
     if (udp_socket < 0) {
-	core->source_running = 0;
-	goto _cleanup_udp_source_thread;
-    }    
+        core->source_running = 0;
+        goto _cleanup_udp_source_thread;
+    }
 
     syslog(LOG_INFO,"SESSION:%d (TSRECEIVE) STATUS: NETWORK THREAD IS STARTING - SOCKET:%d\n",
            core->session_id,
            udp_socket);
-    
-    while (1) {
-	int is_thread_running;
-	int anysignal;
 
-	is_thread_running = core->source_running;
-	if (!is_thread_running || udp_socket < 0) {
-	    core->source_running = 0;
+    while (1) {
+        int is_thread_running;
+        int anysignal;
+
+        is_thread_running = core->source_running;
+        if (!is_thread_running || udp_socket < 0) {
+            core->source_running = 0;
+            core->video_receive_time_set = 0;
             syslog(LOG_INFO,"SESSION:%d (TSRECEIVE) STATUS: NETWORK THREAD IS EXITING: FLAG=%d SOCKET=%d\n",
                    core->session_id,
                    is_thread_running,
-                   udp_socket);                   
-	    goto _cleanup_udp_source_thread;
-	}
+                   udp_socket);
+            goto _cleanup_udp_source_thread;
+        }
 
-	anysignal = socket_udp_ready(udp_socket, timeout_ms, &sockset);
-	if (anysignal == 0) {
-	    syslog(LOG_WARNING,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
-		   core->session_id,
-		   udp_socket,
-		   core->fillet_input[active_source_index].udp_source_ipaddr,
-		   core->fillet_input[active_source_index].udp_source_port,
-		   core->fillet_input[active_source_index].interface,
+        anysignal = socket_udp_ready(udp_socket, timeout_ms, &sockset);
+        if (anysignal == 0) {
+            syslog(LOG_WARNING,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
+                   core->session_id,
+                   udp_socket,
+                   core->fillet_input[active_source_index].udp_source_ipaddr,
+                   core->fillet_input[active_source_index].udp_source_port,
+                   core->fillet_input[active_source_index].interface,
                    no_signal_counter);
 
-	    fprintf(stderr,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
+            fprintf(stderr,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
                     core->session_id,
                     udp_socket,
                     core->fillet_input[active_source_index].udp_source_ipaddr,
@@ -175,35 +175,39 @@ void *udp_source_thread(void *context)
                      core->fillet_input[active_source_index].udp_source_ipaddr,
                      core->fillet_input[active_source_index].udp_source_port,
                      core->fillet_input[active_source_index].interface);
-            send_signal(core, SIGNAL_NO_INPUT_SIGNAL, signal_msg);            
-            
-	    continue;
-	}
+            send_signal(core, SIGNAL_NO_INPUT_SIGNAL, signal_msg);
 
-	if (FD_ISSET(udp_socket, &sockset)) {
-	    int bytes = socket_udp_read(udp_socket, udp_buffer, udp_buffer_size);
-	    if (bytes > 0) {
+            continue;
+        }
+
+        if (FD_ISSET(udp_socket, &sockset)) {
+            int bytes = socket_udp_read(udp_socket, udp_buffer, udp_buffer_size);
+            if (bytes > 0) {
                 no_signal_counter = 0;
-		int total_packets = bytes / 188;
-		if (total_packets > 0) {
+                int total_packets = bytes / 188;
+                if (total_packets > 0) {
                     if (core->input_signal == 0) {
                         snprintf(signal_msg, MAX_STR_SIZE-1, "%s:%d:%s",
                                  core->fillet_input[active_source_index].udp_source_ipaddr,
                                  core->fillet_input[active_source_index].udp_source_port,
                                  core->fillet_input[active_source_index].interface);
-                        
-                        send_signal(core, SIGNAL_INPUT_SIGNAL_LOCKED, signal_msg);                                    
+
+                        send_signal(core, SIGNAL_INPUT_SIGNAL_LOCKED, signal_msg);
+                        if (core->video_receive_time_set == 0) {
+                            core->video_receive_time_set = 1;
+                            clock_gettime(CLOCK_MONOTONIC, &core->video_receive_time);
+                        }
                     }
                     core->input_signal = 1;
-		    decode_packets(udp_buffer, total_packets, tsdata);
-		}
-	    }
-	}
+                    decode_packets(udp_buffer, total_packets, tsdata);
+                }
+            }
+        }
     }
 
 _cleanup_udp_source_thread:
     if (udp_socket > 0) {
-	socket_udp_close(udp_socket);
+        socket_udp_close(udp_socket);
     }
     free(tsdata);
 

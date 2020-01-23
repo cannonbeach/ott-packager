@@ -1,23 +1,22 @@
 /*****************************************************************************
-  Copyright (C) 2019 John William
- 
+  Copyright (C) 2018-2020 John William
+
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
- 
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
- 
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
- 
-  This program is also available under a commercial license with
-  customization/support packages and additional features.  For more 
-  information, please contact us at cannonbeachgoonie@gmail.com
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
 
 ******************************************************************************/
 
@@ -68,11 +67,12 @@
 extern "C" {
 #endif // __cplusplus
 
+    int64_t time_difference(struct timespec *now, struct timespec *start);
     int start_signal_thread(fillet_app_struct *core);
     int stop_signal_thread(fillet_app_struct *core);
     int send_signal(fillet_app_struct *core, int signal_type, const char *message);
-    int send_direct_error(fillet_app_struct *core, int signal_type, const char *message);        
-    
+    int send_direct_error(fillet_app_struct *core, int signal_type, const char *message);
+
 #if defined(__cplusplus)
 }
 #endif // __cplusplus

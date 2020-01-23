@@ -51,6 +51,24 @@ static char *response_buffer = NULL;
 static char *error_buffer = NULL;
 static void *signal_thread(void *context);
 
+int64_t time_difference(struct timespec *now, struct timespec *start)
+{
+    int64_t tsec;
+    int64_t tnsec;
+
+    if (now->tv_nsec < start->tv_nsec) {
+        tsec = (now->tv_sec - start->tv_sec);
+        tsec--;
+        tnsec = 1000000000;
+        tnsec += (now->tv_nsec - start->tv_nsec);
+    } else {
+        tsec = now->tv_sec - start->tv_sec;
+        tnsec = now->tv_nsec - start->tv_nsec;
+    }
+
+    return ((tnsec / 1000) + (tsec * 1000000));
+}
+
 int start_signal_thread(fillet_app_struct *core)
 {
     signal_thread_running = 1;

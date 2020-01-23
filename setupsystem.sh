@@ -12,13 +12,13 @@ if [ ! -d "/var/tmp/status" ]; then
     sudo mkdir /var/tmp/status
 else
     echo "STATUS- /var/tmp/status already exists"
-fi    
+fi
 
 echo "STATUS- creating /var/app directory"
 if [ ! -d "/var/app" ]; then
     sudo mkdir /var/app
 else
-    echo "STATUS- /var/app already exists"   
+    echo "STATUS- /var/app already exists"
 fi
 
 echo "STATUS- creating /var/app/public directory"
@@ -31,7 +31,7 @@ fi
 echo "STATUS- checking for ./webapp/server.js"
 if [ -f "./webapp/server.js" ]; then
     echo "STATUS- found server.js- installing"
-    sudo cp ./webapp/server.js /var/app    
+    sudo cp ./webapp/server.js /var/app
 else
     echo "STATUS- unable to find server.js - aborting!!!"
     echo "STATUS- please make sure you are running this script from the cloned project directory"
@@ -40,11 +40,11 @@ fi
 
 echo "STATUS-checking for ./webapp/public/client.js"
 if [ -f "./webapp/public/client.js" ]; then
-    echo "STATUS- found client.js- installing"    
+    echo "STATUS- found client.js- installing"
     sudo cp ./webapp/public/client.js /var/app/public
 else
     echo "STATUS- unable to find client.js - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"    
+    echo "STATUS- please make sure you are running this script from the cloned project directory"
     exit
 fi
 
@@ -54,7 +54,7 @@ if [ -f "./webapp/public/index.html" ]; then
     sudo cp ./webapp/public/index.html /var/app/public
 else
     echo "STATUS- unable to find index.html - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"    
+    echo "STATUS- please make sure you are running this script from the cloned project directory"
     exit
 fi
 
@@ -64,7 +64,7 @@ if [ -f "./webapp/package.json" ]; then
     sudo cp ./webapp/package.json /var/app
 else
     echo "STATUS- unable to find package.json - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"    
+    echo "STATUS- please make sure you are running this script from the cloned project directory"
     exit
 fi
 
@@ -105,6 +105,8 @@ echo "STATUS- install archiver (global)"
 sudo npm install -g archiver
 echo "STATUS- install winston logger (global)"
 sudo npm install -g winston
+echo "STATUS- install read-last-lines file reader (global)"
+sudo npm install -g read-last-lines
 echo "STATUS- creating node_modules symbolic link to current directory"
 sudo ln -s /usr/lib/node_modules ./node_modules
 popd

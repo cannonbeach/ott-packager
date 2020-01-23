@@ -1,23 +1,22 @@
-/*****************************************************************************                                                                                                                             
-  Copyright (C) 2018-2019 John William
-                                                                                                                                                                                                           
-  This program is free software; you can redistribute it and/or modify                                                                                                                                     
-  it under the terms of the GNU General Public License as published by                                                                                                                                     
-  the Free Software Foundation; either version 2 of the License, or                                                                                                                                        
-  (at your option) any later version.                                                                                                                                                                      
-                                                                                                                                                                                                           
-  This program is distributed in the hope that it will be useful,                                                                                                                                          
-  but WITHOUT ANY WARRANTY; without even the implied warranty of                                                                                                                                           
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                                                                                                                                            
-  GNU General Public License for more details.                                                                                                                                                             
-                                                                                                                                                                                                          
-  You should have received a copy of the GNU General Public License                                                                                                                                        
-  along with this program; if not, write to the Free Software                                                                                                                                              
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.                                                                                                                               
-                                                                                                                                                                                                          
-  This program is also available under a commercial license with                                                                                                                                           
-  customization/support packages and additional features.  For more                                                                                                                                        
-  information, please contact us at cannonbeachgoonie@gmail.com                                                                                                                                            
+/*****************************************************************************
+  Copyright (C) 2018-2020 John William
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
 
 *******************************************************************************/
 
@@ -49,7 +48,7 @@ static void *webdav_upload_thread(void *context);
 int start_webdav_threads(fillet_app_struct *core)
 {
     webdav_upload_thread_running = 1;
-    pthread_create(&webdav_upload_thread_id, NULL, webdav_upload_thread, (void*)core);    
+    pthread_create(&webdav_upload_thread_id, NULL, webdav_upload_thread, (void*)core);
     return 0;
 }
 
@@ -77,7 +76,7 @@ static size_t read_callback(void *ptr, size_t size, size_t nmemb, void *stream)
 
     if (!webdav_upload_thread_running) {
         //abort?  do we return -1 or let it complete
-    }  
+    }
 
     retcode = fread(ptr, size, nmemb, stream);
     nread = (curl_off_t)retcode;
@@ -99,14 +98,14 @@ static int seek_callback(void *stream, curl_off_t offset, int origin)
         }
     }
     //catchall
-    return CURL_SEEKFUNC_FAIL;    
+    return CURL_SEEKFUNC_FAIL;
 }
 
 int webdav_upload_file(fillet_app_struct *core, char *filename)
 {
     CURL *curl;
     char authentication_string[MAX_STR_SIZE];
-    char cdn_url[MAX_STR_SIZE];    
+    char cdn_url[MAX_STR_SIZE];
     FILE *stream = NULL;
     char *actual_filename = NULL;
     int successful = 0;
@@ -115,8 +114,8 @@ int webdav_upload_file(fillet_app_struct *core, char *filename)
     int retcode;
     long http_response;
     struct stat file_stats;
-#define MAX_RETRIES 5    
-    
+#define MAX_RETRIES 5
+
     if (!webdav_upload_thread_running) {
         //buffer_type = WEBDAV_UPLOAD
         return -1;
@@ -144,9 +143,9 @@ int webdav_upload_file(fillet_app_struct *core, char *filename)
             //signal- file has a problem? access rights?
             return -1;
         }
-        
+
         curl = curl_easy_init();
-        
+
         snprintf(authentication_string, MAX_STR_SIZE-1, "%s:%s",
                  core->cd->cdn_username,
                  core->cd->cdn_password);
@@ -164,7 +163,7 @@ int webdav_upload_file(fillet_app_struct *core, char *filename)
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10);
         curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0);
         curl_easy_setopt(curl, CURLOPT_SEEKFUNCTION, seek_callback);
-        curl_easy_setopt(curl, CURLOPT_SEEKDATA, (void*)stream);    
+        curl_easy_setopt(curl, CURLOPT_SEEKDATA, (void*)stream);
         curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_callback);
         curl_easy_setopt(curl, CURLOPT_READDATA, (void*)stream);
         curl_easy_setopt(curl, CURLOPT_INFILESIZE_LARGE, (curl_off_t)file_stats.st_size);
@@ -182,14 +181,14 @@ int webdav_upload_file(fillet_app_struct *core, char *filename)
         if (http_response >= 200 && http_response < 300) {
             double upload_time;
             double upload_speed;
-            
+
             curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &upload_time);
             curl_easy_getinfo(curl, CURLINFO_SPEED_UPLOAD, &upload_speed);
             fprintf(stderr,"status: file uploaded successfully on try %d\n",
                     retry_count);
             fprintf(stderr,"status: upload took %.2f seconds\n", upload_time);
             fprintf(stderr,"status: upload rate was %.2fkbytes per second\n", upload_speed / 1024.0);
-            
+
             successful = 1;
         }
         curl_easy_cleanup(curl);
@@ -202,7 +201,7 @@ int webdav_upload_file(fillet_app_struct *core, char *filename)
         fprintf(stderr,"error: unable to upload file, no more retries!\n");
         //signal
     }
-    
+
     return 0;
 }
 
@@ -213,7 +212,7 @@ int webdav_create_directory(fillet_app_struct *core)
     char cdn_url[MAX_STR_SIZE];
     int success;
     long http_response;
-    
+
     if (!webdav_upload_thread_running) {
         //buffer_type = WEBDAV_CREATE
         return -1;
@@ -226,7 +225,7 @@ int webdav_create_directory(fillet_app_struct *core)
              core->cd->cdn_password);
     snprintf(cdn_url, MAX_STR_SIZE-1, "%s/",
              core->cd->cdn_server);
-    
+
     curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_ANY);
     curl_easy_setopt(curl, CURLOPT_USERPWD, authentication_string);
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "MKCOL");
@@ -250,7 +249,7 @@ int webdav_create_directory(fillet_app_struct *core)
     }
 
     curl_easy_cleanup(curl);
-    
+
     return 0;
 }
 
@@ -273,7 +272,7 @@ void *webdav_upload_thread(void *context)
             if (buffer_type == WEBDAV_DELETE) {
                 //tbd
             }
-            
+
             if (buffer_type == WEBDAV_UPLOAD) {
                 ret = webdav_upload_file(core,
                                          msg->smallbuf);
@@ -291,7 +290,7 @@ void *webdav_upload_thread(void *context)
         memory_return(core->fillet_msg_pool, msg);
         msg = NULL;
     }
-        
+
     return NULL;
 }
 #endif // ENABLE_TRANSCODE

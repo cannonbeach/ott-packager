@@ -1,23 +1,22 @@
 /*****************************************************************************
-  Copyright (C) 2018 Fillet
- 
+  Copyright (C) 2018-2020 John William
+
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation; either version 2 of the License, or
   (at your option) any later version.
- 
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
   GNU General Public License for more details.
- 
+
   You should have received a copy of the GNU General Public License
   along with this program; if not, write to the Free Software
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
- 
-  This program is also available under a commercial license with
-  customization/support packages and additional features.  For more 
-  information, please contact us at cannonbeachgoonie@gmail.com
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
 
 ******************************************************************************/
 
@@ -76,7 +75,7 @@
 #define MAX_MSG_BUFFERS                   8192
 #define MAX_FRAME_BUFFERS                 (MAX_FRAME_DATA_SYNC_VIDEO+MAX_FRAME_DATA_SYNC_AUDIO)*2
 #define MAX_VIDEO_COMPRESSED_BUFFERS      4096
-#define MAX_VIDEO_COMPRESSED_BUFFER_SIZE  0 
+#define MAX_VIDEO_COMPRESSED_BUFFER_SIZE  0
 #define MAX_AUDIO_COMPRESSED_BUFFERS      4096
 #define MAX_AUDIO_COMPRESSED_BUFFER_SIZE  0
 #define MAX_VIDEO_RAW_BUFFERS             512
@@ -96,7 +95,7 @@
 #define MSG_PING                   0xb1
 #define MSG_STATUS                 0xb2
 
-#define ENCODER_QUALITY_LOW        0x00
+#define ENCODER_QUALITY_BASIC      0x00
 #define ENCODER_QUALITY_MEDIUM     0x01
 #define ENCODER_QUALITY_HIGH       0x02
 #define ENCODER_QUALITY_CRAZY      0x03
@@ -116,7 +115,7 @@ typedef struct _trans_video_output_struct_ {
     int                    encoder_quality;
     int                    encoder_profile;
     int                    encoder_level;
-    char                   encoder_string[MAX_STR_SIZE]; // this is the avc1/hvc1... 
+    char                   encoder_string[MAX_STR_SIZE]; // this is the avc1/hvc1...
 } trans_video_output_struct;
 
 typedef struct _trans_audio_output_struct_ {
@@ -148,7 +147,7 @@ typedef struct _scalevideo_internal_struct_ {
 typedef struct _encodeaudio_internal_struct_ {
     void                   *input_queue;
 } encodeaudio_internal_struct;
-    
+
 #endif // ENABLE_TRANSCODE
 
 typedef struct _ip_config_struct_ {
@@ -170,7 +169,7 @@ typedef struct _config_options_struct_ {
     char             cdn_username[MAX_STR_SIZE];
     char             cdn_password[MAX_STR_SIZE];
     char             cdn_server[MAX_STR_SIZE];
-    char             management_server[MAX_STR_SIZE];    
+    char             management_server[MAX_STR_SIZE];
 
     int              window_size;
     int              segment_length;
@@ -189,7 +188,7 @@ typedef struct _config_options_struct_ {
     int                           num_outputs;
     trans_video_output_struct     transvideo_info[MAX_TRANS_OUTPUTS];
     trans_audio_output_struct     transaudio_info[MAX_AUDIO_SOURCES];
-#endif // ENABLE_TRANSCODE    
+#endif // ENABLE_TRANSCODE
 } config_options_struct;
 
 typedef struct _packet_struct_ {
@@ -223,15 +222,15 @@ typedef struct _stream_struct_ {
     int                      pat_cnt;
     int                      pmt_cnt;
 
-    fragment_file_struct     *fmp4;    
+    fragment_file_struct     *fmp4;
 } stream_struct;
 
 typedef struct _hlsmux_struct_ {
     void                     *input_queue;
-    
+
     stream_struct            audio[MAX_VIDEO_SOURCES][MAX_AUDIO_STREAMS];
     stream_struct            video[MAX_VIDEO_SOURCES];
-    
+
     pthread_t                hlsmux_thread_id;
 } hlsmux_struct;
 
@@ -263,7 +262,7 @@ typedef struct _audio_stream_struct_
     int64_t                last_timestamp_pts;
     int64_t                last_full_time;
     int64_t                overflow_pts;
-    int64_t                audio_bitrate;    
+    int64_t                audio_bitrate;
     int64_t                total_audio_bytes;
     int                    audio_samples_to_add;
     int                    audio_samples_to_drop;
@@ -271,7 +270,7 @@ typedef struct _audio_stream_struct_
     int                    audio_channels;
     int                    audio_object_type;
     int                    audio_samplerate;
-    void                   *audio_queue;    
+    void                   *audio_queue;
 } audio_stream_struct;
 
 typedef struct _video_stream_struct_
@@ -288,11 +287,11 @@ typedef struct _video_stream_struct_
     int64_t                video_bitrate;
     int64_t                total_video_bytes;
     struct timespec        video_clock_start;
-    void                   *video_queue;    
+    void                   *video_queue;
 } video_stream_struct;
 
 typedef struct _source_stream_struct_
-{    
+{
     video_stream_struct    *video_stream;
     audio_stream_struct    *audio_stream[MAX_AUDIO_STREAMS];
 
@@ -311,7 +310,7 @@ typedef struct _decoded_source_info_struct_ {
     int                    source_pmt_pid;
     int                    source_video_pid;
     int                    source_audio_pid[MAX_AUDIO_STREAMS];
-    
+
     int                    decoded_width;
     int                    decoded_height;
     int                    decoded_fps_num;
@@ -328,15 +327,15 @@ typedef struct _decoded_source_info_struct_ {
 typedef struct _fillet_app_struct_
 {
     int                           session_id;
-    
+
     int                           num_sources;
     source_stream_struct          *source_stream;
     int                           source_running;
 
     decoded_source_info_struct    decoded_source_info;  // only valid on transcode mode
-    
+
     void                          *video_frame_pool;
-    void                          *audio_frame_pool;    
+    void                          *audio_frame_pool;
 
     sorted_frame_struct           *video_frame_data[MAX_FRAME_DATA_SYNC_VIDEO];
     sorted_frame_struct           *audio_frame_data[MAX_FRAME_DATA_SYNC_AUDIO];
@@ -364,6 +363,18 @@ typedef struct _fillet_app_struct_
     int                           source_interruptions;
     int                           sync_thread_restart_count;
 
+    int                           video_receive_time_set;
+    struct timespec               video_receive_time;
+
+    int                           video_decode_time_set;
+    struct timespec               video_decode_time;
+
+    int                           video_encode_time_set;
+    struct timespec               video_encode_time;
+
+    int                           video_output_time_set;
+    struct timespec               video_output_time;
+
     int                           scte35_ready;
     int                           scte35_triggered;
     int64_t                       scte35_pts;
@@ -377,8 +388,8 @@ typedef struct _fillet_app_struct_
     void                          *compressed_audio_pool;
     void                          *raw_video_pool;
     void                          *raw_audio_pool;
-    
-#if defined(ENABLE_TRANSCODE)    
+
+#if defined(ENABLE_TRANSCODE)
     preparevideo_internal_struct  *preparevideo;
     transvideo_internal_struct    *transvideo;
     encodevideo_internal_struct   *encodevideo;

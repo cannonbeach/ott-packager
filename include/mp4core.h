@@ -1,24 +1,23 @@
-/*****************************************************************************                          
-  Copyright (C) 2018 Fillet                                                                             
-                                                                                                        
-  This program is free software; you can redistribute it and/or modify                                  
-  it under the terms of the GNU General Public License as published by                                  
-  the Free Software Foundation; either version 2 of the License, or                                     
-  (at your option) any later version.                                                                   
-                                                                                                        
-  This program is distributed in the hope that it will be useful,                                       
-  but WITHOUT ANY WARRANTY; without even the implied warranty of                                        
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the                                         
-  GNU General Public License for more details.                                                          
-                                                                                                        
-  You should have received a copy of the GNU General Public License                                     
-  along with this program; if not, write to the Free Software                                           
-  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.                             
-                                                                                                        
-  This program is also available under a commercial license with                                        
-  customization/support packages and additional features.  For more                                     
-  information, please contact us at cannonbeachgoonie@gmail.com                                         
-                                                                                                        
+/*****************************************************************************
+  Copyright (C) 2018-2020 John William
+
+  This program is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02111, USA.
+
+  This program is also available with customization/support packages.
+  For more information, please contact me at cannonbeachgoonie@gmail.com
+
 ******************************************************************************/
 
 #if !defined(_MP4CORE_H_)
@@ -30,7 +29,7 @@
 #define MAX_TRACKS          2
 
 #define MAX_NAME_SIZE       512
-#define MAX_MP4_SIZE        16*1024*1024   //16mb
+#define MAX_MP4_SIZE        16*1024*1024   //16mb - this may become an issue at high bitrates
 
 #define MEDIA_TYPE_AAC      0x01
 #define MEDIA_TYPE_AC3      0x02
@@ -81,8 +80,8 @@ typedef struct _fragment_file_struct_
     int                    audio_track_id;
     int                    next_track_id;
 
-    int64_t                duration_buffer_offset;        
-    
+    int64_t                duration_buffer_offset;
+
     int                    timescale;
 
     uint8_t                video_sps[MAX_PRIVATE_DATA_SIZE];
@@ -103,28 +102,28 @@ typedef struct _fragment_file_struct_
     uint32_t               audio_config;
     int                    audio_config_size;
     int                    subtitle_bitrate;
-    int                    lang_code;    
+    int                    lang_code;
 
     int                    video_media_type;
     int                    audio_media_type;
 
     int64_t                buffer_offset;
     int64_t                initial_offset;
-    uint8_t                *buffer;  
+    uint8_t                *buffer;
 } fragment_file_struct;
 
 int fmp4_audio_fragment_add(fragment_file_struct *fmp4,
-			    uint8_t *fragment_buffer,
-			    int fragment_buffer_size,
-			    double fragment_timestamp,
-			    int fragment_duration);
+                            uint8_t *fragment_buffer,
+                            int fragment_buffer_size,
+                            double fragment_timestamp,
+                            int fragment_duration);
 
 int fmp4_video_fragment_add(fragment_file_struct *fmp4,
-			    uint8_t *fragment_buffer,
-			    int fragment_buffer_size,
-			    double fragment_timestamp,
-			    int fragment_duration,
-			    int64_t fragment_composition_time);
+                            uint8_t *fragment_buffer,
+                            int fragment_buffer_size,
+                            double fragment_timestamp,
+                            int fragment_duration,
+                            int64_t fragment_composition_time);
 
 fragment_file_struct *fmp4_file_create_youtube(int video_media_type, int audio_media_type, int timescale, int lang_code, int frag_duration);
 fragment_file_struct *fmp4_file_create(int media_type, int timescale, int lang_code, int frag_duration);
