@@ -1927,6 +1927,8 @@ void *video_decode_thread(void *context)
                                    buffer_size);
                             //fprintf(stderr,"status: decoder-- saving caption_buffer\n");
                             caption_size = buffer_size+CAPTION_HEADER_SIZE;
+                            caption_buffer[caption_size+1] = 0xff;
+                            caption_size++;
                         } else {
                             caption_buffer = NULL;
                             caption_size = 0;
