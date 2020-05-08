@@ -1265,7 +1265,7 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
     video_manifest = fopen(stream_name,"w");
 
     fprintf(video_manifest,"#EXTM3U\n");
-    fprintf(video_manifest,"#EXT-X-VERSION:6\n");
+    fprintf(video_manifest,"#EXT-X-VERSION:3\n");
     fprintf(video_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
     fprintf(video_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
 
@@ -1327,7 +1327,7 @@ static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stre
     audio_manifest = fopen(stream_name,"w");
 
     fprintf(audio_manifest,"#EXTM3U\n");
-    fprintf(audio_manifest,"#EXT-X-VERSION:6\n");
+    fprintf(audio_manifest,"#EXT-X-VERSION:3\n");
     fprintf(audio_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
     fprintf(audio_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
 
@@ -1427,13 +1427,13 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
             }
 
             if (strlen(sdata->lang_tag) > 0) {
-                fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",LANGUAGE=\"%s\",NAME=\"%s\",AUTOSELECT=%s,DEFAULT=%s,URI=\"audio0_substream%d.m3u8\"\n",
+                fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",LANGUAGE=\"%s\",NAME=\"%s\",AUTOSELECT=%s,DEFAULT=%s,URI=\"audio0_substream%d.m3u8\"\n",
                         sdata->lang_tag,
                         sdata->lang_tag,
                         yesno, yesno,
                         j);
             } else {
-                fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",LANGUAGE=\"eng\",NAME=\"eng\",AUTOSELECT=%s,DEFAULT=%s,URI=\"audio0_substream%d.m3u8\"\n",
+                fprintf(master_manifest,"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",LANGUAGE=\"eng\",NAME=\"eng\",AUTOSELECT=%s,DEFAULT=%s,URI=\"audio0_substream%d.m3u8\"\n",
                         yesno, yesno,
                         j);
             }
@@ -1456,7 +1456,7 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
         video_bitrate = vstream->video_bitrate;
 #endif
 
-        fprintf(master_manifest,"#EXT-X-STREAM-INF:BANDWIDTH=%d,CODECS=\"avc1.%2x%02x%02x\",RESOLUTION=%dx%d,AUDIO=\"aac\"\n",
+        fprintf(master_manifest,"#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=%d,CODECS=\"avc1.%2x%02x%02x\",RESOLUTION=%dx%d,AUDIO=\"audio\"\n",
                 video_bitrate,
                 sdata->h264_profile, //hex
                 sdata->midbyte,
@@ -1466,6 +1466,7 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
         sdata++;
     }
 
+    /*
     sdata = origsdata;
     for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
         lsdata = sdata;
@@ -1482,11 +1483,12 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
 #else
             audio_bitrate = astream->audio_bitrate;
 #endif
-            fprintf(master_manifest,"#EXT-X-STREAM-INF:BANDWIDTH=%d,CODECS=\"mp4a.40.2\",AUDIO=\"aac\"\n", audio_bitrate);
+            fprintf(master_manifest,"#EXT-X-STREAM-INF:BANDWIDTH=%d,CODECS=\"mp4a.40.2\",AUDIO=\"audio\"\n", audio_bitrate);
             fprintf(master_manifest,"audio0_substream%d.m3u8\n", j);
         }
         lsdata++;
     }
+    */
 
     fclose(master_manifest);
 
