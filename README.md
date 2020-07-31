@@ -291,6 +291,11 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 
 ### Current Status
 
+(07/31/20) It's been awhile....
+
+- I finally pushed up the changes for MPTS support along with some additional webapp changes.  I still need to update the README.md to reflect the new command line changes as well as some of the webapp features (I've attempted to add a "scan" button where you enter your source information and it lets you pick a source).
+- I have also started a .deb packager script to make things easier to build and deploy.  It is not entirely done yet, but feel free to try it out if you must.  I can't guarantee that it'll work since I am *slowly* working through the details.  I have to still go back and verify that everything works from a clean Ubuntu install and that I didn't forget to include a package (or some other random detail that I missed).
+
 (10/25/19) It's almost Halloween!  Trick r' Treat!
 
 - I pushed some changes up today that fix a performance issue that some of you have come across when running on lower clock speed CPU platforms (higher core and lower clock speed) along with having a high number of multi-resolution output profiles.  I had originally put the deinterlacer into the same thread as the scalers and it was just too much work for one thread.  I went ahead and separated the work across multiple threads now.  This also sets things up for me to implement frame rate conversion across output streams.
