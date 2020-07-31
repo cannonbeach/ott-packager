@@ -70,7 +70,7 @@ section.anchortable {
 
 section.configtable {
    position: relative;
-   width: 60%;
+   width: 95%;
    left:15px;
    margin-right:30px;
    box-shadow: 0 0 15px #333;
@@ -356,7 +356,7 @@ img {
           document.getElementById("controltable").innerHTML = data;
       })
     </script>
-  </div>
+  </div>  
 </section>
 </div>
 
@@ -627,6 +627,36 @@ img {
                       </script>
                     </select>
                   </td>
+		  <td>
+		    <select id="inputstream1" style="visibility:hidden">
+		      <script>
+			fetch('/api/v1/get_scan_data',{method: 'GET'})
+			    .then(response => {
+			    if (response.ok) {
+			        return response.text();
+			    } else {
+			        return Promise.reject('something went wrong!');
+		  	    }
+			})
+			.then(data => {
+                            console.log('data is', data);
+
+                            var parsedJSON = JSON.parse(data);
+			    console.log('parsed: ', parsedJSON.sources.length);
+                            select = document.getElementById('inputstream1');
+
+			    var s;
+  			    for (s = 0; s < parsedJSON.sources.length; s++) {
+			        console.log("prop: " + parsedJSON.sources[s]);
+                                var opt = document.createElement('option');
+                                opt.value = parsedJSON.sources[s];
+                                opt.innerHTML = parsedJSON.sources[s];
+                                select.appendChild(opt);                              
+                            }			
+			})
+		      </script>
+		    </select>
+		  </td>
                 </tr>
 
                 <tr>
@@ -669,6 +699,8 @@ img {
               </tbody>
             </table>
             </section>
+
+	    <button id='scan_button_transcode' class="btnblue">Scan Sources</button>	    
 
             <div>
               <h2>Additional Configuration Options</h2>

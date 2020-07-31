@@ -199,7 +199,7 @@ void *udp_source_thread(void *context)
                         }
                     }
                     core->input_signal = 1;
-                    decode_packets(udp_buffer, total_packets, tsdata);
+                    decode_packets(udp_buffer, total_packets, tsdata, core->cd->stream_select);
                 }
             }
         }

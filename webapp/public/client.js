@@ -4,6 +4,7 @@ document.getElementById("newrepackagesourcepage").style.display = "none";
 
 var transcode_button = document.getElementById('transcode_button');
 var repackage_button = document.getElementById('repackage_button');
+var scan_button_transcode = document.getElementById('scan_button_transcode');
 var submit_button_transcode = document.getElementById('submit_button_transcode');
 var abort_button_transcode = document.getElementById('abort_button_transcode');
 var scan_button_repackage = document.getElementById('scan_button_repackage');
@@ -213,10 +214,102 @@ if (download_button) {
     });
 }
 
+function removeOptions(selectElement) {
+    var i, L = selectElement.options.length - 1;
+    for(i = L; i >= 0; i--) {
+	selectElement.remove(i);
+    }
+}	
+
+scan_button_transcode.addEventListener('click', function(e) {
+    console.log('scan button was clicked');
+
+    var ipaddr_primary = document.getElementById("ipaddr_primary").value;
+    var inputinterface1 = document.getElementById("inputinterface1").value;
+    var ipaddr_backup = document.getElementById("ipaddr_backup").value;
+    var inputinterface2 = document.getElementById("inputinterface2").value;
+
+    var obj = new Object();
+    obj.ipaddr_primary = ipaddr_primary;
+    obj.inputinterface1 = inputinterface1;
+    obj.ipaddr_backup = ipaddr_backup;
+    obj.inputinterface2 = inputinterface2;
+
+    var postdata = JSON.stringify(obj);
+
+    console.log(JSON.parse(postdata));
+    
+    const url = "/api/v1/scan?address="+ipaddr_primary+"&intf="+inputinterface1;
+
+    fetch(url,{method: 'POST'})
+        .then(function(response) {
+            if (response.ok) {
+                console.log('scan clicked confirmed');
+
+		const scan_data_url = "/api/v1/get_scan_data?address="+ipaddr_primary+"&intf="+inputinterface1;
+		fetch(scan_data_url,{method: 'GET'})
+	            .then(response => {
+			if (response.ok) {
+			    console.log("response came back without issue");
+			    return response.text();
+			} else {
+			    return Promise.reject('something went wrong!');
+			}
+		    })
+	            .then(data2 => {
+			console.log('data is', data2);
+			
+			var parsedJSON = JSON.parse(data2);
+			var parsedSources = parsedJSON.sources.length;
+			console.log('parsed: ', parsedJSON.sources.length);
+			if (parsedSources == 0) {
+			    select = document.getElementById('inputstream1');			    
+			    removeOptions(select);
+			    select.style.visibility = 'hidden';			    			    
+			    alert("Error!  Unable to scan source!\nCheck IP:PORT and Interface");
+			} else {
+			    select = document.getElementById('inputstream1');
+			    removeOptions(select);
+			    
+			    var s;
+			    for (s = 0; s < parsedJSON.sources.length; s++) {
+				console.log("prop: " + parsedJSON.sources[s]);
+				var opt = document.createElement('option');
+				opt.value = s;
+				opt.innerHTML = parsedJSON.sources[s];
+				select.appendChild(opt);
+			    }
+			    select.style.visibility = 'visible';
+			}
+  		})
+		return;
+            }
+            throw new Error('scan request failed.');
+        })
+        .catch(function(error) {
+            console.log(error);
+        });      
+   
+});
+
+function getSelectedOption(sel) {
+    var opt;
+    for (var i = 0, len = sel.options.length; i < len; i++) {
+	opt = sel.options[i];
+	if (opt.selected === true) {
+	    break;
+	}
+    }
+    return opt;
+}
+
 submit_button_transcode.addEventListener('click', function(e) {
     console.log('submit button was clicked');
 
     var sourcename = document.getElementById("sourcename").value;
+    var selectdata = document.getElementById("inputstream1");
+    console.log(selectdata);
+    var selectedstream1 = getSelectedOption(selectdata);
     var ipaddr_primary = document.getElementById("ipaddr_primary").value;
     var inputinterface1 = document.getElementById("inputinterface1").value;
     var ipaddr_backup = document.getElementById("ipaddr_backup").value;
@@ -339,6 +432,12 @@ submit_button_transcode.addEventListener('click', function(e) {
         obj.inputinterface1 = inputinterface1;
         obj.ipaddr_backup = ipaddr_backup;
         obj.inputinterface2 = inputinterface2;
+
+	if (typeof selectedstream1 !== "undefined") {
+	    obj.selectedstream1 = selectedstream1.value;	    
+	} else {	
+	    obj.selectedstream1 = '0';
+	}
 
         obj.enablehls = enablehls;
         obj.enabledash = enabledash;
@@ -606,7 +705,7 @@ function request_service_status(service)
                 var elementname_source = 'input'+service;
                 var elementname_output = 'output'+service;
                 var elementname_status = 'statusinfo'+service;
-                var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate 0 kbps</p>';
+                var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate 0 kbps</p>';		
                 input_string += '<p>Video is [INACTIVE] - 0x0 @ 0 fps<br>';
                 input_string += 'Audio is [INACTIVE] @ 0 channels @ 0 Hz<br></p>';
                 document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
@@ -641,7 +740,7 @@ function request_service_status(service)
 
                 if (input_signal == 1) {
                     var active_string = '<p style="color:green">INGESTING</p>';
-                    if (transcoding) {
+                    if (transcoding == 1) {
                         active_string += '<p style="color:blue">TRANSCODE</p>';
                     } else {
                         active_string += '<p style="color:blue">REPACKAGE</p>';
@@ -652,7 +751,13 @@ function request_service_status(service)
                     document.getElementById(elementname_active).innerHTML = '<p style="color:red">NO SIGNAL</p>';
                     document.getElementById(elementname_uptime).innerHTML = '<p>'+toHHMMSS(service_words.uptime)+'</p>';
                 }
-                var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
+                var input_string = '';
+
+		if (service_words.stream_select > 0) {
+		    input_string += '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br>Service Index is '+service_words.stream_select+'<br>Input bitrate '+video_bitrate+' kbps</p>';
+		} else {
+		    input_string += '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
+		}
                 var fps = service_words.fpsnum / service_words.fpsden;
                 var fps2 = Math.round(fps*1000)/1000;
                 var videomediatype = '';

@@ -84,6 +84,7 @@ static config_options_struct config_data;
 
 static struct option long_options[] = {
      {"sources", required_argument, 0, 'S'},
+     {"type", required_argument, 0, 'P'},
      {"ip", required_argument, 0, 'i'},
      {"verbose", no_argument, &enable_verbose, 1},
      {"interface", required_argument, 0, 'f'},
@@ -116,6 +117,7 @@ static struct option long_options[] = {
      {"stereo", no_argument, &enable_stereo, '2'},
      {"quality", required_argument, 0, 'q'},              // set the quality level
      {"profile", required_argument, 0, 'p'},              // set the encoder profile level
+     {"select", required_argument, 0, 'l'},
 #endif // ENABLE_TRANSCODE
      {"youtube", required_argument, 0, 'C'},              // the youtube cid
      {0, 0, 0, 0}
@@ -398,6 +400,32 @@ static int parse_input_options(int argc, char **argv)
               }
               fprintf(stderr,"STATUS: Number of transcoded outputs: %d\n", config_data.num_outputs);
 #endif // ENABLE_TRANSCODE
+              break;
+          case 'P':
+              if (optarg) {
+                  if (strncmp(optarg,"stream",6)==0) {
+                      config_data.source_type = SOURCE_TYPE_STREAM;
+                  } else if (strncmp(optarg,"file",4)==0) {
+                      config_data.source_type = SOURCE_TYPE_FILE;
+                  } else {
+                      fprintf(stderr,"ERROR: Invalid source type was specified\n");
+                      return -1;
+                  }
+              }
+              fprintf(stderr,"STATUS: Configured source type: %d\n", config_data.source_type);
+              break;
+          case 'l':
+              if (optarg) {
+                  config_data.stream_select = atoi(optarg);
+                  if (config_data.stream_select < 0) {
+                      fprintf(stderr,"ERROR: Invalid stream selection was specified\n");
+                      return -1;
+                  }
+              } else {
+                  fprintf(stderr,"ERROR: No stream selection was specified\n");
+                  return -1;
+              }
+              fprintf(stderr,"STATUS: Stream selection configured: %d\n", config_data.stream_select);
               break;
           case 'p':
 #if defined(ENABLE_TRANSCODE)
@@ -2027,6 +2055,7 @@ int main(int argc, char **argv)
      config_data.enable_ts_output = 0;
      config_data.enable_fmp4_output = 0;
      config_data.audio_source_index = 0;
+     config_data.stream_select = 0;
 
 #if defined(ENABLE_TRANSCODE)
      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
@@ -2037,6 +2066,8 @@ int main(int argc, char **argv)
 
      memset(config_data.youtube_cid,0,sizeof(config_data.youtube_cid));
 
+     config_data.source_type = SOURCE_TYPE_STREAM;
+
      snprintf(config_data.manifest_directory,MAX_STR_SIZE-1,"/var/www/hls/");
      snprintf(config_data.manifest_dash,MAX_STR_SIZE-1,"masterdash.mpd");
      snprintf(config_data.manifest_hls,MAX_STR_SIZE-1,"master.m3u8");
@@ -2045,15 +2076,25 @@ int main(int argc, char **argv)
      ret = parse_input_options(argc, argv);
      if ((ret < 0 || config_data.active_sources == 0)) {
          fprintf(stderr,"\n");
-         fprintf(stderr,"fillet is a live packaging service/application for IP based OTT content redistribution\n");
+         fprintf(stderr,"fillet is a live/vod transcoding and packaging service/application for IP based OTT content redistribution\n");
          fprintf(stderr,"\n");
          fprintf(stderr,"usage: fillet [options]\n");
          fprintf(stderr,"\n\n");
          fprintf(stderr,"PACKAGING OPTIONS\n");
-         fprintf(stderr,"       --sources       [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]\n");
-         fprintf(stderr,"       --ip            [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)\n");
+         fprintf(stderr,"       --sources       [NUMBER OF SOURCES - FOR TRANSCODING: 1 SOURCE, FOR ABR SOURCES: MUST BE >= 1 && <= 10]\n");
+         fprintf(stderr,"       --type          [TYPE OF SOURCE - stream,file]\n");
+         fprintf(stderr,"\n");
+         fprintf(stderr,"INPUT OPTIONS (when --type stream)\n");
+         fprintf(stderr,"       --ip            [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF SOURCES)\n");
          fprintf(stderr,"       --interface     [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]\n");
          fprintf(stderr,"                       If multicast, make sure route is in place\n\n");
+         fprintf(stderr,"\n");
+         fprintf(stderr,"INPUT OPTIONS (when --type file)\n");
+         fprintf(stderr,"       --input         [INPUT FILENAME (FULL PATH)]\n");
+         fprintf(stderr,"       --output-dir    [OUTPUT DIRECTORY (FULL PATH)]\n");
+         fprintf(stderr,"       --output-prefix [OUTPUT PREFIX]\n");
+         fprintf(stderr,"\n");
+         fprintf(stderr,"PACKAGING OPTIONS\n");
          fprintf(stderr,"       --window        [WINDOW IN SEGMENTS FOR MANIFEST]\n");
          fprintf(stderr,"       --segment       [SEGMENT LENGTH IN SECONDS]\n");
          fprintf(stderr,"       --manifest      [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
@@ -2071,6 +2112,7 @@ int main(int argc, char **argv)
 #if defined(ENABLE_TRANSCODE)
          fprintf(stderr,"TRANSCODE OPTIONS\n");
          fprintf(stderr,"       --transcode   [ENABLE TRANSCODER AND NOT JUST PACKAGING]\n");
+         fprintf(stderr,"       --select      [PICK A STREAM FROM AN MPTS- INDEX IS BASED ON PMT INDEX - defaults to 0]\n");
          fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT LADDER BITRATE PROFILES TO BE TRANSCODED]\n");
          fprintf(stderr,"       --vcodec      [VIDEO CODEC - needs to be hevc or h264]\n");
          fprintf(stderr,"       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720]\n");
@@ -2080,7 +2122,7 @@ int main(int argc, char **argv)
          fprintf(stderr,"       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]\n");
          fprintf(stderr,"       --scte35      [PASSTHROUGH SCTE35 TO MANIFEST (still finishing up)]\n");
          fprintf(stderr,"       --stereo      [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]\n");
-         fprintf(stderr,"       --quality     [VIDEO ENCODING QUALITY LEVEL 0-3 (0-LOW,1-MED,2-HIGH,3-CRAZY)\n");
+         fprintf(stderr,"       --quality     [VIDEO ENCODING QUALITY LEVEL 0-3 (0-BASIC,1-MEDIUM,2-HIGH,3-CRAZY)\n");
          fprintf(stderr,"                      LOADING WILL AFFECT CHANNEL DENSITY-SOME PLATFORMS MAY NOT RUN HIGHER QUALITY REAL-TIME\n");
          fprintf(stderr,"\n");
          fprintf(stderr,"H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)\n");
@@ -2132,220 +2174,227 @@ int main(int argc, char **argv)
      core->cd->enable_stereo = !!enable_stereo;
      core->cd->enable_webvtt = !!enable_webvtt;
 
-     register_message_callback(message_dispatch, (void*)core);
-     register_frame_callback(receive_frame, (void*)core);
+     if (core->cd->source_type == SOURCE_TYPE_FILE) {
 
-     start_signal_thread(core);
 
-     for (i = 0; i < config_data.active_sources; i++) {
-         struct in_addr addr;
-         snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
-         snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
-         if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
-             fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
-                     config_data.active_source[i].active_ip);
-             if (strlen(config_data.active_source[i].active_ip) == 0) {
-                 fprintf(stderr,"\n\nNO IP ADDRESS WAS SPECIFIED\n\n");
+     } else {  // SOURCE_TYPE_STREAM
+         register_message_callback(message_dispatch, (void*)core);
+         register_frame_callback(receive_frame, (void*)core);
+
+         start_signal_thread(core);
+
+         for (i = 0; i < config_data.active_sources; i++) {
+             struct in_addr addr;
+             snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
+             snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
+             if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
+                 fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
+                         config_data.active_source[i].active_ip);
+                 if (strlen(config_data.active_source[i].active_ip) == 0) {
+                     fprintf(stderr,"\n\nNO IP ADDRESS WAS SPECIFIED\n\n");
+                 }
+                 send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");
+                 stop_signal_thread(core);
+                 destroy_fillet_core(core);
+                 exit(0);
              }
-             send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");
-             exit(0);
+             core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
          }
-         core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
-     }
 
-     hlsmux_create(core);
-     start_webdav_threads(core);
+         hlsmux_create(core);
+         start_webdav_threads(core);
 
-     sync_thread_running = 1;
-     pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
-     core->source_running = 1;
-     for (i = 0; i < config_data.active_sources; i++) {
-         pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
-     }
+         sync_thread_running = 1;
+         pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
+         core->source_running = 1;
+         for (i = 0; i < config_data.active_sources; i++) {
+             pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
+         }
 
 #if defined(ENABLE_TRANSCODE)
-     pthread_create(&client_thread_id, NULL, status_thread, (void*)core);
+         pthread_create(&client_thread_id, NULL, status_thread, (void*)core);
 #else
-     pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
+         pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
 #endif
-     while (core->source_running) {
-         if (quit_sync_thread) {
-             while (sync_thread_running) {
-                 // this is signaled in the sync_thread
-                 usleep(10000);
-             }
-             quit_sync_thread = 0;
-             // sync thread will restart if things choke up on the front-end and the sorted queue
-             // gets messed up (could be a result of missing/corrupt/lost data)
-             //
-             // for the pure packaging mode, the content is ingested and put into a sorted queue
-             // so we are able to make sure all of the data is present but also absorb some
-             // interstream delays on the input since it is basically a bunch of spts coming in on udp streams..
-             //
-             // if the sync thread restarts, it flags a discontinuity into the hls manifest
-             // and also keeps the dash manifest going from where it left off
-             // the docker container will restart the application if it happens to exit (if you've set it to restart)
-             //
-             // my goal is to make this as resilient as possible to source stream issues
-             // and to just keep packaging so a proper output stream is available
-             // can't stand having signal interruptions
-             fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
-             sync_thread_running = 1;
-             core->sync_thread_restart_count++;
+         while (core->source_running) {
+             if (quit_sync_thread) {
+                 while (sync_thread_running) {
+                     // this is signaled in the sync_thread
+                     usleep(10000);
+                 }
+                 quit_sync_thread = 0;
+                 // sync thread will restart if things choke up on the front-end and the sorted queue
+                 // gets messed up (could be a result of missing/corrupt/lost data)
+                 //
+                 // for the pure packaging mode, the content is ingested and put into a sorted queue
+                 // so we are able to make sure all of the data is present but also absorb some
+                 // interstream delays on the input since it is basically a bunch of spts coming in on udp streams..
+                 //
+                 // if the sync thread restarts, it flags a discontinuity into the hls manifest
+                 // and also keeps the dash manifest going from where it left off
+                 // the docker container will restart the application if it happens to exit (if you've set it to restart)
+                 //
+                 // my goal is to make this as resilient as possible to source stream issues
+                 // and to just keep packaging so a proper output stream is available
+                 // can't stand having signal interruptions
+                 fprintf(stderr,"STATUS: RESTARTING FRAME SYNC THREAD\n");
+                 sync_thread_running = 1;
+                 core->sync_thread_restart_count++;
 #if defined(ENABLE_TRANSCODE)
-             start_video_transcode_threads(core);
-             start_audio_transcode_threads(core);
+                 start_video_transcode_threads(core);
+                 start_audio_transcode_threads(core);
 #endif // ENABLE_TRANSCODE
-             pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
-         }
+                 pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
+             }
 
-         loop_count++;
+             loop_count++;
 #if defined(ENABLE_TRANSCODE)
 #define WAIT_THRESHOLD_WARNING 3
 #define WAIT_THRESHOLD_ERROR   10
 #define WAIT_THRESHOLD_FAIL    30
 #define LEVEL_CHECK_THRESHOLD  500
-         if (core->transcode_enabled) {
-             if (loop_count >= LEVEL_CHECK_THRESHOLD) {
-                 char signal_msg[MAX_STR_SIZE];
-                 int n;
+             if (core->transcode_enabled) {
+                 if (loop_count >= LEVEL_CHECK_THRESHOLD) {
+                     char signal_msg[MAX_STR_SIZE];
+                     int n;
 
-                 int video_decode_frames_waiting;
-                 int video_deinterlace_frames_waiting;
+                     int video_decode_frames_waiting;
+                     int video_deinterlace_frames_waiting;
 
-                 syslog(LOG_INFO,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
-                        core->session_id,
-                        memory_unused(core->fillet_msg_pool),
-                        memory_unused(core->frame_msg_pool),
-                        memory_unused(core->compressed_video_pool),
-                        memory_unused(core->compressed_audio_pool),
-                        memory_unused(core->raw_video_pool),
-                        memory_unused(core->raw_audio_pool));
-                 fprintf(stderr,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
-                         core->session_id,
-                         memory_unused(core->fillet_msg_pool),
-                         memory_unused(core->frame_msg_pool),
-                         memory_unused(core->compressed_video_pool),
-                         memory_unused(core->compressed_audio_pool),
-                         memory_unused(core->raw_video_pool),
-                         memory_unused(core->raw_audio_pool));
-
-                 video_decode_frames_waiting = dataqueue_get_size(core->transvideo->input_queue);
-                 if (video_decode_frames_waiting > WAIT_THRESHOLD_ERROR) {
-                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                     syslog(LOG_INFO,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
                             core->session_id,
-                            n,
-                            video_decode_frames_waiting);
+                            memory_unused(core->fillet_msg_pool),
+                            memory_unused(core->frame_msg_pool),
+                            memory_unused(core->compressed_video_pool),
+                            memory_unused(core->compressed_audio_pool),
+                            memory_unused(core->raw_video_pool),
+                            memory_unused(core->raw_audio_pool));
+                     fprintf(stderr,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
+                             core->session_id,
+                             memory_unused(core->fillet_msg_pool),
+                             memory_unused(core->frame_msg_pool),
+                             memory_unused(core->compressed_video_pool),
+                             memory_unused(core->compressed_audio_pool),
+                             memory_unused(core->raw_video_pool),
+                             memory_unused(core->raw_audio_pool));
 
-                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Decode Queue High (%d) - Check CPU Resources!", video_decode_frames_waiting);
-                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
-                 } else if (video_decode_frames_waiting > WAIT_THRESHOLD_WARNING) {
-                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
-                            core->session_id,
-                            n,
-                            video_decode_frames_waiting);
-
-                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Decode Queue High (%d) - Check CPU Resources!", video_decode_frames_waiting);
-                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
-                 }
-
-                 video_deinterlace_frames_waiting = dataqueue_get_size(core->preparevideo->input_queue);
-                 if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_ERROR) {
-                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
-                            core->session_id,
-                            n,
-                            video_deinterlace_frames_waiting);
-
-                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Deinterlace Queue High (%d) - Check CPU Resources!", video_deinterlace_frames_waiting);
-                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
-                 } else if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_WARNING) {
-                     syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
-                            core->session_id,
-                            n,
-                            video_deinterlace_frames_waiting);
-
-                     snprintf(signal_msg, MAX_STR_SIZE-1, "Video Deinterlace Queue High (%d) - Check CPU Resources!", video_deinterlace_frames_waiting);
-                     send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
-                 }
-
-                 for (n = 0; n < core->cd->num_outputs; n++) {
-                     int video_encode_frames_waiting;
-
-                     video_encode_frames_waiting = dataqueue_get_size(core->encodevideo->input_queue[n]);
-
-                     // these are good numbers to start raising the alarm
-                     if (video_encode_frames_waiting > WAIT_THRESHOLD_FAIL) {
-                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!! UNRECOVERABLE!!!)\n",
+                     video_decode_frames_waiting = dataqueue_get_size(core->transvideo->input_queue);
+                     if (video_decode_frames_waiting > WAIT_THRESHOLD_ERROR) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                                 core->session_id,
                                 n,
-                                video_encode_frames_waiting);
-                         fprintf(stderr,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!! UNRECOVERABLE!!!)\n",
-                                 core->session_id,
-                                 n,
-                                 video_encode_frames_waiting);
+                                video_decode_frames_waiting);
 
-                         send_direct_error(core, SIGNAL_DIRECT_ERROR_CPU, "Video Encoder Fell Too Far Behind - Check CPU Resources!");
-                         exit(0);
-                     } else if (video_encode_frames_waiting > WAIT_THRESHOLD_ERROR) {
-                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
-                                core->session_id,
-                                n,
-                                video_encode_frames_waiting);
-
-                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Encode Queue High (%d) - Check CPU Resources!", video_encode_frames_waiting);
+                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Decode Queue High (%d) - Check CPU Resources!", video_decode_frames_waiting);
                          send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
-                     } else if (video_encode_frames_waiting > WAIT_THRESHOLD_WARNING) {
-                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                     } else if (video_decode_frames_waiting > WAIT_THRESHOLD_WARNING) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DECODE(%d): %d (DECODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                                 core->session_id,
                                 n,
-                                video_encode_frames_waiting);
+                                video_decode_frames_waiting);
 
-                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Encode Queue High (%d) - Check CPU Resources!", video_encode_frames_waiting);
+                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Decode Queue High (%d) - Check CPU Resources!", video_decode_frames_waiting);
                          send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
                      }
+
+                     video_deinterlace_frames_waiting = dataqueue_get_size(core->preparevideo->input_queue);
+                     if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_ERROR) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                                core->session_id,
+                                n,
+                                video_deinterlace_frames_waiting);
+
+                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Deinterlace Queue High (%d) - Check CPU Resources!", video_deinterlace_frames_waiting);
+                         send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
+                     } else if (video_deinterlace_frames_waiting > WAIT_THRESHOLD_WARNING) {
+                         syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: DEINTERLACE(%d): %d (DEINTERLACE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                                core->session_id,
+                                n,
+                                video_deinterlace_frames_waiting);
+
+                         snprintf(signal_msg, MAX_STR_SIZE-1, "Video Deinterlace Queue High (%d) - Check CPU Resources!", video_deinterlace_frames_waiting);
+                         send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
+                     }
+
+                     for (n = 0; n < core->cd->num_outputs; n++) {
+                         int video_encode_frames_waiting;
+
+                         video_encode_frames_waiting = dataqueue_get_size(core->encodevideo->input_queue[n]);
+
+                         // these are good numbers to start raising the alarm
+                         if (video_encode_frames_waiting > WAIT_THRESHOLD_FAIL) {
+                             syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!! UNRECOVERABLE!!!)\n",
+                                    core->session_id,
+                                    n,
+                                    video_encode_frames_waiting);
+                             fprintf(stderr,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!! UNRECOVERABLE!!!)\n",
+                                     core->session_id,
+                                     n,
+                                     video_encode_frames_waiting);
+
+                             send_direct_error(core, SIGNAL_DIRECT_ERROR_CPU, "Video Encoder Fell Too Far Behind - Check CPU Resources!");
+                             exit(0);
+                         } else if (video_encode_frames_waiting > WAIT_THRESHOLD_ERROR) {
+                             syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                                    core->session_id,
+                                    n,
+                                    video_encode_frames_waiting);
+
+                             snprintf(signal_msg, MAX_STR_SIZE-1, "Video Encode Queue High (%d) - Check CPU Resources!", video_encode_frames_waiting);
+                             send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
+                         } else if (video_encode_frames_waiting > WAIT_THRESHOLD_WARNING) {
+                             syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: WARNING: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
+                                    core->session_id,
+                                    n,
+                                    video_encode_frames_waiting);
+
+                             snprintf(signal_msg, MAX_STR_SIZE-1, "Video Encode Queue High (%d) - Check CPU Resources!", video_encode_frames_waiting);
+                             send_signal(core, SIGNAL_HIGH_CPU, signal_msg);
+                         }
+                     }
+                     loop_count = 0;
                  }
-                 loop_count = 0;
              }
-         }
 #endif // ENABLE_TRANSCODE
 
-         int msgid;
+             int msgid;
 
-         usleep(1000);
+             usleep(1000);
 
-         msgid = wait_for_event(core);
-         if (msgid == -1) {
-             //placeholder - this is the kill
-             syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE WAITING FOR EVENT- TIMEOUT/KILL\n", core->session_id);
-             break;
+             msgid = wait_for_event(core);
+             if (msgid == -1) {
+                 //placeholder - this is the kill
+                 syslog(LOG_INFO,"SESSION:%d (MAIN) STATUS: DONE WAITING FOR EVENT- TIMEOUT/KILL\n", core->session_id);
+                 break;
+             }
+             if (msgid == MSG_START) {
+                 fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED START MESSAGE\n", core->session_id);
+                 // this is not hooked up right now
+             } else if (msgid == MSG_STOP) {
+                 fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED STOP MESSAGE\n", core->session_id);
+                 core->source_running = 0;
+                 // this is not hooked up right now
+             } else if (msgid == MSG_RESTART) {
+                 fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED RESTART MESSAGE\n", core->session_id);
+                 // this is not hooked up right now
+             } else if (msgid == MSG_RESPAWN) {
+                 exit(0);  // force respawn - if your docker container is set to restart
+             } else {
+                 //fprintf(stderr,"SESSION: %d (MAIN) STATUS: NO MESSAGE TO PROCESS\n", core->session_id);
+             }
          }
-         if (msgid == MSG_START) {
-             fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED START MESSAGE\n", core->session_id);
-             // this is not hooked up right now
-         } else if (msgid == MSG_STOP) {
-             fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED STOP MESSAGE\n", core->session_id);
-             core->source_running = 0;
-             // this is not hooked up right now
-         } else if (msgid == MSG_RESTART) {
-             fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED RESTART MESSAGE\n", core->session_id);
-             // this is not hooked up right now
-         } else if (msgid == MSG_RESPAWN) {
-             exit(0);  // force respawn - if your docker container is set to restart
-         } else {
-             //fprintf(stderr,"SESSION: %d (MAIN) STATUS: NO MESSAGE TO PROCESS\n", core->session_id);
-         }
-     }
-     pthread_join(client_thread_id, NULL);
+         pthread_join(client_thread_id, NULL);
 
 cleanup_main_app:
-     stop_webdav_threads(core);
-     stop_signal_thread(core);
-     if (core->hlsmux) {
-         hlsmux_destroy(core->hlsmux);
-         core->hlsmux = NULL;
+         stop_webdav_threads(core);
+         stop_signal_thread(core);
+         if (core->hlsmux) {
+             hlsmux_destroy(core->hlsmux);
+             core->hlsmux = NULL;
+         }
+         destroy_fillet_core(core);
+         fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
      }
-     destroy_fillet_core(core);
-     fprintf(stderr,"STATUS: LEAVING APPLICATION\n");
 
      return 0;
 }

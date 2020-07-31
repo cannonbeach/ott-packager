@@ -104,6 +104,9 @@
 #define ENCODER_PROFILE_MAIN       77
 #define ENCODER_PROFILE_HIGH       100
 
+#define SOURCE_TYPE_STREAM         0
+#define SOURCE_TYPE_FILE           1
+
 #if defined(ENABLE_TRANSCODE)
 typedef struct _trans_video_output_struct_ {
     int                    video_codec;
@@ -156,9 +159,16 @@ typedef struct _ip_config_struct_ {
 } ip_config_struct;
 
 typedef struct _config_options_struct_ {
+    int              source_type;
+
     int              active_sources;
+
+    // stream source
     char             active_interface[UDP_MAX_IFNAME];
     ip_config_struct active_source[MAX_MUX_SOURCES];
+
+    // file source
+    char             input_filename[MAX_STR_SIZE];
 
     char             manifest_directory[MAX_STR_SIZE];
     char             youtube_cid[MAX_STR_SIZE];
@@ -184,6 +194,8 @@ typedef struct _config_options_struct_ {
     int              enable_scte35;
     int              enable_stereo;
     int              enable_webvtt;
+
+    int              stream_select;
 #if defined(ENABLE_TRANSCODE)
     int                           num_outputs;
     trans_video_output_struct     transvideo_info[MAX_TRANS_OUTPUTS];

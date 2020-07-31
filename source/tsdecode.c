@@ -346,8 +346,8 @@ _redo_decode:
                           local_tag == STREAM_DESCRIPTOR_SUBTITLE2) {
                     if (waiting_for_descriptor) {
                         backup_caller(2000, 808, current_stream_pid, current_pid, 0, 0, backup_context);
-                         waiting_for_descriptor = 0;
-                         goto _redo_decode;
+                        waiting_for_descriptor = 0;
+                        goto _redo_decode;
                     } else {
                         backup_caller(2000, 712, local_tag, 0, 0, 0, backup_context);
                     }
@@ -355,8 +355,8 @@ _redo_decode:
                } else if (local_tag == STREAM_DESCRIPTOR_EAC3) {
                     if (waiting_for_descriptor) {
                         backup_caller(2000, 814, current_stream_pid, current_pid, 0, 0, backup_context);
-                         waiting_for_descriptor = 0;
-                         goto _redo_decode;
+                        waiting_for_descriptor = 0;
+                        goto _redo_decode;
                     } else {
                         backup_caller(2000, 713, local_tag, 0, 0, 0, backup_context);
                     }
@@ -433,7 +433,7 @@ _redo_decode:
      return 0;
 }
 
-int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_data_struct *tsdata)
+int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_data_struct *tsdata, int stream_select)
 {
      int packet_num;
      int each_pmt;
@@ -751,31 +751,33 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                }
 
                                for (each_pmt = 0; each_pmt < tsdata->master_pat_table.pmt_table_entries; each_pmt++)  {
-                                   if (tsdata->master_pmt_table[each_pmt].pmt_pid == current_pid) {
-                                       if (tsdata->master_pmt_table[each_pmt].max_pmt_time == 0) {
-                                           tsdata->master_pmt_table[each_pmt].min_pmt_time = 999999999;
-                                           gettimeofday(&tsdata->master_pmt_table[each_pmt].start_pmt_time, NULL);
-                                           tsdata->master_pmt_table[each_pmt].max_pmt_time = 1;
-                                       } else {
-                                           int64_t delta_pmt_time;
-                                           gettimeofday(&tsdata->master_pmt_table[each_pmt].end_pmt_time, NULL);
-                                           delta_pmt_time = (int64_t)get_time_difference(&tsdata->master_pmt_table[each_pmt].end_pmt_time,
-                                                                                         &tsdata->master_pmt_table[each_pmt].start_pmt_time);
+                                   if (each_pmt == stream_select && stream_select != -1) {
+                                       if (tsdata->master_pmt_table[each_pmt].pmt_pid == current_pid) {
+                                           if (tsdata->master_pmt_table[each_pmt].max_pmt_time == 0) {
+                                               tsdata->master_pmt_table[each_pmt].min_pmt_time = 999999999;
+                                               gettimeofday(&tsdata->master_pmt_table[each_pmt].start_pmt_time, NULL);
+                                               tsdata->master_pmt_table[each_pmt].max_pmt_time = 1;
+                                           } else {
+                                               int64_t delta_pmt_time;
+                                               gettimeofday(&tsdata->master_pmt_table[each_pmt].end_pmt_time, NULL);
+                                               delta_pmt_time = (int64_t)get_time_difference(&tsdata->master_pmt_table[each_pmt].end_pmt_time,
+                                                                                             &tsdata->master_pmt_table[each_pmt].start_pmt_time);
 
-                                           if (delta_pmt_time > tsdata->master_pmt_table[each_pmt].max_pmt_time) {
-                                               tsdata->master_pmt_table[each_pmt].max_pmt_time = delta_pmt_time;
-                                               // SIGNAL NEW MAX PMT TIME TO GUI
-                                               // backup_caller(2000, 505, delta_pmt_time, current_pid, 0, backup_context);
+                                               if (delta_pmt_time > tsdata->master_pmt_table[each_pmt].max_pmt_time) {
+                                                   tsdata->master_pmt_table[each_pmt].max_pmt_time = delta_pmt_time;
+                                                   // SIGNAL NEW MAX PMT TIME TO GUI
+                                                   // backup_caller(2000, 505, delta_pmt_time, current_pid, 0, backup_context);
+                                               }
+                                               if (delta_pmt_time < tsdata->master_pmt_table[each_pmt].min_pmt_time) {
+                                                   tsdata->master_pmt_table[each_pmt].min_pmt_time = delta_pmt_time;
+                                                   // SIGNAL NEW MIN PMT TIME TO GUI
+                                                   // backup_caller(2000, 506, delta_pmt_time, current_pid, 0, backup_context);
+                                               }
+                                               //backup_caller(2000, 505, delta_pmt_time / 1000, current_pid, 0, backup_context);
+                                               tsdata->master_pmt_table[each_pmt].avg_pmt_time += delta_pmt_time;
+                                               tsdata->master_pmt_table[each_pmt].avg_pmt_time /= 2;
+                                               gettimeofday(&tsdata->master_pmt_table[each_pmt].start_pmt_time, NULL);
                                            }
-                                           if (delta_pmt_time < tsdata->master_pmt_table[each_pmt].min_pmt_time) {
-                                               tsdata->master_pmt_table[each_pmt].min_pmt_time = delta_pmt_time;
-                                               // SIGNAL NEW MIN PMT TIME TO GUI
-                                               // backup_caller(2000, 506, delta_pmt_time, current_pid, 0, backup_context);
-                                           }
-                                           //backup_caller(2000, 505, delta_pmt_time / 1000, current_pid, 0, backup_context);
-                                           tsdata->master_pmt_table[each_pmt].avg_pmt_time += delta_pmt_time;
-                                           tsdata->master_pmt_table[each_pmt].avg_pmt_time /= 2;
-                                           gettimeofday(&tsdata->master_pmt_table[each_pmt].start_pmt_time, NULL);
                                        }
                                    }
                                }
@@ -844,324 +846,326 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                        }
 
                        for (each_pmt = 0; each_pmt < tsdata->master_pat_table.pmt_table_entries; each_pmt++)  {
-                             int stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
-                             for (pid_count = 0; pid_count < stream_count; pid_count++) {
-                                 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_count] == current_pid) {
-                                     int last_cc;
-                                     int pes_length;
-                                     int check0 = *(pdata+6);
-                                     int check1 = *(pdata+7);
+                           if (each_pmt == stream_select && stream_select != -1) {
+                               int stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
+                               for (pid_count = 0; pid_count < stream_count; pid_count++) {
+                                   if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_count] == current_pid) {
+                                       int last_cc;
+                                       int pes_length;
+                                       int check0 = *(pdata+6);
+                                       int check1 = *(pdata+7);
 
-                                     if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index > 0) {
-                                         unsigned char *video_frame;
-                                         int is_intra = 0;
-                                         int core_modified = 0;
-                                         int video_frame_size = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index;
-                                         int video_bitrate = 0;
-                                         int video_framerate = 0;
-                                         int stream_type = 0;
-                                         int aspect_ratio = 0;
-                                         int seqtype = 0;
+                                       if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index > 0) {
+                                           unsigned char *video_frame;
+                                           int is_intra = 0;
+                                           int core_modified = 0;
+                                           int video_frame_size = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index;
+                                           int video_bitrate = 0;
+                                           int video_framerate = 0;
+                                           int stream_type = 0;
+                                           int aspect_ratio = 0;
+                                           int seqtype = 0;
 
-                                         stream_type = tsdata->master_pmt_table[each_pmt].stream_type[pid_count];
+                                           stream_type = tsdata->master_pmt_table[each_pmt].stream_type[pid_count];
 
-                                         if (stream_type == 0x02 || stream_type == 0x80) {
-                                             int64_t delta_data_time;
+                                           if (stream_type == 0x02 || stream_type == 0x80) {
+                                               int64_t delta_data_time;
 
-                                             video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             if (video_frame[0] == 0x00 && video_frame[1] == 0x00 &&
-                                                 video_frame[2] == 0x01 && video_frame[3] == 0xb3) {
-                                                 is_intra = 1;
-                                             }
-                                             if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
-                                                 gettimeofday(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].start_data_time, NULL);
-                                             }
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
+                                               video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                               if (video_frame[0] == 0x00 && video_frame[1] == 0x00 &&
+                                                   video_frame[2] == 0x01 && video_frame[3] == 0xb3) {
+                                                   is_intra = 1;
+                                               }
+                                               if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
+                                                   gettimeofday(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].start_data_time, NULL);
+                                               }
+                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
 
-                                             gettimeofday(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].end_data_time, NULL);
-                                             delta_data_time = (int64_t)get_time_difference(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].end_data_time,
-                                                                                            &tsdata->master_pmt_table[each_pmt].data_engine[pid_count].start_data_time);
+                                               gettimeofday(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].end_data_time, NULL);
+                                               delta_data_time = (int64_t)get_time_difference(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].end_data_time,
+                                                                                              &tsdata->master_pmt_table[each_pmt].data_engine[pid_count].start_data_time);
 
-                                             if (delta_data_time > 30000000) {
-                                                 float measured_fps = (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count * 1000000.0);
-                                                 measured_fps = measured_fps / delta_data_time * 1000.0;
-                                                 gettimeofday(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].start_data_time, NULL);
-                                                 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count = 0;
-                                                 backup_caller(2000, 1004, (long long)measured_fps, current_pid, 0, 0, backup_context);
-                                             }
+                                               if (delta_data_time > 30000000) {
+                                                   float measured_fps = (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count * 1000000.0);
+                                                   measured_fps = measured_fps / delta_data_time * 1000.0;
+                                                   gettimeofday(&tsdata->master_pmt_table[each_pmt].data_engine[pid_count].start_data_time, NULL);
+                                                   tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count = 0;
+                                                   backup_caller(2000, 1004, (long long)measured_fps, current_pid, 0, 0, backup_context);
+                                               }
 
-                                             if (core_modified & 32) {
-                                                 backup_caller(2000, 1000, video_framerate, current_pid, 0, 0, backup_context);
-                                                 backup_caller(2000, 1001, video_bitrate, current_pid, 0, 0, backup_context);
-                                             }
-                                             if (core_modified & 8) {
-                                                 backup_caller(2000, 1002,
-                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].width,
-                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].height,
-                                                               current_pid, 0, backup_context);
-                                             }
-                                             if (core_modified & 2) {
-                                                 backup_caller(2000, 1003,
-                                                               aspect_ratio,
-                                                               seqtype,
-                                                               current_pid,
-                                                               0,
-                                                               backup_context);
-                                             }
-                                             send_frame_func(video_frame, video_frame_size, STREAM_TYPE_MPEG2, is_intra,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
-                                                             0, // PCR
-                                                             tsdata->source,
-                                                             0, // sub-source is 0 for video
-                                                             (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-                                                             send_frame_context);
-                                         } else if (stream_type == 0x0f) {
-                                             uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_AAC, 1,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
-                                                             0, // PCR
-                                                             tsdata->source,
-                                                             tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count],  //sub-source
-                                                             (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-                                                             send_frame_context);
-                                         } else if (stream_type == 0x81) {
-                                             uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_AC3, 1,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
-                                                             0, // PCR
-                                                             tsdata->source,
-                                                             tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
-                                                             (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-                                                             send_frame_context);
-                                         } else if (stream_type == 0x04) {
-                                             uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_MPEG, 1,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
-                                                             0, // PCR
-                                                             tsdata->source,
-                                                             tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
-                                                             (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-                                                             send_frame_context);
-                                         } else if (stream_type == 0x86) {
-                                             // do nothing- scte35 handled elsewhere
-                                         } else if (stream_type == 0x24) {
-                                             int vf;
-                                             int nal_type;
-                                             int is_intra = 0;
-                                             video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             for (vf = 0; vf < video_frame_size - 4; vf++) {
-                                                 if (video_frame[vf] == 0x00 &&
-                                                     video_frame[vf+1] == 0x00 &&
-                                                     video_frame[vf+2] == 0x01) {
-                                                     nal_type = (video_frame[vf+3] & 0x7f) >> 1;
-                                                     if (nal_type == 20 || nal_type == 19) {
-                                                         is_intra = 1;
-                                                         if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
-                                                             tsdata->first_frame_intra = 1;
-                                                             is_intra = 1;
-                                                         }
-                                                         break;
-                                                     }
-                                                 }
-                                             }
+                                               if (core_modified & 32) {
+                                                   backup_caller(2000, 1000, video_framerate, current_pid, 0, 0, backup_context);
+                                                   backup_caller(2000, 1001, video_bitrate, current_pid, 0, 0, backup_context);
+                                               }
+                                               if (core_modified & 8) {
+                                                   backup_caller(2000, 1002,
+                                                                 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].width,
+                                                                 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].height,
+                                                                 current_pid, 0, backup_context);
+                                               }
+                                               if (core_modified & 2) {
+                                                   backup_caller(2000, 1003,
+                                                                 aspect_ratio,
+                                                                 seqtype,
+                                                                 current_pid,
+                                                                 0,
+                                                                 backup_context);
+                                               }
+                                               send_frame_func(video_frame, video_frame_size, STREAM_TYPE_MPEG2, is_intra,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+                                                               0, // PCR
+                                                               tsdata->source,
+                                                               0, // sub-source is 0 for video
+                                                               (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+                                                               send_frame_context);
+                                           } else if (stream_type == 0x0f) {
+                                               uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                               send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_AAC, 1,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+                                                               0, // PCR
+                                                               tsdata->source,
+                                                               tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count],  //sub-source
+                                                               (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+                                                               send_frame_context);
+                                           } else if (stream_type == 0x81) {
+                                               uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                               send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_AC3, 1,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+                                                               0, // PCR
+                                                               tsdata->source,
+                                                               tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
+                                                               (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+                                                               send_frame_context);
+                                           } else if (stream_type == 0x04) {
+                                               uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                               send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_MPEG, 1,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+                                                               0, // PCR
+                                                               tsdata->source,
+                                                               tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
+                                                               (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+                                                               send_frame_context);
+                                           } else if (stream_type == 0x86) {
+                                               // do nothing- scte35 handled elsewhere
+                                           } else if (stream_type == 0x24) {
+                                               int vf;
+                                               int nal_type;
+                                               int is_intra = 0;
+                                               video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                               for (vf = 0; vf < video_frame_size - 4; vf++) {
+                                                   if (video_frame[vf] == 0x00 &&
+                                                       video_frame[vf+1] == 0x00 &&
+                                                       video_frame[vf+2] == 0x01) {
+                                                       nal_type = (video_frame[vf+3] & 0x7f) >> 1;
+                                                       if (nal_type == 20 || nal_type == 19) {
+                                                           is_intra = 1;
+                                                           if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
+                                                               tsdata->first_frame_intra = 1;
+                                                               is_intra = 1;
+                                                           }
+                                                           break;
+                                                       }
+                                                   }
+                                               }
 
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
+                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
 
-                                             send_frame_func(video_frame, video_frame_size, STREAM_TYPE_HEVC, is_intra,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
-                                                             0, // PCR
-                                                             tsdata->source,
-                                                             0, // sub-source is 0 for video
-                                                             (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-                                                             send_frame_context);
-                                         } else if (stream_type == 0x1b) {
-                                             int vf;
-                                             int nal_type;
-                                             int is_intra = 0;
-                                             video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
-                                             for (vf = 0; vf < video_frame_size - 4; vf++) {
-                                                 if (video_frame[vf] == 0x00 &&
-                                                     video_frame[vf+1] == 0x00 &&
-                                                     video_frame[vf+2] == 0x01) {
-                                                     nal_type = video_frame[vf+3] & 0x1f;
-                                                     //fprintf(stderr,"nal_type:0x%x\n", nal_type);
-                                                     if (nal_type == 0x05 || nal_type == 0x07 || nal_type == 0x08) {
-                                                         is_intra = 1;
-                                                         if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
-                                                             tsdata->first_frame_intra = 1;
-                                                             is_intra = 1;
-                                                         }
-                                                         break;
-                                                     }
-                                                 }
-                                             }
+                                               send_frame_func(video_frame, video_frame_size, STREAM_TYPE_HEVC, is_intra,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+                                                               0, // PCR
+                                                               tsdata->source,
+                                                               0, // sub-source is 0 for video
+                                                               (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+                                                               send_frame_context);
+                                           } else if (stream_type == 0x1b) {
+                                               int vf;
+                                               int nal_type;
+                                               int is_intra = 0;
+                                               video_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
+                                               for (vf = 0; vf < video_frame_size - 4; vf++) {
+                                                   if (video_frame[vf] == 0x00 &&
+                                                       video_frame[vf+1] == 0x00 &&
+                                                       video_frame[vf+2] == 0x01) {
+                                                       nal_type = video_frame[vf+3] & 0x1f;
+                                                       //fprintf(stderr,"nal_type:0x%x\n", nal_type);
+                                                       if (nal_type == 0x05 || nal_type == 0x07 || nal_type == 0x08) {
+                                                           is_intra = 1;
+                                                           if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count == 0) {
+                                                               tsdata->first_frame_intra = 1;
+                                                               is_intra = 1;
+                                                           }
+                                                           break;
+                                                       }
+                                                   }
+                                               }
 
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
+                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].video_frame_count++;
 
-                                             send_frame_func(video_frame, video_frame_size, STREAM_TYPE_H264, is_intra,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
-                                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
-                                                             0, // PCR
-                                                             tsdata->source,
-                                                             0, // sub-source is 0 for video
-                                                             (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
-                                                             send_frame_context);
-                                         }
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = 0;
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
-                                     }
+                                               send_frame_func(video_frame, video_frame_size, STREAM_TYPE_H264, is_intra,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
+                                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts,
+                                                               0, // PCR
+                                                               tsdata->source,
+                                                               0, // sub-source is 0 for video
+                                                               (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
+                                                               send_frame_context);
+                                           }
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = 0;
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
+                                       }
 
-                                     last_cc = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc;
-                                     if (last_cc == -1) {
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
-                                     } else {
-                                         int expected_continuity;
+                                       last_cc = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc;
+                                       if (last_cc == -1) {
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
+                                       } else {
+                                           int expected_continuity;
 
-                                         expected_continuity = (last_cc + 1) % 16;
-                                         if (expected_continuity != cc) {
-                                             backup_caller(2000, 900+cc,
-                                                           expected_continuity, current_pid,
-                                                           total_input_packets, 0, backup_context);
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].corruption_count++;
-                                         }
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
-                                     }
-                                     pes_length = (*(pdata+4) << 8) + *(pdata+5);
-                                     if (pes_length) {
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].wanted_data_size = pes_length;
-                                     }
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].actual_data_size = 0;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].context = NULL;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = 0;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].flags = 0;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = 0;
+                                           expected_continuity = (last_cc + 1) % 16;
+                                           if (expected_continuity != cc) {
+                                               backup_caller(2000, 900+cc,
+                                                             expected_continuity, current_pid,
+                                                             total_input_packets, 0, backup_context);
+                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].corruption_count++;
+                                           }
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
+                                       }
+                                       pes_length = (*(pdata+4) << 8) + *(pdata+5);
+                                       if (pes_length) {
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].wanted_data_size = pes_length;
+                                       }
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].actual_data_size = 0;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].context = NULL;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = 0;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].flags = 0;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = 0;
 
-                                     int pes_header_size;
-                                     int pes_aligned;
-                                     int timestamp_present;
-                                     int remaining_samples = 0;
+                                       int pes_header_size;
+                                       int pes_aligned;
+                                       int timestamp_present;
+                                       int remaining_samples = 0;
 
-                                     pes_header_size = *(pdata+8);
-                                     if (pes_header_size > 184) {
-                                         backup_caller(2000, 916, current_pid, 0, 0, 0, backup_context);
-                                         goto continue_packet_processing;
-                                     }
-                                     pes_aligned = (check0 & 0x04) >> 3;
-                                     tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = pes_aligned;
-                                     pdata += 9;
-                                     timestamp_present = (check1 & 0xc0) >> 6;
-                                     if (timestamp_present == 1) {
-                                         backup_caller(2000, 917, current_pid, 0, 0, 0, backup_context);
-                                         goto continue_packet_processing;
-                                     } else if (timestamp_present == 2) {
-                                         int64_t current_pts;
-                                         int stream_count;
-                                         int pid_index;
+                                       pes_header_size = *(pdata+8);
+                                       if (pes_header_size > 184) {
+                                           backup_caller(2000, 916, current_pid, 0, 0, 0, backup_context);
+                                           goto continue_packet_processing;
+                                       }
+                                       pes_aligned = (check0 & 0x04) >> 3;
+                                       tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pes_aligned = pes_aligned;
+                                       pdata += 9;
+                                       timestamp_present = (check1 & 0xc0) >> 6;
+                                       if (timestamp_present == 1) {
+                                           backup_caller(2000, 917, current_pid, 0, 0, 0, backup_context);
+                                           goto continue_packet_processing;
+                                       } else if (timestamp_present == 2) {
+                                           int64_t current_pts;
+                                           int stream_count;
+                                           int pid_index;
 
-                                         current_pts = (*(pdata+0) >> 1) & 0x07;
-                                         current_pts <<= 8;
-                                         current_pts |= *(pdata+1);
-                                         current_pts <<= 7;
-                                         current_pts |= (*(pdata+2) >> 1) & 0x7f;
-                                         current_pts <<= 8;
-                                         current_pts |= *(pdata+3);
-                                         current_pts <<= 7;
-                                         current_pts |= (*(pdata+4) >> 1) & 0x7f;
+                                           current_pts = (*(pdata+0) >> 1) & 0x07;
+                                           current_pts <<= 8;
+                                           current_pts |= *(pdata+1);
+                                           current_pts <<= 7;
+                                           current_pts |= (*(pdata+2) >> 1) & 0x7f;
+                                           current_pts <<= 8;
+                                           current_pts |= *(pdata+3);
+                                           current_pts <<= 7;
+                                           current_pts |= (*(pdata+4) >> 1) & 0x7f;
 
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
 
-                                         stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
-                                         for (pid_index = 0; pid_index < stream_count; pid_index++) {
-                                             if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
-                                                 tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
-                                                 if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
-                                                     tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
-                                                     break;
-                                                 }
-                                             }
-                                         }
-                                     } else if (timestamp_present == 3) {
-                                         int64_t current_pts;
-                                         int64_t current_dts;
-                                         int stream_count;
-                                         int pid_index;
+                                           stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
+                                           for (pid_index = 0; pid_index < stream_count; pid_index++) {
+                                               if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
+                                                   tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
+                                                   if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
+                                                       tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
+                                                       break;
+                                                   }
+                                               }
+                                           }
+                                       } else if (timestamp_present == 3) {
+                                           int64_t current_pts;
+                                           int64_t current_dts;
+                                           int stream_count;
+                                           int pid_index;
 
-                                         current_pts = (*(pdata+0) >> 1) & 0x07;
-                                         current_pts <<= 8;
-                                         current_pts |= *(pdata+1);
-                                         current_pts <<= 7;
-                                         current_pts |= (*(pdata+2) >> 1) & 0x7f;
-                                         current_pts <<= 8;
-                                         current_pts |= *(pdata+3);
-                                         current_pts <<= 7;
-                                         current_pts |= (*(pdata+4) >> 1) & 0x7f;
+                                           current_pts = (*(pdata+0) >> 1) & 0x07;
+                                           current_pts <<= 8;
+                                           current_pts |= *(pdata+1);
+                                           current_pts <<= 7;
+                                           current_pts |= (*(pdata+2) >> 1) & 0x7f;
+                                           current_pts <<= 8;
+                                           current_pts |= *(pdata+3);
+                                           current_pts <<= 7;
+                                           current_pts |= (*(pdata+4) >> 1) & 0x7f;
 
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = current_pts;
 
-                                         stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
-                                         for (pid_index = 0; pid_index < stream_count; pid_index++) {
-                                             if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
-                                                 tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
-                                                 if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
-                                                     tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
-                                                     break;
-                                                 }
-                                             }
-                                         }
+                                           stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
+                                           for (pid_index = 0; pid_index < stream_count; pid_index++) {
+                                               if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
+                                                   tsdata->master_pmt_table[each_pmt].last_pts[pid_index] = current_pts;
+                                                   if (tsdata->master_pmt_table[each_pmt].first_pts[pid_index] == -1) {
+                                                       tsdata->master_pmt_table[each_pmt].first_pts[pid_index] = current_pts;
+                                                       break;
+                                                   }
+                                               }
+                                           }
 
-                                         current_dts = (*(pdata+5) >> 1) & 0x07;
-                                         current_dts <<= 8;
-                                         current_dts |= *(pdata+6);
-                                         current_dts <<= 7;
-                                         current_dts |= (*(pdata+7) >> 1) & 0x7f;
-                                         current_dts <<= 8;
-                                         current_dts |= *(pdata+8);
-                                         current_dts <<= 7;
-                                         current_dts |= (*(pdata+9) >> 1) & 0x7f;
+                                           current_dts = (*(pdata+5) >> 1) & 0x07;
+                                           current_dts <<= 8;
+                                           current_dts |= *(pdata+6);
+                                           current_dts <<= 7;
+                                           current_dts |= (*(pdata+7) >> 1) & 0x7f;
+                                           current_dts <<= 8;
+                                           current_dts |= *(pdata+8);
+                                           current_dts <<= 7;
+                                           current_dts |= (*(pdata+9) >> 1) & 0x7f;
 
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = current_dts;
-                                         for (pid_index = 0; pid_index < stream_count; pid_index++) {
-                                             if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
-                                                 tsdata->master_pmt_table[each_pmt].last_dts[pid_index] = current_dts;
-                                                 if (tsdata->master_pmt_table[each_pmt].first_dts[pid_index] == -1) {
-                                                     tsdata->master_pmt_table[each_pmt].first_dts[pid_index] = current_dts;
-                                                     break;
-                                                 }
-                                             }
-                                         }
-                                     } else {
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
-                                     }
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = current_dts;
+                                           for (pid_index = 0; pid_index < stream_count; pid_index++) {
+                                               if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_index] == current_pid) {
+                                                   tsdata->master_pmt_table[each_pmt].last_dts[pid_index] = current_dts;
+                                                   if (tsdata->master_pmt_table[each_pmt].first_dts[pid_index] == -1) {
+                                                       tsdata->master_pmt_table[each_pmt].first_dts[pid_index] = current_dts;
+                                                       break;
+                                                   }
+                                               }
+                                           }
+                                       } else {
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].dts = 0;
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts = 0;
+                                       }
 
-                                     pdata += pes_header_size;
-                                     remaining_samples = 184 - 9 - pes_header_size - adaptation_size;
-                                     if (remaining_samples < 0) {
-                                         goto continue_packet_processing;
-                                     }
-                                     if (remaining_samples > 0) {
-                                         if (remaining_samples >= 184) {
-                                             goto continue_packet_processing;
-                                         }
-                                         if (!tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer) {
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer = (unsigned char *)malloc(MAX_BUFFER_SIZE);
-                                         }
-                                         if (remaining_samples <= MAX_BUFFER_SIZE) {
-                                             memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer, pdata, remaining_samples);
-                                         }
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = remaining_samples;
-                                     }
-                                     goto continue_packet_processing;
-                                 }
-                             }
+                                       pdata += pes_header_size;
+                                       remaining_samples = 184 - 9 - pes_header_size - adaptation_size;
+                                       if (remaining_samples < 0) {
+                                           goto continue_packet_processing;
+                                       }
+                                       if (remaining_samples > 0) {
+                                           if (remaining_samples >= 184) {
+                                               goto continue_packet_processing;
+                                           }
+                                           if (!tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer) {
+                                               tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer = (unsigned char *)malloc(MAX_BUFFER_SIZE);
+                                           }
+                                           if (remaining_samples <= MAX_BUFFER_SIZE) {
+                                               memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer, pdata, remaining_samples);
+                                           }
+                                           tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index = remaining_samples;
+                                       }
+                                       goto continue_packet_processing;
+                                   }
+                               }
+                           }
                        }
 
                          if (current_pid == 0) {
@@ -1325,43 +1329,45 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                          }
 
                          for (each_pmt = 0; each_pmt < tsdata->master_pat_table.pmt_table_entries; each_pmt++)  {
-                             int stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
-                             for (pid_count = 0; pid_count < stream_count; pid_count++) {
-                                 if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_count] == current_pid) {
-                                     int last_cc;
+                             if (each_pmt == stream_select && stream_select != -1) {
+                                 int stream_count = tsdata->master_pmt_table[each_pmt].stream_count;
+                                 for (pid_count = 0; pid_count < stream_count; pid_count++) {
+                                     if (tsdata->master_pmt_table[each_pmt].stream_pid[pid_count] == current_pid) {
+                                         int last_cc;
 
-                                     last_cc = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc;
-                                     if (last_cc == -1) {
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
-                                     } else {
-                                         int expected_continuity;
-                                         expected_continuity = (last_cc + 1) % 16;
-                                         if (expected_continuity != cc) {
-                                             backup_caller(2000, 900+cc,
-                                                           expected_continuity, current_pid,
-                                                           total_input_packets, 0, backup_context);
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].corruption_count++;
+                                         last_cc = tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc;
+                                         if (last_cc == -1) {
+                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
+                                         } else {
+                                             int expected_continuity;
+                                             expected_continuity = (last_cc + 1) % 16;
+                                             if (expected_continuity != cc) {
+                                                 backup_caller(2000, 900+cc,
+                                                               expected_continuity, current_pid,
+                                                               total_input_packets, 0, backup_context);
+                                                 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].corruption_count++;
+                                             }
+                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
                                          }
-                                         tsdata->master_pmt_table[each_pmt].data_engine[pid_count].last_cc = cc;
-                                     }
 
-                                     if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index > 0) {
-                                         int remaining_samples = 184 - adaptation_size;
-                                         if (remaining_samples < 0) {
-                                             goto continue_packet_processing;
-                                         }
-                                         if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index + remaining_samples <= MAX_BUFFER_SIZE) {
-                                             memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer +
-                                                    tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index,
-                                                    pdata,
-                                                    remaining_samples);
-                                             tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index += remaining_samples;
+                                         if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index > 0) {
+                                             int remaining_samples = 184 - adaptation_size;
+                                             if (remaining_samples < 0) {
+                                                 goto continue_packet_processing;
+                                             }
+                                             if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index + remaining_samples <= MAX_BUFFER_SIZE) {
+                                                 memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer +
+                                                        tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index,
+                                                        pdata,
+                                                        remaining_samples);
+                                                 tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index += remaining_samples;
+                                             }
                                          }
                                      }
                                  }
-                             }
-                         }
-                    } // end of pusi
+                             }  // stream select
+                         } // each pmt
+                   }// end of pusi
                }
           } // end of check for 0x47
 

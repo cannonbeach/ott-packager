@@ -301,6 +301,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
              "        },\n"
              "        \"source\": {\n"
              "            \"inputs\": %d,\n"
+             "            \"stream-select\": %d,\n"
              "            \"width\": %d,\n"
              "            \"height\": %d,\n"
              "            \"fpsnum\": %d,\n"
@@ -350,6 +351,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
              core->cd->enable_scte35,
              latency,
              core->cd->active_sources,
+             core->cd->stream_select,
              core->decoded_source_info.decoded_width,
              core->decoded_source_info.decoded_height,
              core->decoded_source_info.decoded_fps_num,
