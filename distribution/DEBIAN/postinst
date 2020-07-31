@@ -1,0 +1,21 @@
+#!/bin/bash
+echo "STATUS-loading docker image for fillet application"
+sudo docker load -i /dockerimages/dockerfillet.tar
+echo "STATUS-done loading docker image for fillet application"
+
+pushd /var/app
+sudo pm2 start server.js
+popd
+
+sudo pm2 status server
+# check if server.js service started or not?
+
+echo "STATUS- adding pm2 to systemd"
+sudo pm2 startup systemd
+echo "STATUS- saving the active services"
+sudo pm2 save
+
+#curl http://127.0.0.1:8080/api/v1/system_information
+#curl http://127.0.0.1:8080/api/v1/get_service_count
+#curl http://127.0.0.1:8080/api/v1/get_interfaces
+#curl http://127.0.0.1:8080/api/v1/get_service_status/0
