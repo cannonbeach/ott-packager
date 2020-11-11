@@ -217,12 +217,14 @@ if (download_button) {
 function removeOptions(selectElement) {
     var i, L = selectElement.options.length - 1;
     for(i = L; i >= 0; i--) {
-	selectElement.remove(i);
+        selectElement.remove(i);
     }
-}	
+}
 
 scan_button_transcode.addEventListener('click', function(e) {
     console.log('scan button was clicked');
+
+    scan_button_transcode.innerText = 'Scanning....';
 
     var ipaddr_primary = document.getElementById("ipaddr_primary").value;
     var inputinterface1 = document.getElementById("inputinterface1").value;
@@ -238,7 +240,7 @@ scan_button_transcode.addEventListener('click', function(e) {
     var postdata = JSON.stringify(obj);
 
     console.log(JSON.parse(postdata));
-    
+
     const url = "/api/v1/scan?address="+ipaddr_primary+"&intf="+inputinterface1;
 
     fetch(url,{method: 'POST'})
@@ -246,59 +248,62 @@ scan_button_transcode.addEventListener('click', function(e) {
             if (response.ok) {
                 console.log('scan clicked confirmed');
 
-		const scan_data_url = "/api/v1/get_scan_data?address="+ipaddr_primary+"&intf="+inputinterface1;
-		fetch(scan_data_url,{method: 'GET'})
-	            .then(response => {
-			if (response.ok) {
-			    console.log("response came back without issue");
-			    return response.text();
-			} else {
-			    return Promise.reject('something went wrong!');
-			}
-		    })
-	            .then(data2 => {
-			console.log('data is', data2);
-			
-			var parsedJSON = JSON.parse(data2);
-			var parsedSources = parsedJSON.sources.length;
-			console.log('parsed: ', parsedJSON.sources.length);
-			if (parsedSources == 0) {
-			    select = document.getElementById('inputstream1');			    
-			    removeOptions(select);
-			    select.style.visibility = 'hidden';			    			    
-			    alert("Error!  Unable to scan source!\nCheck IP:PORT and Interface");
-			} else {
-			    select = document.getElementById('inputstream1');
-			    removeOptions(select);
-			    
-			    var s;
-			    for (s = 0; s < parsedJSON.sources.length; s++) {
-				console.log("prop: " + parsedJSON.sources[s]);
-				var opt = document.createElement('option');
-				opt.value = s;
-				opt.innerHTML = parsedJSON.sources[s];
-				select.appendChild(opt);
-			    }
-			    select.style.visibility = 'visible';
-			}
-  		})
-		return;
+                // set back to the original text
+                scan_button_transcode.innerText = 'Scan Sources';
+
+                const scan_data_url = "/api/v1/get_scan_data?address="+ipaddr_primary+"&intf="+inputinterface1;
+                fetch(scan_data_url,{method: 'GET'})
+                    .then(response => {
+                        if (response.ok) {
+                            console.log("response came back without issue");
+                            return response.text();
+                        } else {
+                            return Promise.reject('something went wrong!');
+                        }
+                    })
+                    .then(data2 => {
+                        console.log('data is', data2);
+
+                        var parsedJSON = JSON.parse(data2);
+                        var parsedSources = parsedJSON.sources.length;
+                        console.log('parsed: ', parsedJSON.sources.length);
+                        if (parsedSources == 0) {
+                            select = document.getElementById('inputstream1');
+                            removeOptions(select);
+                            select.style.visibility = 'hidden';
+                            alert("Error!  Unable to scan source!\nCheck IP:PORT and Interface");
+                        } else {
+                            select = document.getElementById('inputstream1');
+                            removeOptions(select);
+
+                            var s;
+                            for (s = 0; s < parsedJSON.sources.length; s++) {
+                                console.log("prop: " + parsedJSON.sources[s]);
+                                var opt = document.createElement('option');
+                                opt.value = s;
+                                opt.innerHTML = parsedJSON.sources[s];
+                                select.appendChild(opt);
+                            }
+                            select.style.visibility = 'visible';
+                        }
+                })
+                return;
             }
             throw new Error('scan request failed.');
         })
         .catch(function(error) {
             console.log(error);
-        });      
-   
+        });
+
 });
 
 function getSelectedOption(sel) {
     var opt;
     for (var i = 0, len = sel.options.length; i < len; i++) {
-	opt = sel.options[i];
-	if (opt.selected === true) {
-	    break;
-	}
+        opt = sel.options[i];
+        if (opt.selected === true) {
+            break;
+        }
     }
     return opt;
 }
@@ -433,11 +438,11 @@ submit_button_transcode.addEventListener('click', function(e) {
         obj.ipaddr_backup = ipaddr_backup;
         obj.inputinterface2 = inputinterface2;
 
-	if (typeof selectedstream1 !== "undefined") {
-	    obj.selectedstream1 = selectedstream1.value;	    
-	} else {	
-	    obj.selectedstream1 = '0';
-	}
+        if (typeof selectedstream1 !== "undefined") {
+            obj.selectedstream1 = selectedstream1.value;
+        } else {
+            obj.selectedstream1 = '0';
+        }
 
         obj.enablehls = enablehls;
         obj.enabledash = enabledash;
@@ -705,7 +710,7 @@ function request_service_status(service)
                 var elementname_source = 'input'+service;
                 var elementname_output = 'output'+service;
                 var elementname_status = 'statusinfo'+service;
-                var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate 0 kbps</p>';		
+                var input_string = '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate 0 kbps</p>';
                 input_string += '<p>Video is [INACTIVE] - 0x0 @ 0 fps<br>';
                 input_string += 'Audio is [INACTIVE] @ 0 channels @ 0 Hz<br></p>';
                 document.getElementById(elementname_active).innerHTML = '<p style="color:grey">INACTIVE</p>';
@@ -753,11 +758,11 @@ function request_service_status(service)
                 }
                 var input_string = '';
 
-		if (service_words.stream_select > 0) {
-		    input_string += '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br>Service Index is '+service_words.stream_select+'<br>Input bitrate '+video_bitrate+' kbps</p>';
-		} else {
-		    input_string += '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
-		}
+                if (service_words.stream_select > 0) {
+                    input_string += '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br>Service Index is '+service_words.stream_select+'<br>Input bitrate '+video_bitrate+' kbps</p>';
+                } else {
+                    input_string += '<p>Source IP is '+service_words.source_ip+'<br>Interface is '+service_words.input_interface+'<br><br>Input bitrate '+video_bitrate+' kbps</p>';
+                }
                 var fps = service_words.fpsnum / service_words.fpsden;
                 var fps2 = Math.round(fps*1000)/1000;
                 var videomediatype = '';
