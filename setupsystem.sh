@@ -14,6 +14,13 @@ else
     echo "STATUS- /var/tmp/status already exists"
 fi
 
+echo "STATUS- creating /var/tmp/scan directory"
+if [ ! -d "/var/tmp/scan" ]; then
+    sudo mkdir /var/tmp/scan
+else
+    echo "STATUS- /var/tmp/scan already exists"
+fi
+
 echo "STATUS- creating /var/app directory"
 if [ ! -d "/var/app" ]; then
     sudo mkdir /var/app
