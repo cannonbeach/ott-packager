@@ -13,14 +13,64 @@ With this application, you can ingest *live* MPEG2 transport streams carried ove
 
 There are two ways to use this application.  The first and simplest method is use to the command version of the application.  You can quickly clone the repository, compile and easily start streaming.  The Quickstart for the web application is further down in the README and is a bit more involved to get setup and running, but provides a scriptable API as well as a nice clean interface with thumbnails and other status information in the transcoding mode.  The web application is still in the early stages and I will continually be adding features for managing these types of streaming services.
 
-## Quickstart (Command Line)
+<br>
 
-The software install guide here is for Ubuntu 16.04 and 18.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.  We are running in production environments on Ubuntu with rock solid stability.
+## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
+
+If something doesn't work here for you, then please post a bug in GitHub.  
+
+```
+Please follow the directions below *very* closely:
+
+cannonbeach@insanitywave:$ sudo apt install git
+cannonbeach@insanitywave:$ sudo apt install build-essential
+cannonbeach@insanitywave:$ sudo apt install libz-dev
+cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
+cannonbeach@insanitywave:$ cd ott-packager
+cannonbeach@insanitywave:$ make
+cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
+cannonbeach@insanitywave:$ ./setuptranscode.sh
+
+*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
+(VERY IMPORTANT: when you get to the x265 setup (which is towards the end of the script execution, please set ENABLE_SHARED to OFF and set ENABLE_ASSEMLBY to ON, then hit the letter 'c' for configuration and then hit 'g' for generate and exit)
+*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
+
+cannonbeach@insanitywave:$ chmod +x setupsystem.sh
+cannonbeach@insanitywave:$ ./setupsystem.sh
+
+*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
+You need to *manually* update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
+I do not enable the transcode mode by default
+*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANE*
+
+cannonbeach@insanitywave:$ make clean
+cannonbeach@insanitywave:$ make
+cannonbeach@insanitywave:$ cp fillet ./docker
+cannonbeach@insanitywave:$ cd ./docker
+cannonbeach@insanitywave:$ sudo docker build -t dockerfillet .
+cannonbeach@insanitywave:$ cd /var/app
+cannonbeach@insanitywave:$ sudo pm2 start server.js
+cannonbeach@insanitywave:$ sudo pm2 status server
+cannonbeach@insanitywave:$ sudo pm2 startup systemd
+cannonbeach@insanitywave:$ sudo pm2 save
+
+Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
+
+You will notice that the Apache web server was also installed.  You technically don't need to install it, but it allows you to easily serve content directly off the same system for quick testing (or for a very lightweight setup).
+```
+
+![Optional Text](../master/images/mediagateway2.jpg)
+![Optional Text](../master/images/mediagateway3.jpg)
+
+<br>
+
+## Quickstart (Command Line Packager or Encoder Mode)
+
+The software install guide here is for Ubuntu 20.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.  I do not maintain a CentOS installation guide.
 
 ```
 cannonbeach@insanitywave:$ sudo apt install git
 cannonbeach@insanitywave:$ sudo apt install build-essential
-cannonbeach@insanitywave:$ sudo apt install g++
 cannonbeach@insanitywave:$ sudo apt install libz-dev
 cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
 cannonbeach@insanitywave:$ cd ott-packager
@@ -145,43 +195,6 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 
 <br>
 
-## Quickstart (NodeJS Web Application)
-
-If something doesn't work here for you, then please post a bug in GitHub.  
-
-```
-Go into the directory that you cloned the software into and run the following commands:
-
-cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
-cannonbeach@insanitywave:$ ./setuptranscode.sh
-(VERY IMPORTANT: when you get to the x265 setup (which is towards the end of the script execution, please set ENABLE_SHARED to OFF and set ENABLE_ASSEMLBY to ON, then hit the letter 'c' for configuration and then hit 'g' for generate and exit)
-
-cannonbeach@insanitywave:$ chmod +x setupsystem.sh
-cannonbeach@insanitywave:$ ./setupsystem.sh
-
-You need to *manually* update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
-cannonbeach@insanitywave:$ make clean
-cannonbeach@insanitywave:$ make
-cannonbeach@insanitywave:$ cp fillet ./docker
-cannonbeach@insanitywave:$ cd ./docker
-*IMPORTANT* If you are building using Docker and are using Ubuntu 18.04, then you should update the Dockerfile to Ubuntu 18.04 instead of 16.04.  Change: FROM ubuntu:16.04 to FROM ubuntu:18.04 which is the first line of the Dockerfile.
-cannonbeach@insanitywave:$ sudo docker build -t dockerfillet .
-cannonbeach@insanitywave:$ cd /var/app
-cannonbeach@insanitywave:$ sudo pm2 start server.js
-cannonbeach@insanitywave:$ sudo pm2 status server
-cannonbeach@insanitywave:$ sudo pm2 startup systemd
-cannonbeach@insanitywave:$ sudo pm2 save
-
-Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
-
-You will notice that the Apache web server was also installed.  You don't need to install it, but it allows you to easily serve content directly off the same system for quick testing. 
-```
-
-![Optional Text](../master/images/mediagateway2.jpg)
-![Optional Text](../master/images/mediagateway3.jpg)
-
-<br>
-
 ### Programmable/Scriptable API (Requires the NodeJS Web Application)
 
 ```
@@ -290,6 +303,10 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 <br>
 
 ### Current Status
+
+(11/10/20) Small update
+
+- Small update to Ubuntu 20.04
 
 (07/31/20) It's been awhile....
 
