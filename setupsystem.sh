@@ -94,6 +94,18 @@ else
     exit
 fi
 
+echo "STATUS- check to see if cleanup.sh installed in crontab"
+CRON_TAB_DUMP=`crontab -l > checkcrontab.txt`
+CLEANUP_ACTIVE=`grep -r 'cleanup.sh' checkcrontab.txt`
+if [ -n "$CLEANUP_ACTIVE" ]; then
+    echo "cleanup.sh already in crontab"
+else
+    echo "including cleanup.sh in crontab"
+    ADD_CLEANUP_TO_CRON=`(crontab -l 2>/dev/null; echo "0 * * * * /usr/bin/cleanup.sh") | crontab -`
+fi
+echo "STATUS- copying cleanup.sh to /usr/bin"
+sudo cp cleanup.sh /usr/bin
+
 sudo chmod +x nodesource_setup.sh
 echo "STATUS- running nodesource_setup.sh"
 sudo ./nodesource_setup.sh
