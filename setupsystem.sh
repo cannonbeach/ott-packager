@@ -105,6 +105,7 @@ else
 fi
 echo "STATUS- copying cleanup.sh to /usr/bin"
 sudo cp cleanup.sh /usr/bin
+sudo chmod +x /usr/bin/cleanup.sh
 
 sudo chmod +x nodesource_setup.sh
 echo "STATUS- running nodesource_setup.sh"
