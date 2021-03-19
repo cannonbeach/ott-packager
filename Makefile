@@ -8,6 +8,7 @@ LIB=libfillet.a
 BASELIBS=
 
 #ENABLE_TRANSCODE=1
+#ENABLE_GPU=1
 
 ifdef ENABLE_TRANSCODE
 	ifneq ("$(wildcard ./cbfdkaac/.libs/libfdk-aac.a)","")
@@ -34,6 +35,11 @@ ifdef ENABLE_TRANSCODE
 	INC += -I./cblibcurl/include/curl
 	INC += -I./cbffmpeg
 	BASELIBS += -lz -ldl -lnuma -lcrypto -lssl
+endif
+
+ifdef ENABLE_GPU
+	CFLAGS += -DENABLE_GPU
+        BASELIBS += -lnppig -lnppicc -lnppc
 endif
 
 all: $(LIB) fillet
