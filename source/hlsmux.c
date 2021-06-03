@@ -1264,6 +1264,13 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
     snprintf(stream_name, MAX_STREAM_NAME-1, "%s/video%d.m3u8", core->cd->manifest_directory, source);
     video_manifest = fopen(stream_name,"w");
 
+    if (!video_manifest) {
+        fprintf(stderr,"SESSION:%d (MAIN) ERROR: UNABLE TO WRITE VIDEO MANIFEST TO %s! UNRECOVERABLE ERROR!!!\n",
+                core->session_id,
+                stream_name);
+        exit(0);
+    }
+
     fprintf(video_manifest,"#EXTM3U\n");
     fprintf(video_manifest,"#EXT-X-VERSION:3\n");
     fprintf(video_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
@@ -1456,7 +1463,7 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
         video_bitrate = vstream->video_bitrate;
 #endif
 
-        fprintf(master_manifest,"#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=%d,CODECS=\"avc1.%2x%02x%02x\",RESOLUTION=%dx%d,AUDIO=\"audio\"\n",
+        fprintf(master_manifest,"#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=%d,CODECS=\"avc1.%2x%02x%02x,mp4a.40.2\",RESOLUTION=%dx%d,AUDIO=\"audio\"\n",
                 video_bitrate,
                 sdata->h264_profile, //hex
                 sdata->midbyte,
