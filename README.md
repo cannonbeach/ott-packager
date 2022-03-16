@@ -304,6 +304,10 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 
 ### Current Status
 
+(03/15/22) It's been awhile....
+
+I've been off doing other projects and have been meaning to come back to this project and give it some much needed attention!  I pushed up some small timestamp fixes along with initial support for nvidia based gpu encoding.  I did not fully update the quickstart instructions above but will do that in the coming days.  I have lots of build combinations to test and need to setup a clean system to make sure things are working as intended.  Send me an email if you get stuck in the meantime.
+
 (11/10/20) Small update
 
 - Small update to Ubuntu 20.04
