@@ -730,7 +730,7 @@ static int muxvideosample(fillet_app_struct *core, stream_struct *stream, sorted
     header[4] = 0x00;
     header[5] = 0x00;
     header[6] = 0x85;
-    if (frame->pts > 0 && frame->dts > 0) {
+    if (frame->pts > 0 && frame->dts > 0 && frame->pts != frame->dts) {
         header[7] = 0xc0;    // 0xc0 (both pts+dts)
         header[8] = 10;      // 10-bytes
         apply_pts(&header[9], frame->pts);
