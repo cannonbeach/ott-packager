@@ -63,7 +63,7 @@ section {
 
 section.anchortable {
    position: absolute;
-   top:375px;
+   top:510px;
    left:50px;
    box-shadow: 0 0 15px #333;
 }
@@ -84,13 +84,19 @@ section.controls {
    box-shadow: 0 0 15px #333;
 }
 
-section.statusinfo {
+section.cpustatusinfo {
    position: absolute;
    top:240px;
    left:50px;
    box-shadow: 0 0 15px #333;
 }
 
+section.gpustatusinfo {
+   position: absolute;
+   top:375px;
+   left:50px;
+   box-shadow: 0 0 15px #333;
+}
 .container {
    overflow-y: auto;
    height: auto;
@@ -264,16 +270,16 @@ img {
   <p>Content Publishing Media Gateway</p>
 </div>
 
-<div class="control" id="systempage">
-  <section class="statusinfo">
+<div class="control" id="cpusystempage">
+  <section class="cpustatusinfo">
     <div class="container">
       <table>
         <thead>
           <tr class="header">
-            <th>Core Count<div>Core Count</div></th>
+            <th>CPU Core Count<div>CPU Core Count</div></th>
             <th>CPU Load<div>CPU Load</div></th>
-            <th>Total Mem<div>Total Mem</div></th>
-            <th>Used Mem<div>Used Mem</div></th>
+            <th>CPU Memory<div>CPU Memory</div></th>
+            <th>Used CPU Memory<div>Used CPU Memory</div></th>
           </tr>
         </thead>
         <tbody>
@@ -291,6 +297,42 @@ img {
               <div id='usedmem'></div>
             </td>
           </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+
+<div class="control" id="gpusystempage">
+  <section class="gpustatusinfo">
+    <div class="container">
+      <table>
+        <thead>
+          <tr class="header">
+            <th>GPU Count<div>GPU Count</div></th>
+            <th>GPU Driver<div>GPU Driver</div></th>
+            <th>GPU Decode Load<div>GPU Decode Load</div></th>
+            <th>GPU Encode Load<div>GPU Encode Load</div></th>
+            <th>GPU CUDA Load<div>CUDA Load</div></th>
+          </tr>
+        </thead>
+        <tbody>
+            <td>
+              <div id='gpucount'></div>
+            </td>
+            <td>
+              <div id='gpudriver'></div>
+            </td>
+            <td>
+              <div id='gpudecodeload'></div>
+            </td>
+            <td>
+              <div id='gpuencodeload'></div>
+            </td>
+            <td>
+              <div id='gpucudaload'></div>
+            </td>
         </tbody>
       </table>
     </div>
@@ -356,7 +398,7 @@ img {
           document.getElementById("controltable").innerHTML = data;
       })
     </script>
-  </div>  
+  </div>
 </section>
 </div>
 
@@ -627,36 +669,36 @@ img {
                       </script>
                     </select>
                   </td>
-		  <td>
-		    <select id="inputstream1" style="visibility:hidden">
-		      <script>
-			fetch('/api/v1/get_scan_data',{method: 'GET'})
-			    .then(response => {
-			    if (response.ok) {
-			        return response.text();
-			    } else {
-			        return Promise.reject('something went wrong!');
-		  	    }
-			})
-			.then(data => {
+                  <td>
+                    <select id="inputstream1" style="visibility:hidden">
+                      <script>
+                        fetch('/api/v1/get_scan_data',{method: 'GET'})
+                            .then(response => {
+                            if (response.ok) {
+                                return response.text();
+                            } else {
+                                return Promise.reject('something went wrong!');
+                            }
+                        })
+                        .then(data => {
                             console.log('data is', data);
 
                             var parsedJSON = JSON.parse(data);
-			    console.log('parsed: ', parsedJSON.sources.length);
+                            console.log('parsed: ', parsedJSON.sources.length);
                             select = document.getElementById('inputstream1');
 
-			    var s;
-  			    for (s = 0; s < parsedJSON.sources.length; s++) {
-			        console.log("prop: " + parsedJSON.sources[s]);
+                            var s;
+                            for (s = 0; s < parsedJSON.sources.length; s++) {
+                                console.log("prop: " + parsedJSON.sources[s]);
                                 var opt = document.createElement('option');
                                 opt.value = parsedJSON.sources[s];
                                 opt.innerHTML = parsedJSON.sources[s];
-                                select.appendChild(opt);                              
-                            }			
-			})
-		      </script>
-		    </select>
-		  </td>
+                                select.appendChild(opt);
+                            }
+                        })
+                      </script>
+                    </select>
+                  </td>
                 </tr>
 
                 <tr>
@@ -700,7 +742,7 @@ img {
             </table>
             </section>
 
-	    <button id='scan_button_transcode' class="btnblue">Scan Sources</button>	    
+            <button id='scan_button_transcode' class="btnblue">Scan Sources</button>
 
             <div>
               <h2>Additional Configuration Options</h2>

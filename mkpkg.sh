@@ -1,12 +1,9 @@
 #!/bin/bash
 
-latest=$(git tag  -l --merged master --sort='-*authordate' | head -n1)
+latest=$(git tag -l --merged master --sort='-*authordate' | head -n1)
 semver_parts=(${latest//./ })
-major=${semver_parts[0]}
+major=1
 minor=${semver_parts[1]}
-#patch=${semver_parts[2]}
-
-#version=${major}.$((minor+1)).${patch}
 version=${major}.$((minor+1))
 
 echo "current version ${version}"

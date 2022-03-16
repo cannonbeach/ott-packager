@@ -85,6 +85,7 @@ echo "STATUS-intallling libssl-dev packages"
 sudo apt-get install libssl-dev -y
 echo "STATUS-installing curl packages"
 sudo apt-get install curl -y
+
 echo "STATUS-installing nodejs- grabbing setup script"
 curl -sL https://deb.nodesource.com/setup_12.x -o nodesource_setup.sh
 if [ -f "nodesource_setup.sh" ]; then
@@ -143,3 +144,5 @@ echo "STATUS- installing unzip"
 sudo apt-get install unzip -y
 echo "STATUS- installing apache"
 sudo apt-get install apache2 -y
+
+#https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#installing-on-ubuntu-and-debian

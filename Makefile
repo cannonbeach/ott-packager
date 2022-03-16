@@ -1,14 +1,14 @@
 CC=gcc
 CXX=g++
-CFLAGS=-g -c -O2 -m64 -Wall -Wfatal-errors -funroll-loops -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function
+CFLAGS=-g -c -O2 -m64 -Wall -Wfatal-errors -funroll-loops -Wno-deprecated-declarations -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function -Wno-format-truncation
 SRC=./source
 INC=-I./include
 OBJS=crc.o tsdecode.o fgetopt.o mempool.o transvideo.o transaudio.o dataqueue.o udpsource.o tsreceive.o hlsmux.o mp4core.o background.o cJSON.o cJSON_Utils.o webdav.o esignal.o
 LIB=libfillet.a
 BASELIBS=
 
-#ENABLE_TRANSCODE=1
-#ENABLE_GPU=1
+ENABLE_TRANSCODE=1
+ENABLE_GPU=1
 
 ifdef ENABLE_TRANSCODE
 	ifneq ("$(wildcard ./cbfdkaac/.libs/libfdk-aac.a)","")
@@ -39,7 +39,7 @@ endif
 
 ifdef ENABLE_GPU
 	CFLAGS += -DENABLE_GPU
-        BASELIBS += -lnppig -lnppicc -lnppc
+	BASELIBS += /usr/local/cuda-11.1/targets/x86_64-linux/lib/libnppig.so /usr/local/cuda-11.1/targets/x86_64-linux/lib/libnppicc.so /usr/local/cuda-11.1/targets/x86_64-linux/lib/libnppc.so
 endif
 
 all: $(LIB) fillet

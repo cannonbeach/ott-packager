@@ -1,5 +1,5 @@
 /*****************************************************************************
-  Copyright (C) 2018-2020 John William
+  Copyright (C) 2018-2021 John William
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -175,6 +175,30 @@ app.get('/api/v1/system_information', (req, res) => {
     obj.cpuinfo = cpuILoad();
     obj.totalmem = os.totalmem();
     obj.freemem = os.freemem();
+
+    var nvidia_cmd = 'nvidia-smi pmon -c 1 -f /var/tmp/nvidia.txt';
+
+    exec(nvidia_cmd, (err, stdout, stderr) => {
+        if (err) {
+            var retdata;
+            var current_status = 'failed';
+
+            console.log('Unable to query nvidia-smi');
+        } else {
+            var retdata;
+            var current_status = 'success';
+
+            console.log('Successfully queries nvidia-smi');
+
+            var nvidia_data = fs.readFileSync("/var/tmp/nvidia.txt", 'utf8');
+            if (nvidia_data) {
+                console.log(nvidia_data);
+            }
+        }
+    });
+
+    obj.gpucount = 1;
+
     retdata = JSON.stringify(obj);
     //console.log(retdata);
     res.send(retdata);
@@ -226,46 +250,46 @@ app.get('/api/v1/get_scan_data', (req, res) => {
     var retdata;
     var address = req.query.address;
     var intf = req.query.intf;
-    
+
     console.log('get_scan_data address: '+address);
-    
+
     if (address == '' || address == null) {
-	var configdata = [];
+        var configdata = [];
 
-	obj = new Object();
-	obj.sources = configdata;
-	
-	retdata = JSON.stringify(obj);
-	
-	console.log('sending back scan data: '+retdata);    
-	
-	res.send(retdata);	
+        obj = new Object();
+        obj.sources = configdata;
+
+        retdata = JSON.stringify(obj);
+
+        console.log('sending back scan data: '+retdata);
+
+        res.send(retdata);
     } else {
-	var fullfile = scanFolder+'/'+address+'_simple.json';
-        if (fs.existsSync(fullfile)) {	
-	    var configdata = fs.readFileSync(fullfile, 'utf8');
-            var parsedconfig = JSON.parse(configdata);	
+        var fullfile = scanFolder+'/'+address+'_simple.json';
+        if (fs.existsSync(fullfile)) {
+            var configdata = fs.readFileSync(fullfile, 'utf8');
+            var parsedconfig = JSON.parse(configdata);
 
-	    obj = new Object();
-	    obj.sources = parsedconfig;
-	    
-	    retdata = JSON.stringify(parsedconfig);
-	    
-	    console.log('sending back scan data: '+retdata);    
-	    
-	    res.send(retdata);
-	} else {
-	    var configdata = [];
+            obj = new Object();
+            obj.sources = parsedconfig;
 
-	    obj = new Object();
-	    obj.sources = configdata;
-	    
-	    retdata = JSON.stringify(obj);
-	    
-	    console.log('sending back scan data: '+retdata);    
-	    
-	    res.send(retdata);	
-	}
+            retdata = JSON.stringify(parsedconfig);
+
+            console.log('sending back scan data: '+retdata);
+
+            res.send(retdata);
+        } else {
+            var configdata = [];
+
+            obj = new Object();
+            obj.sources = configdata;
+
+            retdata = JSON.stringify(obj);
+
+            console.log('sending back scan data: '+retdata);
+
+            res.send(retdata);
+        }
     }
 });
 
@@ -275,8 +299,8 @@ app.get('/api/v1/get_control_page', (req, res) => {
     var files = fs.readdirSync(configFolder);
     var listedfiles = 0;
 
-    html += '<table>';  
-    html += '<thead>';    
+    html += '<table>';
+    html += '<thead>';
     html += '<tr class="header">';
     html += '<th>#<div>#</div></th>';
     html += '<th>Name<div>Name</div></th>';
@@ -729,13 +753,30 @@ app.post('/api/v1/start_service/:uid', (req, res) => {
                         dashmanifest = words.dashmanifest;
                     }
 
-		    var selectedstream1 = parseInt(words.selectedstream1);
+                    var output_dash_enable = '';
+                    if (words.enabledash === 'on') {
+                        output_dash_enable = '--dash';
+                    }
+                    var output_hls_enable = '';
+                    var output_scte35_enable = '';
+                    if (words.enablehls === 'on') {
+                        output_hls_enable = '--hls';
+                        if (words.enablescte35 === 'on') {
+                            output_scte35_enable = '--scte35';
+                        }
+                    }
+
+                    var selectedstream1 = parseInt(words.selectedstream1);
 
                     manifest_string += '--manifest-hls '+hlsmanifest+' ';
                     manifest_string += '--manifest-fmp4 '+fmp4manifest+' ';
                     manifest_string += '--manifest-dash '+dashmanifest;
 
-                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 --scte35 --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' --hls --dash --astreams '+astreams+' '+manifest_string;
+                    var gpu_mapping = '-e NVIDIA_DRIVER_CAPABILITIES=all -e NVIDIA_VISIBLE_DEVICES=all --gpus all';
+
+                    // enablestereo on by default for now
+                    // aspect not currently set
+                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' '+gpu_mapping+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 '+output_scte35_enable+' --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' '+output_hls_enable+' '+output_dash_enable+' --astreams '+astreams+' '+manifest_string;
 
                     console.log('start command: ', start_cmd);
 
@@ -830,7 +871,7 @@ app.post('/api/v1/scan', (req, res) => {
     console.log('input_sources: ', input_sources);
     for (i = 0; i < input_sources; i++) {
         var retdata;
-        var scan_cmd = 'ffprobe -v quiet -timeout 20 -print_format json -show_format -show_programs udp://'+address;
+        var scan_cmd = 'ffprobe -v quiet -timeout 20 -print_format json -show_format -show_programs udp://'+address+'?reuse=1';
 
         console.log('running: ', scan_cmd);
 
@@ -856,62 +897,62 @@ app.post('/api/v1/scan', (req, res) => {
 
                 var parsed_data = JSON.parse(scan_data);
                 //var nb_streams = parsed_data.format.nb_streams;
-		var programs_list = parsed_data.programs;
-		var nb_programs = parsed_data.programs.length;
+                var programs_list = parsed_data.programs;
+                var nb_programs = parsed_data.programs.length;
 
                 console.log('nb_programs ', nb_programs);
-		console.log('programs ', programs_list);
-		
+                console.log('programs ', programs_list);
+
                 var s;
-		var p;
-		var sources = '';
+                var p;
+                var sources = '';
                 for (p = 0; p < nb_programs; p++) {
                     var new_stream;
 
-		    var program_id = parsed_data.programs[p].program_id;
-		    var program_num = parsed_data.programs[p].program_num;
-		    var nb_streams = parsed_data.programs[p].nb_streams;
-		    var pmt_pid = parsed_data.programs[p].pmt_pid;
-		    var streams = [];
+                    var program_id = parsed_data.programs[p].program_id;
+                    var program_num = parsed_data.programs[p].program_num;
+                    var nb_streams = parsed_data.programs[p].nb_streams;
+                    var pmt_pid = parsed_data.programs[p].pmt_pid;
+                    var streams = [];
 
-		    sources = 'ID:'+program_num;
-		    for (s = 0; s < nb_streams; s++) {
-		        var codec_name = parsed_data.programs[p].streams[s].codec_name;
-			var codec_type = parsed_data.programs[p].streams[s].codec_type;			
-			
-			console.log('codec: ', codec_name);
-			if (codec_type === "video") {			    
+                    sources = 'ID:'+program_num;
+                    for (s = 0; s < nb_streams; s++) {
+                        var codec_name = parsed_data.programs[p].streams[s].codec_name;
+                        var codec_type = parsed_data.programs[p].streams[s].codec_type;
+
+                        console.log('codec: ', codec_name);
+                        if (codec_type === "video") {
                             var width = parsed_data.programs[p].streams[s].width;
                             var height = parsed_data.programs[p].streams[s].height;
                             var bit_rate = parsed_data.programs[p].streams[s].bit_rate;
                             var framerate = parsed_data.programs[p].streams[s].avg_frame_rate;
                             var pid = parsed_data.programs[p].streams[s].id;
 
-			    sources += ' '+codec_name+' @ '+width+'x'+height+' '+framerate+' fps ';
-                            var service = new scan_response_video(s, codec_type, codec_name, width, height, framerate, bit_rate, pid);			    
+                            sources += ' '+codec_name+' @ '+width+'x'+height+' '+framerate+' fps ';
+                            var service = new scan_response_video(s, codec_type, codec_name, width, height, framerate, bit_rate, pid);
                             streams.push(service);
-			} else if (codec_type === "audio") {
+                        } else if (codec_type === "audio") {
                             var bit_rate = parsed_data.programs[p].streams[s].bit_rate;
                             var channels = parsed_data.programs[p].streams[s].channels;
                             var pid = parsed_data.programs[p].streams[s].id;
                             var samplerate = parsed_data.programs[p].streams[s].sample_rate;
-			    if (channels == 1) {
-				sources += '['+codec_name+' @ mono '+samplerate+'Hz] ';
-			    } else if (channels == 2) {
-				sources += '['+codec_name+' @ stereo '+samplerate+'Hz] ';
-			    } else {
-				sources += '['+codec_name+' @ 5.1 '+samplerate+'Hz] ';				
-			    }
+                            if (channels == 1) {
+                                sources += '['+codec_name+' @ mono '+samplerate+'Hz] ';
+                            } else if (channels == 2) {
+                                sources += '['+codec_name+' @ stereo '+samplerate+'Hz] ';
+                            } else {
+                                sources += '['+codec_name+' @ 5.1 '+samplerate+'Hz] ';
+                            }
 
                             var service = new scan_response_audio(s, codec_type, codec_name, channels, samplerate, bit_rate, pid);
                             streams.push(service);
-			} else {
+                        } else {
                             // do nothing for now
-			}
+                        }
                     }
-		    descriptivedata.push(sources);
-		    programdata.push(streams);
-		}
+                    descriptivedata.push(sources);
+                    programdata.push(streams);
+                }
 
                 console.log("response: ", programdata);
 
@@ -919,29 +960,29 @@ app.post('/api/v1/scan', (req, res) => {
                 obj.scan_result = programdata;
                 var retdata = JSON.stringify(obj);
 
-		var nextscan = scanFolder+'/'+address+'.json';
-		fs.writeFile(nextscan, retdata, (err) => {
-		    if (err) {
-			console.error(err);
-			return;
-		    };
-		    console.log('Scan file has been created: ', nextscan);
-		});
+                var nextscan = scanFolder+'/'+address+'.json';
+                fs.writeFile(nextscan, retdata, (err) => {
+                    if (err) {
+                        console.error(err);
+                        return;
+                    };
+                    console.log('Scan file has been created: ', nextscan);
+                });
 
-		console.log("description: ", descriptivedata);
+                console.log("description: ", descriptivedata);
 
-		obj2 = new Object();
-		obj2.sources = descriptivedata;
-		var retdata2 = JSON.stringify(obj2);		
-		var nextscan2 = scanFolder+'/'+address+'_simple.json';
-		fs.writeFile(nextscan2, retdata2, (err) => {
-		    if (err) {
-			console.error(err);
-			return;
-		    };
-		    console.log('Scan file has been created: ', nextscan2);
-		});		
-				
+                obj2 = new Object();
+                obj2.sources = descriptivedata;
+                var retdata2 = JSON.stringify(obj2);
+                var nextscan2 = scanFolder+'/'+address+'_simple.json';
+                fs.writeFile(nextscan2, retdata2, (err) => {
+                    if (err) {
+                        console.error(err);
+                        return;
+                    };
+                    console.log('Scan file has been created: ', nextscan2);
+                });
+
                 res.send(retdata);
             }
         });
@@ -1025,7 +1066,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             obj.input_signal = words.data.system["input-signal"];
                             obj.input_interface = words.data.source["interface"];
                             obj.source_ip = words.data.source.stream0["source-ip"];
-			    obj.stream_select = words.data.source["stream-select"];
+                            obj.stream_select = words.data.source["stream-select"];
                             obj.source_width = words.data.source.width;
                             obj.source_height = words.data.source.height;
                             obj.fpsnum = words.data.source.fpsnum;
@@ -1123,7 +1164,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             obj.video_profile = 0;//words.data.system.profile;
                             obj.video_quality = 0;//words.data.system.quality;
 
-			    obj.stream_select = 0;
+                            obj.stream_select = 0;
                             obj.source_interruptions = 0;//words.data.system["source-interruptions"];
                             obj.source_errors = 0;//words.data.system["source-errors"];
                             obj.error_count = 0;//words.data.system.error_count;

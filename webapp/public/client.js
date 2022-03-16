@@ -176,7 +176,8 @@ if (transcode_button) {
 
         document.getElementById("controlpage").style.display = "none";
         document.getElementById("statuspage").style.display = "none";
-        document.getElementById("systempage").style.display = "none";
+        document.getElementById("cpusystempage").style.display = "none";
+        document.getElementById("gpusystempage").style.display = "none";
         document.getElementById("newrepackagesourcepage").style.display = "none";
         document.getElementById("newtranscodesourcepage").style.display = "block";
 
@@ -192,7 +193,8 @@ if (repackage_button) {
 
         document.getElementById("controlpage").style.display = "none";
         document.getElementById("statuspage").style.display = "none";
-        document.getElementById("systempage").style.display = "none";
+        document.getElementById("cpusystempage").style.display = "none";
+        document.getElementById("gpusystempage").style.display = "none";
         document.getElementById("newtranscodesourcepage").style.display = "none";
         document.getElementById("newrepackagesourcepage").style.display = "block";
 
@@ -427,7 +429,8 @@ submit_button_transcode.addEventListener('click', function(e) {
     if (safe == 1) {
         document.getElementById("controlpage").style.display = "block";
         document.getElementById("statuspage").style.display = "block";
-        document.getElementById("systempage").style.display = "block";
+        document.getElementById("cpusystempage").style.display = "block";
+        document.getElementById("gpusystempage").style.display = "block";
         document.getElementById("newtranscodesourcepage").style.display = "none";
 
         var obj = new Object();
@@ -973,6 +976,11 @@ function update_service_status()
             var elementname_usedmem = 'usedmem';
             document.getElementById(elementname_totalmem).innerHTML = totalmemstring;
             document.getElementById(elementname_usedmem).innerHTML = usedmemstring;
+
+            var elementname_gpucount = 'gpucount';
+            var gpucount = words.gpucount;
+            var gpucountstring = '<p>'+gpucount+'</p>';
+            document.getElementById(elementname_gpucount).innerHTML = gpucountstring;
         })
 }
 

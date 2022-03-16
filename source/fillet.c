@@ -1436,6 +1436,8 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     int i;
     int sync_frame = 0;
 
+    fprintf(stderr,"\n\n\nINSIDE CALLBACK\n\n\n");
+
     new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
     if (!new_frame) {
         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
@@ -1472,11 +1474,11 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     new_frame->source = source;
     new_frame->sub_stream = 0;
 
-    /*fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%ld\n\n\n",
+    fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%d\n\n\n",
             pts,
             dts,
             vstream->first_timestamp,
-            new_frame->duration);*/
+            new_frame->duration);
 
     vstream->last_full_time = new_frame->full_time;
 

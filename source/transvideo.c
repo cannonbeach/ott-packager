@@ -46,12 +46,16 @@
 #include "../cbffmpeg/libswscale/swscale.h"
 #include "../cbffmpeg/libavutil/pixfmt.h"
 #include "../cbffmpeg/libavutil/log.h"
+#include "../cbffmpeg/libavutil/opt.h"
 #include "../cbffmpeg/libavutil/imgutils.h"
 #include "../cbffmpeg/libavformat/avformat.h"
 #include "../cbffmpeg/libavfilter/buffersink.h"
 #include "../cbffmpeg/libavfilter/buffersrc.h"
+
+#if !defined(ENABLE_GPU)
 #include "../cbx264/x264.h"
 #include "../x265_3.0/source/x265.h"
+#endif // ENABLE_GPU
 
 static volatile int video_decode_thread_running = 0;
 static volatile int video_scale_thread_running = 0;
@@ -64,6 +68,7 @@ static pthread_t video_prepare_thread_id;
 static pthread_t video_encode_thread_id[MAX_TRANS_OUTPUTS];
 static pthread_t video_thumbnail_thread_id;
 
+#if !defined(ENABLE_GPU)
 typedef struct _x264_encoder_struct_ {
     x264_t           *h;
     x264_nal_t       *nal;
@@ -93,6 +98,7 @@ typedef struct _x265_encoder_struct_ {
     int64_t          frame_count_pts;
     int64_t          frame_count_dts;
 } x265_encoder_struct;
+#endif // ENABLE_GPU
 
 typedef struct _gpu_encoder_struct_ {
     int               initialized;
@@ -251,7 +257,7 @@ void *video_encode_thread_nvenc(void *context)
     free(start);
 
     gpu_data[current_encoder].initialized = 0;
-    gpu_data[current_encoder].frame_count_pts = 0;
+    gpu_data[current_encoder].frame_count_pts = 1;
     gpu_data[current_encoder].frame_count_dts = 0;
     gpu_data[current_encoder].encode_avctx = NULL;
     gpu_data[current_encoder].encode_codec = NULL;
@@ -284,7 +290,11 @@ void *video_encode_thread_nvenc(void *context)
 
             fprintf(stderr,"\n\n\nInitializing NVENC Hardware\n\n\n");
 
-            gpu_data[current_encoder].encode_codec = avcodec_find_encoder_by_name("h264_nvenc");
+            if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
+                gpu_data[current_encoder].encode_codec = avcodec_find_encoder_by_name("hevc_nvenc");
+            } else if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_H264) {
+                gpu_data[current_encoder].encode_codec = avcodec_find_encoder_by_name("h264_nvenc");
+            }
 
             fprintf(stderr,"NVENC: encode_codec=%p\n", gpu_data[current_encoder].encode_codec);
             gpu_data[current_encoder].encode_avctx = avcodec_alloc_context3(gpu_data[current_encoder].encode_codec);
@@ -320,13 +330,24 @@ void *video_encode_thread_nvenc(void *context)
                 fps = (double)((double)msg->fps_num / (double)msg->fps_den);
             }
             gpu_data[current_encoder].encode_avctx->gop_size = (int)((double)fps + 0.5);
-            gpu_data[current_encoder].encode_avctx->max_b_frames = 0;
+            gpu_data[current_encoder].encode_avctx->max_b_frames = 3;
             gpu_data[current_encoder].encode_avctx->compression_level = 7;
             gpu_data[current_encoder].encode_avctx->pix_fmt = AV_PIX_FMT_CUDA;
             gpu_data[current_encoder].encode_avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
 
+            // settings are from nvenc_h264.c
+            av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"no-scenecut","1",0);
+            av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"forced-idr","1",0);
             av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"preset","slow",0);
-            av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","high",0);
+            if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {
+                av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","baseline",0);
+                gpu_data[current_encoder].encode_avctx->max_b_frames = 0;
+            } else if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_MAIN) {
+                av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","main",0);
+            } else {
+                av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","high",0);
+            }
+            av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"aud","1",0);
 
             gpu_data[current_encoder].hw_frames_ctx->format = AV_PIX_FMT_CUDA;
             gpu_data[current_encoder].hw_frames_ctx->sw_format = AV_PIX_FMT_NV12;
@@ -436,6 +457,7 @@ void *video_encode_thread_nvenc(void *context)
 
         gpu_data[current_encoder].encode_surface->pts = gpu_data[current_encoder].frame_count_pts;
         gpu_data[current_encoder].encode_av_frame->pts = gpu_data[current_encoder].frame_count_pts;
+        gpu_data[current_encoder].encode_av_frame->pkt_pts = gpu_data[current_encoder].frame_count_pts;
 
         //fprintf(stderr,"\n\n\nSending Video Frame to NVENC Hardware\n\n\n");
 
@@ -526,6 +548,7 @@ cleanup_nvenc_video_encode_thread:
 }
 #endif // ENABLE_GPU
 
+#if !defined(ENABLE_GPU)
 void *video_encode_thread_x265(void *context)
 {
     thread_start_struct *start = (thread_start_struct*)context;
@@ -893,7 +916,9 @@ cleanup_video_encode_thread:
 
     return NULL;
 }
+#endif // ENABLE_GPU
 
+#if !defined(ENABLE_GPU)
 void *video_encode_thread_x264(void *context)
 {
     thread_start_struct *start = (thread_start_struct*)context;
@@ -1268,6 +1293,7 @@ cleanup_video_encode_thread:
 
     return NULL;
 }
+#endif // ENABLE_GPU
 
 void copy_image_data_to_ffmpeg(uint8_t *source, int source_width, int source_height, AVFrame *source_frame)
 {
@@ -2440,7 +2466,7 @@ void *video_encode_thread_x265(void *context)
 
 void *video_encode_thread_nvenc(void *context)
 {
-    fprintf(stderr,"NVENC VIDEO ENCODING NOT ENABLED - PLEASEE RECOMPILE IF REQUIRED\n");
+    fprintf(stderr,"NVENC VIDEO ENCODING NOT ENABLED - PLEASE RECOMPILE IF REQUIRED\n");
     return NULL;
 }
 
