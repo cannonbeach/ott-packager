@@ -26,10 +26,8 @@ ifdef ENABLE_TRANSCODE
 		    ./cbffmpeg/libavutil/libavutil.a \
 		    ./cbffmpeg/libavresample/libavresample.a \
 		    ./cbffmpeg/libswresample/libswresample.a \
-		    ./cbx264/libx264.a \
 		    ./cbfdkaac/.libs/libfdk-aac.a \
-		    ./cblibcurl/./lib/.libs/libcurl.a \
-		    ./x265_3.0/build/linux/libx265.a
+		    ./cblibcurl/./lib/.libs/libcurl.a
 	INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
 	INC += -I./x265_3.0/build/linux
 	INC += -I./cblibcurl/include/curl
@@ -40,6 +38,11 @@ endif
 ifdef ENABLE_GPU
 	CFLAGS += -DENABLE_GPU
 	BASELIBS += /usr/local/cuda-11.1/targets/x86_64-linux/lib/libnppig.so /usr/local/cuda-11.1/targets/x86_64-linux/lib/libnppicc.so /usr/local/cuda-11.1/targets/x86_64-linux/lib/libnppc.so
+else
+	ifdef ENABLE_TRANSCODE
+		BASELIBS += ./cbx264/libx264.a \
+			    ./x265_3.0/build/linux/libx265.a
+	endif
 endif
 
 all: $(LIB) fillet
