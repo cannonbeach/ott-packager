@@ -32,7 +32,7 @@ ifdef ENABLE_TRANSCODE
 	INC += -I./x265_3.0/build/linux
 	INC += -I./cblibcurl/include/curl
 	INC += -I./cbffmpeg
-	BASELIBS += -lz -ldl -lnuma -lcrypto -lssl
+	BASELIBS += -lz -ldl -lcrypto -lssl
 endif
 
 ifdef ENABLE_GPU
@@ -41,7 +41,8 @@ ifdef ENABLE_GPU
 else
 	ifdef ENABLE_TRANSCODE
 		BASELIBS += ./cbx264/libx264.a \
-			    ./x265_3.0/build/linux/libx265.a
+			    ./x265_3.0/build/linux/libx265.a \
+			    -lnuma
 	endif
 endif
 
