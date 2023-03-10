@@ -718,8 +718,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                        scte35_data->out_of_network_indicator = out_of_network_indicator;
 
                                        send_frame_func((uint8_t*)scte35_data, sizeof(scte35_data_struct), STREAM_TYPE_SCTE35, 1,
-                                                       0, //pts
-                                                       0, //dts
+                                                       0, // pts
+                                                       0, // dts
                                                        0, // PCR
                                                        tsdata->source,
                                                        0,

@@ -1388,6 +1388,7 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
     int i;
     int j;
     int num_sources = core->num_sources;
+    int num_video_sources = core->active_video_sources;
     int create_dir = 0;
 
 #if defined(ENABLE_TRANSCODE)
@@ -1448,8 +1449,8 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
         lsdata++;
     }
 
-    for (i = 0; i < num_sources; i++) {
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
+    for (i = 0; i < num_video_sources; i++) {
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[i].video_stream;
 
         int video_bitrate;
 
@@ -1720,8 +1721,8 @@ static int write_dash_master_manifest_youtube(fillet_app_struct *core, source_co
             core->cd->segment_length * 90000,
             starting_media_sequence_number);
 
-    video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;
-    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[0];
+    video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;
+    audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[0].audio_stream;
     int video_bitrate;
     int audio_bitrate;
 #if defined(ENABLE_TRANSCODE)
@@ -1891,7 +1892,7 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
 #endif
     lsdata = sdata;
     for (i = 0; i < num_sources; i++) {
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[i].video_stream;
         int segment;
         int video_bitrate;
         int fps_num;
@@ -2026,7 +2027,8 @@ static int write_dash_master_manifest(fillet_app_struct *core, source_context_st
     for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
         lsdata = sdata;
         if (lsdata->start_time_audio[j] != -1) {
-            audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[j];
+            // FIX FIX FIX FIX FIX
+            audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[0].audio_stream;//[j];
             int audio_bitrate;
 
             fprintf(master_manifest,"<AdaptationSet id=\"%d\" contentType=\"audio\" segmentAlignment=\"true\">\n", j+1);
@@ -2150,7 +2152,7 @@ static int write_mp4_master_manifest(fillet_app_struct *core, source_context_str
     }
 
     for (i = 0; i < num_sources; i++) {
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[i].video_stream;
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[i].video_stream;
         int video_bitrate;
 
 #if defined(ENABLE_TRANSCODE)
@@ -2282,7 +2284,6 @@ void *mux_pump_thread(void *context)
             source_data[i].total_audio_duration[j] = 0;
             source_data[i].expected_audio_duration[j] = 0;
             source_data[i].video_fragment_ready[j] = 0;
-            //source_data[i].pto_audio[j] = -1;
         }
 
         source_data[i].total_video_duration = 0;
@@ -2780,8 +2781,8 @@ void *mux_pump_thread(void *context)
                     source_data[source].start_time_video = frame->full_time;
 
                     if (core->cd->enable_youtube_output) {
-                        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
-                        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+                        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
+                        audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;//[0];
                         int video_bitrate;
                         int audio_bitrate;
 
@@ -2839,7 +2840,7 @@ void *mux_pump_thread(void *context)
                     }
 
                     if (core->cd->enable_fmp4_output) {
-                        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+                        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
 
                         if (frame->media_type == MEDIA_TYPE_H264) {
                             int video_bitrate;
@@ -3067,8 +3068,8 @@ void *mux_pump_thread(void *context)
                         start_ts_fragment(core, &hlsmux->video[source], source, 0, IS_VIDEO);  // start first video fragment // 0=video substream
                     }
                     if (core->cd->enable_youtube_output) {
-                        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
-                        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[0];
+                        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
+                        audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;
                         int video_bitrate;
                         int audio_bitrate;
 
@@ -3103,7 +3104,7 @@ void *mux_pump_thread(void *context)
                     }
 
                     if (core->cd->enable_fmp4_output) {
-                        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+                        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
 
                         if (source == 0 && core->cd->enable_webvtt) {
                             start_webvtt_fragment(core, &hlsmux->video[source], source);
@@ -3296,6 +3297,8 @@ void *mux_pump_thread(void *context)
                 source_data[0].lang_tag[3] = frame->lang_tag[3];
             }
 
+            //fprintf(stderr,"AUDIO(%d): AUDIO RECEIVED SUB:%d\n", source, sub_stream);
+
             if (source_data[source].start_time_audio[sub_stream] == -1) {
                 int64_t start_delta;
 
@@ -3307,7 +3310,8 @@ void *mux_pump_thread(void *context)
                 source_data[source].start_time_audio[sub_stream] = frame->full_time;
 
                 if (core->cd->enable_fmp4_output) {
-                    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
+                    // FIX FIX FIX FIX FIX FIX FIX !!
+                    audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;//[sub_stream];
                     int fragment_duration;
 
                     if (frame->media_type == MEDIA_TYPE_AAC) {
@@ -3539,7 +3543,8 @@ void *mux_pump_thread(void *context)
                     start_ts_fragment(core, &hlsmux->audio[source][sub_stream], source, sub_stream, IS_AUDIO);  // start first audio fragment
                 }
                 if (core->cd->enable_fmp4_output) {
-                    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
+                    // FIX FIX FIX FIX FIX FIX
+                    audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream; //[sub_stream];
 
                     start_mp4_fragment(core, &hlsmux->audio[source][sub_stream], source, IS_AUDIO, sub_stream);
                     if (hlsmux->audio[source][sub_stream].fmp4 == NULL) {
@@ -3571,6 +3576,7 @@ void *mux_pump_thread(void *context)
                 }
             }
 
+            /*
             if (core->cd->enable_youtube_output) {
                 audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
                 double fragment_timestamp = frame->pts;
@@ -3585,11 +3591,13 @@ void *mux_pump_thread(void *context)
                                         fragment_timestamp,
                                         fragment_duration);
             }
+            */
 
             if (core->cd->enable_fmp4_output) {
                 if (hlsmux->audio[source][sub_stream].output_fmp4_file != NULL) {
                     if (hlsmux->audio[source][sub_stream].fmp4) {
-                        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_stream];
+                        // FIX FIX FIX FIX FIX
+                        audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;//[sub_stream];
                         double fragment_timestamp = frame->pts;
                         int fragment_duration = frame->duration * astream->audio_samplerate / (double)AUDIO_CLOCK;
 

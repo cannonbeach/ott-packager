@@ -130,6 +130,10 @@ typedef struct _preparevideo_internal_struct_ {
     void                   *input_queue;
 } preparevideo_internal_struct;
 
+typedef struct _monitorvideo_internal_struct_ {
+    void                   *input_queue;
+} monitorvideo_internal_struct;
+
 typedef struct _transvideo_internal_struct_ {
     void                   *input_queue;
 } transvideo_internal_struct;
@@ -151,6 +155,10 @@ typedef struct _encodeaudio_internal_struct_ {
     void                   *input_queue;
 } encodeaudio_internal_struct;
 
+typedef struct _monitoraudio_internal_struct_ {
+    void                   *input_queue;
+} monitoraudio_internal_struct;
+
 #endif // ENABLE_TRANSCODE
 
 typedef struct _ip_config_struct_ {
@@ -161,11 +169,13 @@ typedef struct _ip_config_struct_ {
 typedef struct _config_options_struct_ {
     int              source_type;
 
-    int              active_sources;
+    int              active_video_sources;
+    int              active_audio_sources;
 
     // stream source
     char             active_interface[UDP_MAX_IFNAME];
-    ip_config_struct active_source[MAX_MUX_SOURCES];
+    ip_config_struct active_video_source[MAX_MUX_SOURCES];  // could also be for combined input
+    ip_config_struct active_audio_source[MAX_MUX_SOURCES];
 
     // file source
     char             input_filename[MAX_STR_SIZE];
@@ -305,7 +315,7 @@ typedef struct _video_stream_struct_
 typedef struct _source_stream_struct_
 {
     video_stream_struct    *video_stream;
-    audio_stream_struct    *audio_stream[MAX_AUDIO_STREAMS];
+    audio_stream_struct    *audio_stream;
 
     int                    udp_source_socket;
     char                   udp_source_ipaddr[UDP_MAX_IFNAME];
@@ -334,6 +344,7 @@ typedef struct _decoded_source_info_struct_ {
     int                    decoded_audio_channels_input[MAX_AUDIO_STREAMS];
     int                    decoded_audio_channels_output[MAX_AUDIO_STREAMS];
     int                    decoded_audio_sample_rate[MAX_AUDIO_STREAMS];
+    int64_t                decoded_actual_audio_data[MAX_AUDIO_STREAMS];
 } decoded_source_info_struct;
 
 typedef struct _fillet_app_struct_
@@ -341,7 +352,10 @@ typedef struct _fillet_app_struct_
     int                           session_id;
 
     int                           num_sources;
-    source_stream_struct          *source_stream;
+    int                           active_video_sources;
+    int                           active_audio_sources;
+    source_stream_struct          *source_video_stream;
+    source_stream_struct          *source_audio_stream;
     int                           source_running;
 
     decoded_source_info_struct    decoded_source_info;  // only valid on transcode mode
@@ -360,7 +374,8 @@ typedef struct _fillet_app_struct_
 
     config_options_struct         *cd;
 
-    input_struct                  fillet_input[MAX_MUX_SOURCES];
+    input_struct                  fillet_video_input[MAX_MUX_SOURCES];  // also acts as combined input for normal muxed transport stream
+    input_struct                  fillet_audio_input[MAX_MUX_SOURCES];
 
     time_t                        t_avail;
     int                           timeset;
@@ -402,12 +417,14 @@ typedef struct _fillet_app_struct_
     void                          *raw_audio_pool;
 
 #if defined(ENABLE_TRANSCODE)
+    monitorvideo_internal_struct  *monitorvideo;
     preparevideo_internal_struct  *preparevideo;
     transvideo_internal_struct    *transvideo;
     encodevideo_internal_struct   *encodevideo;
     scalevideo_internal_struct    *scalevideo;
     transaudio_internal_struct    *transaudio[MAX_AUDIO_SOURCES];
     encodeaudio_internal_struct   *encodeaudio[MAX_AUDIO_SOURCES];
+    monitoraudio_internal_struct  *monitoraudio[MAX_AUDIO_SOURCES];
 #endif // ENABLE_TRANSCODE
 
 } fillet_app_struct;

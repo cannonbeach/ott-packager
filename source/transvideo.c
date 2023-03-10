@@ -1,5 +1,5 @@
 /*****************************************************************************
-  Copyright (C) 2018-2021 John William
+  Copyright (C) 2018-2023 John William
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -59,11 +59,13 @@
 
 static volatile int video_decode_thread_running = 0;
 static volatile int video_scale_thread_running = 0;
+static volatile int video_monitor_thread_running = 0;
 static volatile int video_prepare_thread_running = 0;
 static volatile int video_encode_thread_running = 0;
 static volatile int video_thumbnail_thread_running = 0;
 static pthread_t video_decode_thread_id;
 static pthread_t video_scale_thread_id;
+static pthread_t video_monitor_thread_id;
 static pthread_t video_prepare_thread_id;
 static pthread_t video_encode_thread_id[MAX_TRANS_OUTPUTS];
 static pthread_t video_thumbnail_thread_id;
@@ -475,9 +477,9 @@ void *video_encode_thread_nvenc(void *context)
 
         while (ret >= 0) {
             uint8_t *nal_buffer;
-            double output_fps = 30000.0/1001.0;
+            double output_fps = (double)30000.0/(double)1001.0;
             double ticks_per_frame_double = (double)90000.0/(double)output_fps;
-            video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
+            video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;  // only one source stream
 
             output_fps = (double)((double)msg->fps_num / (double)msg->fps_den);
             if (output_fps > 0) {
@@ -509,13 +511,14 @@ void *video_encode_thread_nvenc(void *context)
             int64_t pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
             int64_t dts = (int64_t)((double)gpu_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
-            fprintf(stderr,"\n\n\nReceiving Compressed Video Frame from NVENC Hardware: %d  sourcepts:%f  pts:%ld  dts:%ld  ticks_per_frame:%f   output_fps:%.2f\n\n\n",
+            /*fprintf(stderr,"Receiving Compressed Video Frame from NVENC Hardware: %d  sourcepts:%f  pts:%ld  dts:%ld  ticks_per_frame:%f   output_fps:%.2f\n\n\n",
                     gpu_data[current_encoder].encode_pkt->size,
                     opaque_double,
                     pts,
                     dts,
                     ticks_per_frame_double,
                     output_fps);
+            */
 
             av_packet_unref(gpu_data[current_encoder].encode_pkt);
 
@@ -800,9 +803,9 @@ void *video_encode_thread_x265(void *context)
 
             if (frames > 0) {
                 uint8_t *nal_buffer;
-                double output_fps = 30000.0/1001.0;
+                double output_fps = (double)30000.0/(double)1001.0;
                 double ticks_per_frame_double = (double)90000.0/(double)output_fps;
-                video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
+                video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;  // only one source stream
                 int nal_idx;
                 x265_nal *nalout;
                 int pos = 0;
@@ -1221,9 +1224,9 @@ void *video_encode_thread_x264(void *context)
 
             if (x264_data[current_encoder].i_nal > 0) {
                 uint8_t *nal_buffer;
-                double output_fps = 30000.0/1001.0;
+                double output_fps = (double)30000.0/(double)1001.0;
                 double ticks_per_frame_double = (double)90000.0/(double)output_fps;
-                video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
+                video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;  // only one source stream
 
                 if (core->video_encode_time_set == 0) {
                     core->video_encode_time_set = 1;
@@ -1390,7 +1393,7 @@ void *video_scale_thread(void *context)
                                    output_width, output_height, AV_PIX_FMT_YUV420P, 1);
                 }
 
-                fprintf(stderr,"[%d] SCALING OUTPUT FRAME TO: %d x %d\n",
+                fprintf(stderr,"[OUTPUT=%d] SCALING OUTPUT FRAME TO: %d x %d\n",
                         current_output,
                         output_width,
                         output_height);
@@ -1507,6 +1510,202 @@ cleanup_video_scale_thread:
 
     av_frame_free(&deinterlaced_frame);
 
+    return NULL;
+}
+
+void *video_monitor_thread(void *context)
+{
+    fillet_app_struct *core = (fillet_app_struct*)context;
+    dataqueue_message_struct *msg;
+    dataqueue_message_struct *prepare_msg;
+    int monitor_ready = 0;
+    int monitor_width = 0;
+    int monitor_height = 0;
+    int monitor_num = 0;
+    int monitor_den = 0;
+    struct timespec monitor_start;
+    struct timespec monitor_end;
+    double video_monitor_time;
+    int64_t total_video_monitor_dead_time = 0;
+    int64_t dead_frames;
+    int64_t total_dead_frames = 0;
+    int i;
+    uint8_t *output_video_frame = NULL;
+    uint8_t *saved_video_frame = NULL;
+    int video_frame_size = 0;
+    double frame_delta;
+    int64_t monitor_anchor_dts = 0;
+    int64_t monitor_anchor_pts = 0;
+    int monitor_tff = 0;
+    int monitor_interlaced = 0;
+    int monitor_aspect_num = 0;
+    int monitor_aspect_den = 0;
+    double dead_frame_drift;
+    double expected_dead_frames = 0;
+    int dead_frame_adjustment = 0;
+    double dead_frames_actual;
+    int64_t last_monitor_anchor_pts = 0;
+
+    while (video_monitor_thread_running) {
+        clock_gettime(CLOCK_MONOTONIC, &monitor_start);
+        msg = (dataqueue_message_struct*)dataqueue_take_back(core->monitorvideo->input_queue);
+        while (!msg && video_monitor_thread_running) {
+            usleep(1000);
+            if (monitor_ready) {
+                clock_gettime(CLOCK_MONOTONIC, &monitor_end);
+                video_monitor_time = (double)time_difference(&monitor_end, &monitor_start);
+#define VIDEO_MONITOR_DEAD_TIME 500000
+                if (video_monitor_time >= VIDEO_MONITOR_DEAD_TIME) {
+                    clock_gettime(CLOCK_MONOTONIC, &monitor_start);
+
+                    video_monitor_time = VIDEO_MONITOR_DEAD_TIME;
+                    total_video_monitor_dead_time += video_monitor_time;
+
+                    frame_delta = (double)90000.0 / ((double)monitor_num / (double)monitor_den);
+
+                    dead_frame_drift = (double)expected_dead_frames - (double)total_dead_frames;
+                    if (dead_frame_drift >= 1) {
+                        dead_frame_adjustment = 1;
+                    } else {
+                        dead_frame_adjustment = 0;
+                    }
+
+                    dead_frames_actual = (double)((double)video_monitor_time / ((double)1000000.0 / ((double)monitor_num / (double)monitor_den)));
+                    expected_dead_frames += dead_frames_actual;
+                    dead_frames = (int64_t)dead_frames_actual + dead_frame_adjustment;
+
+                    fprintf(stderr,"VIDEO MONITOR TIMED OUT - INSERTING DEAD FRAMES: %ld  VIDEO MONITOR TIME: %f  FRAME DELTA: %f\n",
+                            dead_frames, video_monitor_time, frame_delta);
+                    for (i = 0; i < dead_frames; i++) {
+                        total_dead_frames++;
+
+                        video_frame_size = (monitor_width*monitor_height*3)/2;
+                        output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
+                        if (!output_video_frame) {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (MONITOR) - Restarting Service");
+                            exit(0);
+                        }
+
+                        prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                        if (prepare_msg) {
+                            memcpy(output_video_frame, saved_video_frame, video_frame_size);
+
+                            prepare_msg->buffer = output_video_frame;
+                            prepare_msg->buffer_size = video_frame_size;
+
+                            prepare_msg->pts = (int64_t)((double)monitor_anchor_pts+((double)total_dead_frames*(double)frame_delta));
+                            prepare_msg->dts = (int64_t)((double)monitor_anchor_dts+((double)total_dead_frames*(double)frame_delta));
+                            last_monitor_anchor_pts = prepare_msg->pts;
+                            prepare_msg->tff = monitor_tff;
+
+                            prepare_msg->interlaced = monitor_interlaced;
+                            prepare_msg->caption_buffer = NULL;
+                            prepare_msg->caption_size = 0;
+
+                            prepare_msg->fps_num = monitor_num;
+                            prepare_msg->fps_den = monitor_den;
+
+                            prepare_msg->aspect_num = monitor_aspect_num;
+                            prepare_msg->aspect_den = monitor_aspect_den;
+                            prepare_msg->width = monitor_width;
+                            prepare_msg->height = monitor_height;
+
+                            // fix this grrr....
+                            prepare_msg->splice_point = 0;//splice_point;
+                            prepare_msg->splice_duration = 0;//splice_duration;
+                            prepare_msg->splice_duration_remaining = 0;//splice_duration_remaining;
+
+                            fprintf(stderr,"VIDEO MONITOR - SENDING DEAD FRAME:%ld PTS:%ld DTS:%ld TOTAL:%ld\n",
+                                    total_dead_frames,
+                                    prepare_msg->pts,
+                                    prepare_msg->dts,
+                                    total_video_monitor_dead_time);
+                            dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);
+                        } else {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Video Buffers (MONITOR) - Restarting Service");
+                            exit(0);
+                        }
+                    }
+                }
+            }
+            msg = (dataqueue_message_struct*)dataqueue_take_back(core->monitorvideo->input_queue);
+        }
+
+        if (!video_monitor_thread_running) {
+            while (msg) {
+                if (msg) {
+                    if (msg->caption_buffer) {
+                        free(msg->caption_buffer);
+                        msg->caption_buffer = NULL;
+                    }
+                    memory_return(core->raw_video_pool, msg->buffer);
+                    msg->buffer = NULL;
+                    memory_return(core->fillet_msg_pool, msg);
+                    msg = NULL;
+                }
+                msg = (dataqueue_message_struct*)dataqueue_take_back(core->monitorvideo->input_queue);
+            }
+            goto cleanup_video_monitor_thread;
+        }
+
+        if (msg) {
+            int width = msg->width;
+            int height = msg->height;
+
+            total_dead_frames = 0;
+
+            if (!monitor_ready || ((width != monitor_width) || (height != monitor_height))) {
+                monitor_width = width;
+                monitor_height = height;
+                monitor_num = msg->fps_num;
+                monitor_den = msg->fps_den;
+                if (saved_video_frame) {
+                    free(saved_video_frame);
+                    saved_video_frame = NULL;
+                }
+                monitor_ready = 1;
+            }
+            if (monitor_ready) {
+                if (!saved_video_frame) {
+                    saved_video_frame = (uint8_t*)malloc((width*height*3)/2);
+                }
+                memcpy(saved_video_frame, msg->buffer, (width*height*3)/2);
+            }
+            monitor_anchor_dts = msg->dts;
+            monitor_anchor_pts = msg->pts;
+            monitor_tff = msg->tff;
+            monitor_interlaced = msg->interlaced;
+            monitor_aspect_num = msg->aspect_num;
+            monitor_aspect_den = msg->aspect_den;
+
+            if (monitor_anchor_pts < last_monitor_anchor_pts) {
+                fprintf(stderr,"Monitored video frame is late, not passing through: %dx%d PTS:%ld DTS:%ld\n",
+                        monitor_width,
+                        monitor_height,
+                        monitor_anchor_pts,
+                        monitor_anchor_dts);
+                if (msg->caption_buffer) {
+                    free(msg->caption_buffer);
+                    msg->caption_buffer = NULL;
+                }
+                memory_return(core->raw_video_pool, msg->buffer);
+                msg->buffer = NULL;
+                memory_return(core->fillet_msg_pool, msg);
+                msg = NULL;
+            } else {
+                fprintf(stderr,"Passing through monitored video frame: %dx%d PTS:%ld DTS:%ld\n",
+                        monitor_width,
+                        monitor_height,
+                        monitor_anchor_pts,
+                        monitor_anchor_dts);
+                dataqueue_put_front(core->preparevideo->input_queue, msg);
+                last_monitor_anchor_pts = monitor_anchor_pts;
+            }
+        }
+    }
+cleanup_video_monitor_thread:
     return NULL;
 }
 
@@ -1797,18 +1996,18 @@ void *video_prepare_thread(void *context)
                             send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (PREP) - Restarting Service");
                             exit(0);
                         }
-                        sourcey = (uint8_t*)deinterlaced_frame->data[0]; //scaled_output[current_output].output_data[0];
-                        sourceu = (uint8_t*)deinterlaced_frame->data[1]; //scaled_output[current_output].output_data[1];
-                        sourcev = (uint8_t*)deinterlaced_frame->data[2]; //scaled_output[current_output].output_data[2];
-                        stridey = deinterlaced_frame->linesize[0]; //scaled_output[current_output].output_stride[0];
-                        strideu = deinterlaced_frame->linesize[1]; //scaled_output[current_output].output_stride[1];
-                        stridev = deinterlaced_frame->linesize[2]; //scaled_output[current_output].output_stride[2];
+                        sourcey = (uint8_t*)deinterlaced_frame->data[0];
+                        sourceu = (uint8_t*)deinterlaced_frame->data[1];
+                        sourcev = (uint8_t*)deinterlaced_frame->data[2];
+                        stridey = deinterlaced_frame->linesize[0];
+                        strideu = deinterlaced_frame->linesize[1];
+                        stridev = deinterlaced_frame->linesize[2];
                         outputy = (uint8_t*)deinterlaced_buffer;
-                        outputu = (uint8_t*)outputy + (width*height); //(output_width*output_height);
+                        outputu = (uint8_t*)outputy + (width*height);
                         outputv = (uint8_t*)outputu + (whalf*hhalf);
-                        for (row = 0; row < height; row++) { // output_height
-                            memcpy(outputy, sourcey, width); //output_width);
-                            outputy += width; //output_width;
+                        for (row = 0; row < height; row++) {
+                            memcpy(outputy, sourcey, width);
+                            outputy += width;
                             sourcey += stridey;
                         }
                         for (row = 0; row < hhalf; row++) {
@@ -1826,7 +2025,7 @@ void *video_prepare_thread(void *context)
                             fps = (double)((double)msg->fps_num / (double)msg->fps_den);
                         }
 
-                        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[0].video_stream;  // only one source stream
+                        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;  // only one source stream
                         int64_t sync_diff;
 
                         deinterlaced_frame_count++;  // frames since the video start time
@@ -2148,7 +2347,7 @@ void *video_decode_thread(void *context)
                     frame_height = decode_avctx->height;
                     frame_width = decode_avctx->width;
 
-                    fprintf(stderr,"STATUS: %ld:DECODED VIDEO FRAME: %dx%d (%d:%d) INTERLACED:%d (TFF:%d)\n",
+                    fprintf(stderr,"\n\nSTATUS: %ld:DECODED VIDEO FRAME: %dx%d (%d:%d) INTERLACED:%d (TFF:%d)\n\n\n",
                             decoder_frame_count,
                             frame_width, frame_height,
                             decode_avctx->sample_aspect_ratio.num,
@@ -2277,7 +2476,7 @@ void *video_decode_thread(void *context)
                         prepare_msg->buffer = output_video_frame;
                         prepare_msg->buffer_size = video_frame_size;
                         prepare_msg->pts = decode_av_frame->pts;
-                        prepare_msg->dts = decode_av_frame->pkt_dts;  // full time
+                        prepare_msg->dts = decode_av_frame->pkt_dts;
                         /*fprintf(stderr,"DECODED VIDEO FRAME: PTS:%ld PKT_DTS:%ld PKT_PTS:%ld\n",
                                 decode_av_frame->pts,
                                 decode_av_frame->pkt_dts,
@@ -2326,7 +2525,7 @@ void *video_decode_thread(void *context)
                         core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
                         core->decoded_source_info.decoded_video_media_type = frame->media_type;
 
-                        dataqueue_put_front(core->preparevideo->input_queue, prepare_msg);
+                        dataqueue_put_front(core->monitorvideo->input_queue, prepare_msg);
                     } else {
                         fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
                         send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (DECODE) - Restarting Service");
@@ -2401,6 +2600,9 @@ int start_video_transcode_threads(fillet_app_struct *core)
     video_thumbnail_thread_running = 1;
     pthread_create(&video_thumbnail_thread_id, NULL, video_thumbnail_thread, (void*)core);
 
+    video_monitor_thread_running = 1;
+    pthread_create(&video_monitor_thread_id, NULL, video_monitor_thread, (void*)core);
+
     video_prepare_thread_running = 1;
     pthread_create(&video_prepare_thread_id, NULL, video_prepare_thread, (void*)core);
 
@@ -2427,6 +2629,9 @@ int stop_video_transcode_threads(fillet_app_struct *core)
     video_prepare_thread_running = 0;
     pthread_join(video_prepare_thread_id, NULL);
 
+    video_monitor_thread_running = 0;
+    pthread_join(video_monitor_thread_id, NULL);
+
     video_thumbnail_thread_running = 0;
     pthread_join(video_thumbnail_thread_id, NULL);
 
@@ -2439,6 +2644,12 @@ int stop_video_transcode_threads(fillet_app_struct *core)
 }
 
 #else // ENABLE_TRANSCODE
+
+void *video_monitor_thread(void *context)
+{
+    fprintf(stderr,"VIDEO MONITOR NOT ENABLED - PLEASE RECOMPILE IF REQUIRED\n");
+    return NULL;
+}
 
 void *video_prepare_thread(void *context)
 {

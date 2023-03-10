@@ -77,18 +77,27 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
     memset(input_streams,0,sizeof(input_streams));
     memset(output_streams,0,sizeof(output_streams));
 
-    for (source = 0; source < core->cd->active_sources; source++) {
+    for (source = 0; source < core->cd->active_video_sources; source++) {
         char scratch[MAX_STR_SIZE];
         int sub_source = 0;
 
-        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+        //audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
 
         snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+#if defined(ENABLE_TRANSCODE)
         snprintf(scratch,MAX_STR_SIZE-1,"                \"source-ip\": \"%s:%d\",\n",
-                 core->cd->active_source[source].active_ip,
-                 core->cd->active_source[source].active_port);
+                 core->cd->active_video_source[source].active_ip,
+                 core->cd->active_video_source[source].active_port);
+#else
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-video-ip\": \"%s:%d\",\n",
+                 core->cd->active_video_source[source].active_ip,
+                 core->cd->active_video_source[source].active_port);
+        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-audio-ip\": \"%s:%d\",\n",
+                 core->cd->active_audio_source[source].active_ip,
+                 core->cd->active_audio_source[source].active_port);
+#endif
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
         snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %ld,\n", vstream->video_bitrate);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
@@ -98,7 +107,7 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
         snprintf(scratch,MAX_STR_SIZE-1,"                \"video-received-frames\": %ld\n", vstream->current_receive_count);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-        if (source == core->cd->active_sources - 1) {
+        if (source == core->cd->active_video_sources - 1) {
             snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
         } else {
             snprintf(scratch,MAX_STR_SIZE-1,"            },\n");
@@ -161,7 +170,7 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
              core->cd->enable_ts_output,
              core->cd->enable_fmp4_output,
              core->cd->enable_scte35,
-             core->cd->active_sources,
+             core->cd->active_video_sources,
              core->cd->active_interface,
              input_streams,
              core->cd->manifest_directory,
@@ -214,12 +223,12 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
         latency = time_difference(&core->video_output_time, &core->video_receive_time) / 1000.0;
     }
 
-    for (source = 0; source < core->cd->active_sources; source++) {
+    for (source = 0; source < core->cd->active_video_sources; source++) {
         char scratch[MAX_STR_SIZE];
         int sub_source = 0;
 
-        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+        //audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
 
         snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
@@ -235,7 +244,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
         snprintf(scratch,MAX_STR_SIZE-1,"                \"video-received-frames\": %ld\n", vstream->current_receive_count);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-        if (source == core->cd->active_sources - 1) {
+        if (source == core->cd->active_video_sources - 1) {
             snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
         } else {
             snprintf(scratch,MAX_STR_SIZE-1,"            },\n");
@@ -350,7 +359,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
              core->cd->enable_fmp4_output,
              core->cd->enable_scte35,
              latency,
-             core->cd->active_sources,
+             core->cd->active_video_sources,
              core->cd->stream_select,
              core->decoded_source_info.decoded_width,
              core->decoded_source_info.decoded_height,

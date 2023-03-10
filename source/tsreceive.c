@@ -45,12 +45,10 @@
 #include "tsreceive.h"
 #include "esignal.h"
 
-static int source_count = 0;
 static pthread_mutex_t start_lock = PTHREAD_MUTEX_INITIALIZER;
 
 void *udp_source_thread(void *context)
 {
-    fillet_app_struct *core = (fillet_app_struct*)context;
     transport_data_struct *tsdata;
     int udp_socket;
     int timeout_ms = 1000;
@@ -67,6 +65,21 @@ void *udp_source_thread(void *context)
     int num_ipaddr3;
     int mcast_flag = 0;
     char signal_msg[MAX_STR_SIZE];
+    udp_thread_data_struct *avudp;
+    int source_count;
+    char udp_source_ipaddr[MAX_STR_SIZE];
+    int udp_source_port = 0;
+
+    avudp = (udp_thread_data_struct*)context;
+    fillet_app_struct *core = (fillet_app_struct*)avudp->core;
+    source_count = avudp->source_index;
+    fprintf(stderr,"SESSION:%d SOURCE:%d\n",
+            core->session_id,
+            source_count);
+    snprintf(udp_source_ipaddr, MAX_STR_SIZE-1, "%s", avudp->udp_source_ipaddr);
+    udp_source_port = avudp->udp_source_port;
+    free(avudp);
+    avudp = NULL;
 
 #define MAX_UDP_BUFFER_READ 2048
     pthread_mutex_lock(&start_lock);
@@ -87,7 +100,10 @@ void *udp_source_thread(void *context)
     core->input_signal = 0;
     core->source_interruptions = 0;
 
-    scanned = sscanf(core->fillet_input[source_count].udp_source_ipaddr,"%3d.%3d.%3d.%3d",
+    fprintf(stderr,"SESSION:%d SOURCE:%d (TSRECEIVE) STATUS: SOURCE ADDRESS PROVIDED: %s\n",
+            core->session_id, source_count, udp_source_ipaddr);
+
+    scanned = sscanf(udp_source_ipaddr,"%3d.%3d.%3d.%3d",
                      &num_ipaddr0,
                      &num_ipaddr1,
                      &num_ipaddr2,
@@ -105,9 +121,9 @@ void *udp_source_thread(void *context)
         mcast_flag = 1;
     }
 
-    udp_socket = socket_udp_open(core->fillet_input[source_count].interface,
-                                 core->fillet_input[source_count].udp_source_ipaddr,
-                                 core->fillet_input[source_count].udp_source_port,
+    udp_socket = socket_udp_open(core->fillet_video_input[source_count].interface,  // interface is the same for video and audio
+                                 udp_source_ipaddr,
+                                 udp_source_port,
                                  mcast_flag, UDP_FLAG_INPUT, 1);
     active_source_index = source_count;
 
@@ -145,17 +161,17 @@ void *udp_source_thread(void *context)
             syslog(LOG_WARNING,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
                    core->session_id,
                    udp_socket,
-                   core->fillet_input[active_source_index].udp_source_ipaddr,
-                   core->fillet_input[active_source_index].udp_source_port,
-                   core->fillet_input[active_source_index].interface,
+                   udp_source_ipaddr,
+                   udp_source_port,
+                   core->fillet_video_input[active_source_index].interface,
                    no_signal_counter);
 
             fprintf(stderr,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
                     core->session_id,
                     udp_socket,
-                    core->fillet_input[active_source_index].udp_source_ipaddr,
-                    core->fillet_input[active_source_index].udp_source_port,
-                    core->fillet_input[active_source_index].interface,
+                    udp_source_ipaddr,
+                    udp_source_port,
+                    core->fillet_video_input[active_source_index].interface,
                     no_signal_counter);
 
             int audio_stream;
@@ -172,9 +188,9 @@ void *udp_source_thread(void *context)
             no_signal_counter++;
 
             snprintf(signal_msg, MAX_STR_SIZE-1, "%s:%d:%s",
-                     core->fillet_input[active_source_index].udp_source_ipaddr,
-                     core->fillet_input[active_source_index].udp_source_port,
-                     core->fillet_input[active_source_index].interface);
+                     udp_source_ipaddr,
+                     udp_source_port,
+                     core->fillet_video_input[active_source_index].interface);
             send_signal(core, SIGNAL_NO_INPUT_SIGNAL, signal_msg);
 
             continue;
@@ -188,9 +204,9 @@ void *udp_source_thread(void *context)
                 if (total_packets > 0) {
                     if (core->input_signal == 0) {
                         snprintf(signal_msg, MAX_STR_SIZE-1, "%s:%d:%s",
-                                 core->fillet_input[active_source_index].udp_source_ipaddr,
-                                 core->fillet_input[active_source_index].udp_source_port,
-                                 core->fillet_input[active_source_index].interface);
+                                 udp_source_ipaddr,
+                                 udp_source_port,
+                                 core->fillet_video_input[active_source_index].interface);
 
                         send_signal(core, SIGNAL_INPUT_SIGNAL_LOCKED, signal_msg);
                         if (core->video_receive_time_set == 0) {
@@ -210,8 +226,6 @@ _cleanup_udp_source_thread:
         socket_udp_close(udp_socket);
     }
     free(tsdata);
-
-    source_count = 0;
 
     return NULL;
 }

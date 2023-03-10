@@ -1,5 +1,5 @@
 /*****************************************************************************
-  Copyright (C) 2018-2020 John William
+  Copyright (C) 2018-2023 John William
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -78,14 +78,21 @@ static int enable_webvtt = 0;
 static int enable_fmp4 = 0;
 static int enable_youtube = 0;
 static int enable_ts = 0;
-static int audio_streams = -1;
+static int audio_streams = 1;
 
 static config_options_struct config_data;
 
 static struct option long_options[] = {
+#if defined(ENABLE_TRANSCODE)
      {"sources", required_argument, 0, 'S'},
-     {"type", required_argument, 0, 'P'},
      {"ip", required_argument, 0, 'i'},
+#else
+     {"vsources", required_argument, 0, 'V'},  // video sources
+     {"asources", required_argument, 0, 'S'},  // audio sources
+     {"vip", required_argument, 0, 'i'},       // video source list
+     {"aip", required_argument, 0, 'I'},       // audio source list
+#endif
+     {"type", required_argument, 0, 'P'},
      {"verbose", no_argument, &enable_verbose, 1},
      {"interface", required_argument, 0, 'f'},
      {"window", required_argument, 0, 'w'},
@@ -145,14 +152,18 @@ static int create_transvideo_core(fillet_app_struct *core)
     core->transvideo = (transvideo_internal_struct*)malloc(sizeof(transvideo_internal_struct));
     core->preparevideo = (preparevideo_internal_struct*)malloc(sizeof(preparevideo_internal_struct));
     core->encodevideo = (encodevideo_internal_struct*)malloc(sizeof(encodevideo_internal_struct));
+    core->monitorvideo = (monitorvideo_internal_struct*)malloc(sizeof(monitorvideo_internal_struct));
     core->scalevideo = (scalevideo_internal_struct*)malloc(sizeof(scalevideo_internal_struct));
 
     core->transvideo->input_queue = (void*)dataqueue_create();
+    core->monitorvideo->input_queue = (void*)dataqueue_create();
     core->preparevideo->input_queue = (void*)dataqueue_create();
 
     for (i = 0; i < MAX_AUDIO_SOURCES; i++) {
         core->transaudio[i] = (transaudio_internal_struct*)malloc(sizeof(transaudio_internal_struct));
         core->transaudio[i]->input_queue = (void*)dataqueue_create();
+        core->monitoraudio[i] = (monitoraudio_internal_struct*)malloc(sizeof(monitoraudio_internal_struct));
+        core->monitoraudio[i]->input_queue = (void*)dataqueue_create();
         core->encodeaudio[i] = (encodeaudio_internal_struct*)malloc(sizeof(encodeaudio_internal_struct));
         core->encodeaudio[i]->input_queue = (void*)dataqueue_create();
     }
@@ -186,6 +197,10 @@ static int destroy_transvideo_core(fillet_app_struct *core)
         core->transaudio[i]->input_queue = NULL;
         free(core->transaudio[i]);
         core->transaudio[i] = NULL;
+        dataqueue_destroy(core->monitoraudio[i]->input_queue);
+        core->monitoraudio[i]->input_queue = NULL;
+        free(core->monitoraudio[i]);
+        core->monitoraudio[i] = NULL;
         dataqueue_destroy(core->encodeaudio[i]->input_queue);
         core->encodeaudio[i]->input_queue = NULL;
         free(core->encodeaudio[i]);
@@ -195,10 +210,14 @@ static int destroy_transvideo_core(fillet_app_struct *core)
     core->encodevideo->thumbnail_queue = NULL;
     dataqueue_destroy(core->preparevideo->input_queue);
     core->preparevideo->input_queue = NULL;
+    dataqueue_destroy(core->monitorvideo->input_queue);
+    core->monitorvideo->input_queue = NULL;
     dataqueue_destroy(core->transvideo->input_queue);
     core->transvideo->input_queue = NULL;
     free(core->preparevideo);
     core->preparevideo = NULL;
+    free(core->monitorvideo);
+    core->monitorvideo = NULL;
     free(core->transvideo);
     core->transvideo = NULL;
     free(core->scalevideo);
@@ -212,8 +231,9 @@ static int destroy_transvideo_core(fillet_app_struct *core)
 
 static int destroy_fillet_core(fillet_app_struct *core)
 {
-    int num_sources;
     int current_source;
+    int num_video_sources;
+    int num_audio_sources;
 
     if (!core) {
         return -1;
@@ -223,34 +243,34 @@ static int destroy_fillet_core(fillet_app_struct *core)
     destroy_transvideo_core(core);
 #endif
 
-#if defined(ENABLE_TRANSCODE)
-    num_sources = MAX_TRANS_OUTPUTS;
-#else
-    num_sources = core->num_sources;
-#endif // ENABLE_TRANSCODE
-    for (current_source = 0; current_source < num_sources; current_source++) {
+    num_video_sources = core->active_video_sources;
+    num_audio_sources = core->active_audio_sources;
+
+    for (current_source = 0; current_source < num_video_sources; current_source++) {
         video_stream_struct *vstream;
-        audio_stream_struct *astream;
-        int audio_source;
 
-        for (audio_source = 0; audio_source < MAX_AUDIO_SOURCES; audio_source++) {
-            astream = (audio_stream_struct*)core->source_stream[current_source].audio_stream[audio_source];
-            if (astream->audio_queue) {
-                dataqueue_destroy(astream->audio_queue);
-                astream->audio_queue = NULL;
-            }
-
-            free(core->source_stream[current_source].audio_stream[audio_source]);
-            core->source_stream[current_source].audio_stream[audio_source] = NULL;
-        }
-        vstream = (video_stream_struct*)core->source_stream[current_source].video_stream;
+        vstream = (video_stream_struct*)core->source_video_stream[current_source].video_stream;
         if (vstream->video_queue) {
             dataqueue_destroy(vstream->video_queue);
             vstream->video_queue = NULL;
         }
-        free(core->source_stream[current_source].video_stream);
-        core->source_stream[current_source].video_stream = NULL;
+        free(core->source_video_stream[current_source].video_stream);
+        core->source_video_stream[current_source].video_stream = NULL;
     }
+
+    for (current_source = 0; current_source < num_audio_sources; current_source++) {
+        audio_stream_struct *astream;
+
+        astream = (audio_stream_struct*)core->source_audio_stream[current_source].audio_stream;
+        if (astream->audio_queue) {
+            dataqueue_destroy(astream->audio_queue);
+            astream->audio_queue = NULL;
+        }
+
+        free(core->source_audio_stream[current_source].audio_stream);
+        core->source_audio_stream[current_source].audio_stream = NULL;
+    }
+
     if (core->event_queue) {
         dataqueue_destroy(core->event_queue);
         core->event_queue = NULL;
@@ -275,7 +295,7 @@ static int destroy_fillet_core(fillet_app_struct *core)
     return 0;
 }
 
-static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_sources)
+static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_video_sources, int num_audio_sources)
 {
     fillet_app_struct *core;
     int current_source;
@@ -285,17 +305,17 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
         return NULL;
     }
 
-    core->num_sources = num_sources;
+    core->active_video_sources = num_video_sources;
+    core->active_audio_sources = num_audio_sources;
     core->cd = cd;
-#if defined(ENABLE_TRANSCODE)
-    num_sources = MAX_TRANS_OUTPUTS;
-#endif // ENABLE_TRANSCODE
-    core->source_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_sources);
+    core->source_video_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_video_sources);
+    core->source_audio_stream = (source_stream_struct*)malloc(sizeof(source_stream_struct)*num_audio_sources);
     core->event_queue = (void*)dataqueue_create();
     core->webdav_queue = (void*)dataqueue_create();
     core->signal_queue = (void*)dataqueue_create();
 
-    memset(core->source_stream, 0, sizeof(source_stream_struct)*num_sources);
+    memset(core->source_video_stream, 0, sizeof(source_stream_struct)*num_video_sources);
+    memset(core->source_audio_stream, 0, sizeof(source_stream_struct)*num_audio_sources);
 
 #if defined(ENABLE_TRANSCODE)
     // pre-allocate these for the transcode
@@ -305,13 +325,13 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->fillet_msg_pool = memory_create(MAX_MSG_BUFFERS, 0);
     core->frame_msg_pool = memory_create(MAX_FRAME_BUFFERS, 0);
 #endif
-    //this will limit memory usage for transcode so that it never turns into a
-    //neverending malloc causing other instances of the app to fail
+    // this will limit memory usage for transcode so that it never turns into a
+    // neverending malloc causing other instances of the app to fail
     //
-    //these should be mode over to preallocations to prevent heap fragmentation
-    //while running for longer periods of time
-    //heap fragmentation will add more kernel load- for now this is alright
-    //since we are aware of the tradeoffs regarding this choice
+    // these should be mode over to preallocations to prevent heap fragmentation
+    // while running for longer periods of time
+    // heap fragmentation will add more kernel load- for now this is alright
+    // since we are aware of the tradeoffs regarding this choice
     core->compressed_video_pool = memory_create(MAX_VIDEO_COMPRESSED_BUFFERS, 0);
     core->compressed_audio_pool = memory_create(MAX_AUDIO_COMPRESSED_BUFFERS, 0);
     core->raw_video_pool = memory_create(MAX_VIDEO_RAW_BUFFERS, 0);
@@ -322,33 +342,35 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->video_encode_time_set = 0;
     core->video_output_time_set = 0;
 
-    for (current_source = 0; current_source < num_sources; current_source++) {
+    for (current_source = 0; current_source < num_video_sources; current_source++) {
         video_stream_struct *vstream;
-        audio_stream_struct *astream;
-        int audio_source;
 
-        for (audio_source = 0; audio_source < MAX_AUDIO_SOURCES; audio_source++) {
-            core->source_stream[current_source].audio_stream[audio_source] = (audio_stream_struct*)malloc(sizeof(audio_stream_struct));
-            if (!core->source_stream[current_source].audio_stream[audio_source]) {
-                goto _fillet_create_fail;
-            }
-            astream = (audio_stream_struct*)core->source_stream[current_source].audio_stream[audio_source];
-            memset(astream, 0, sizeof(audio_stream_struct));
-            astream->audio_queue = (void*)dataqueue_create();
-            astream->last_timestamp_pts = -1;
-        }
-
-        core->source_stream[current_source].video_stream = (video_stream_struct*)malloc(sizeof(video_stream_struct));
-        if (!core->source_stream[current_source].video_stream) {
+        core->source_video_stream[current_source].video_stream = (video_stream_struct*)malloc(sizeof(video_stream_struct));
+        if (!core->source_video_stream[current_source].video_stream) {
             goto _fillet_create_fail;
         }
 
-        vstream = (video_stream_struct*)core->source_stream[current_source].video_stream;
+        vstream = (video_stream_struct*)core->source_video_stream[current_source].video_stream;
         memset(vstream, 0, sizeof(video_stream_struct));
         vstream->last_timestamp_pts = -1;
         vstream->last_timestamp_dts = -1;
         vstream->video_queue = (void*)dataqueue_create();
     }
+
+    for (current_source = 0; current_source < num_audio_sources; current_source++) {
+        audio_stream_struct *astream;
+
+        core->source_audio_stream[current_source].audio_stream = (audio_stream_struct*)malloc(sizeof(audio_stream_struct));
+        if (!core->source_audio_stream[current_source].audio_stream) {
+            goto _fillet_create_fail;
+        }
+
+        astream = (audio_stream_struct*)core->source_audio_stream[current_source].audio_stream;
+        memset(astream, 0, sizeof(audio_stream_struct));
+        astream->audio_queue = (void*)dataqueue_create();
+        astream->last_timestamp_pts = -1;
+    }
+
 #if defined(ENABLE_TRANSCODE)
     create_transvideo_core(core);
 #endif
@@ -377,7 +399,7 @@ static int parse_input_options(int argc, char **argv)
 
           c = fgetopt_long(argc,
                            argv,
-                           "C:w:s:f:i:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F:3:2:q:p:W:T",
+                           "C:w:s:f:i:I:V:S:r:u:o:c:e:v:a:t:d:h:A:m:M:H:F:3:2:q:p:W:T",
                            long_options,
                            &option_index);
 
@@ -736,6 +758,8 @@ static int parse_input_options(int argc, char **argv)
               if (optarg) {
                   audio_streams = atoi(optarg);
                   fprintf(stderr,"STATUS: Limiting audio streams to: %d\n", audio_streams);
+              } else {
+                  fprintf(stderr,"STATUS: No audio streams specific - limiting to %d\n", audio_streams);
               }
               break;
           case '7':
@@ -854,7 +878,7 @@ static int parse_input_options(int argc, char **argv)
                   fprintf(stderr,"STATUS: No manifest directory supplied - using default: %s\n", config_data.manifest_directory);
               }
               break;
-          case 'i': // ip addresses
+          case 'i': // video or combined ip addresses
               if (optarg) {
                   int l;
                   int f;
@@ -890,57 +914,172 @@ static int parse_input_options(int argc, char **argv)
                           }
                       } else {
                           parsing_port = 0;
-                          snprintf(config_data.active_source[a].active_ip,UDP_MAX_IFNAME-1,"%s",current_ip);
-                          config_data.active_source[a].active_port = atol(current_port);
+                          snprintf(config_data.active_video_source[a].active_ip,UDP_MAX_IFNAME-1,"%s",current_ip);
+                          config_data.active_video_source[a].active_port = atol(current_port);
                           fprintf(stderr,"STATUS: Source %d IP: %s:%d\n",
                                   a,
-                                  config_data.active_source[a].active_ip,
-                                  config_data.active_source[a].active_port);
+                                  config_data.active_video_source[a].active_ip,
+                                  config_data.active_video_source[a].active_port);
                           f = 0;
                           p = 0;
                           a++;
                       }
                   }
 
-                  snprintf(config_data.active_source[a].active_ip,UDP_MAX_IFNAME-1,"%s",current_ip);
-                  config_data.active_source[a].active_port = atol(current_port);
+                  snprintf(config_data.active_video_source[a].active_ip,UDP_MAX_IFNAME-1,"%s",current_ip);
+                  config_data.active_video_source[a].active_port = atol(current_port);
                   fprintf(stderr,"STATUS: Source %d IP: %s:%d\n",
                           a,
-                          config_data.active_source[a].active_ip,
-                          config_data.active_source[a].active_port);
+                          config_data.active_video_source[a].active_ip,
+                          config_data.active_video_source[a].active_port);
                   a++;
 
                   for (f = 0; f < a; f++) {
                       struct in_addr addr;
 
-                      if (config_data.active_source[f].active_port == 0 ||
-                          config_data.active_source[f].active_port >= 65535) {
+                      if (config_data.active_video_source[f].active_port == 0 ||
+                          config_data.active_video_source[f].active_port >= 65535) {
                           fprintf(stderr,"ERROR: INVALID PORT SELECTED: %d\n",
-                                  config_data.active_source[f].active_port);
+                                  config_data.active_video_source[f].active_port);
                           return -1;
                       }
 
-                      if (inet_aton(config_data.active_source[f].active_ip, &addr) == 0) {
+                      if (inet_aton(config_data.active_video_source[f].active_ip, &addr) == 0) {
                           fprintf(stderr,"ERROR: INVALID IP ADDRESS: %s\n",
-                                  config_data.active_source[f].active_ip);
+                                  config_data.active_video_source[f].active_ip);
                           return -1;
                       }
                   }
               }
               break;
+#if !defined(ENABLE_TRANSCODE)
+          case 'I': // audio addresses
+              if (optarg) {
+                  int l;
+                  int f;
+                  int a;
+                  int p;
+                  char current_ip[UDP_MAX_IFNAME];
+                  char current_port[UDP_MAX_IFNAME];
+                  int optlen = strlen(optarg);
+                  int parsing_port = 0;
+
+                  memset(current_ip,0,sizeof(current_ip));
+                  memset(current_port,0,sizeof(current_port));
+                  a = 0;
+                  f = 0;
+                  p = 0;
+                  for (l = 0; l < optlen; l++) {
+                      int colon = 0;
+
+                      if (optarg[l] != ',' && optarg[l] != '\0') {
+                          if (optarg[l] == ':') {
+                              parsing_port = 1;
+                              colon = 1;
+                          }
+
+                          if (parsing_port) {
+                              if (!colon) {
+                                  current_port[p] = optarg[l];
+                                  p++;
+                              }
+                          } else {
+                              current_ip[f] = optarg[l];
+                              f++;
+                          }
+                      } else {
+                          parsing_port = 0;
+                          snprintf(config_data.active_audio_source[a].active_ip,UDP_MAX_IFNAME-1,"%s",current_ip);
+                          config_data.active_audio_source[a].active_port = atol(current_port);
+                          fprintf(stderr,"STATUS: Source %d IP: %s:%d\n",
+                                  a,
+                                  config_data.active_audio_source[a].active_ip,
+                                  config_data.active_audio_source[a].active_port);
+                          f = 0;
+                          p = 0;
+                          a++;
+                      }
+                  }
+
+                  snprintf(config_data.active_audio_source[a].active_ip,UDP_MAX_IFNAME-1,"%s",current_ip);
+                  config_data.active_audio_source[a].active_port = atol(current_port);
+                  fprintf(stderr,"STATUS: Source %d IP: %s:%d\n",
+                          a,
+                          config_data.active_audio_source[a].active_ip,
+                          config_data.active_audio_source[a].active_port);
+                  a++;
+
+                  for (f = 0; f < a; f++) {
+                      struct in_addr addr;
+
+                      if (config_data.active_audio_source[f].active_port == 0 ||
+                          config_data.active_audio_source[f].active_port >= 65535) {
+                          fprintf(stderr,"ERROR: INVALID PORT SELECTED: %d\n",
+                                  config_data.active_audio_source[f].active_port);
+                          return -1;
+                      }
+
+                      if (inet_aton(config_data.active_audio_source[f].active_ip, &addr) == 0) {
+                          fprintf(stderr,"ERROR: INVALID IP ADDRESS: %s\n",
+                                  config_data.active_audio_source[f].active_ip);
+                          return -1;
+                      }
+                  }
+              }
+              break;
+#endif
+#if defined(ENABLE_TRANSCODE)
           case 'S':
               if (optarg) {
-                  config_data.active_sources = atoi(optarg);
-                  if (config_data.active_sources < 0 ||
-                      config_data.active_sources > 10) {
-                      fprintf(stderr,"ERROR: INVALID NUMBER OF SOURCES: %d\n", config_data.active_sources);
+                  config_data.active_video_sources = atoi(optarg);
+                  if (config_data.active_video_sources < 0 ||
+                      config_data.active_video_sources > 10) {
+                      fprintf(stderr,"ERROR: INVALID NUMBER OF VIDEO SOURCES: %d\n", config_data.active_video_sources);
                       return -1;
                   }
               } else {
                   return -1;
               }
               break;
+#else
+          case 'V':
+              if (optarg) {
+                  config_data.active_video_sources = atoi(optarg);
+                  if (config_data.active_video_sources < 0 ||
+                      config_data.active_video_sources > 10) {
+                      fprintf(stderr,"ERROR: INVALID NUMBER OF VIDEO SOURCES: %d\n", config_data.active_video_sources);
+                      return -1;
+                  }
+              } else {
+                  return -1;
+              }
+              break;
+          case 'S':
+              if (optarg) {
+                  config_data.active_audio_sources = atoi(optarg);
+                  if (config_data.active_audio_sources < 0 ||
+                      config_data.active_audio_sources > 10) {
+                      fprintf(stderr,"ERROR: INVALID NUMBER OF AUDIO SOURCES: %d\n", config_data.active_audio_sources);
+                      return -1;
+                  }
+              } else {
+                  return -1;
+              }
+              break;
+#endif
           }
+
+          /*
+#if defined(ENABLE_TRANSCODE)
+     {"sources", required_argument, 0, 'S'},
+     {"ip", required_argument, 0, 'i'},
+#else
+     {"vsources", required_argument, 0, 'V'},  // video sources
+     {"asources", required_argument, 0, 'S'},  // audio sources
+     {"vip", required_argument, 0, 'i'},       // video source list
+     {"aip", required_argument, 0, 'I'},       // audio source list
+#endif
+          */
      }
      return 0;
 }
@@ -1202,6 +1341,7 @@ int dump_frames(fillet_app_struct *core, sorted_frame_struct **frame_data, int m
             //fprintf(stderr,"[I:%4d] NO FRAME DATA\n", i);
         }
     }
+
     return 0;
 }
 
@@ -1218,7 +1358,7 @@ static void *frame_sync_thread(void *context)
     int source_discontinuity = 1;
     int print_entries = 0;
     int print_current_time = 0;
-    int active_sources;
+    int active_video_sources;
 
     fprintf(stderr,"SESSION:%d (MAIN) STATUS: STARTING NEW SYNC THREAD\n", core->session_id);
     while (1) {
@@ -1259,15 +1399,15 @@ static void *frame_sync_thread(void *context)
 
 #if defined(ENABLE_TRANSCODE)
         if (core->transcode_enabled) {
-            active_sources = config_data.num_outputs;
+            active_video_sources = config_data.num_outputs;
         } else {
-            active_sources = config_data.active_sources;
+            active_video_sources = config_data.active_video_sources;
         }
 #else
-        active_sources = config_data.active_sources;
+        active_video_sources = config_data.active_video_sources;
 #endif
 
-        if (audio_synchronizer_entries > active_sources && video_synchronizer_entries > active_sources) {
+        if (audio_synchronizer_entries > active_video_sources && video_synchronizer_entries > active_video_sources) {
             output_frame = NULL;
 
             pthread_mutex_lock(&sync_lock);
@@ -1288,7 +1428,7 @@ static void *frame_sync_thread(void *context)
 
             if (current_audio_time <= current_video_time) {
                 no_grab = 0;
-                while (current_audio_time < current_video_time && audio_synchronizer_entries > active_sources && !quit_sync_thread) {
+                while (current_audio_time < current_video_time && audio_synchronizer_entries > active_video_sources && !quit_sync_thread) {
                     pthread_mutex_lock(&sync_lock);
                     audio_synchronizer_entries = use_frame(core, core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
                     pthread_mutex_unlock(&sync_lock);
@@ -1316,7 +1456,7 @@ static void *frame_sync_thread(void *context)
                         current_video_time - current_audio_time,
                         current_video_time,
                         current_audio_time,
-                        active_sources,
+                        active_video_sources,
                         audio_synchronizer_entries,
                         video_synchronizer_entries);
                 first_grab = 0;
@@ -1368,7 +1508,7 @@ static void *frame_sync_thread(void *context)
 int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int sub_stream)
 {
     sorted_frame_struct *new_frame;
-    audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[0].audio_stream[sub_stream];
+    audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[sub_stream].audio_stream;
     int restart_sync_thread = 0;
 
     new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
@@ -1397,6 +1537,10 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     new_frame->time_received = 0;
     memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
 
+    /*fprintf(stderr,"SESSION:%d (MAIN) STATUS: adding audio frame to sync thread sub_stream:%d pts:%ld\n",
+            core->session_id,
+            sub_stream,
+            new_frame->full_time);*/
 
     pthread_mutex_lock(&sync_lock);
     audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
@@ -1431,12 +1575,12 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source, int splice_point, int64_t splice_duration, int64_t splice_duration_remaining)
 {
     sorted_frame_struct *new_frame;
-    video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+    video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
     int restart_sync_thread = 0;
     int i;
     int sync_frame = 0;
 
-    fprintf(stderr,"\n\n\nINSIDE CALLBACK\n\n\n");
+    //fprintf(stderr,"\n\n\nINSIDE CALLBACK\n\n\n");
 
     new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
     if (!new_frame) {
@@ -1449,7 +1593,7 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     new_frame->buffer_size = sample_size;
     new_frame->pts = pts;
     new_frame->dts = dts;
-    new_frame->full_time = dts;// + vstream->overflow_dts;
+    new_frame->full_time = dts;
 
     if (splice_point > 0 || splice_duration > 0 || splice_duration_remaining > 0) {
         syslog(LOG_INFO,"SCTE35: VIDEO SINK CALLBACK:  SPLICE:%d  DURATION:%ld  REMAINING:%ld (%ld seconds)\n",
@@ -1463,22 +1607,17 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
         new_frame->splice_point = 0;
     }
 
-    /*if (dts > 0) {
-        new_frame->full_time = dts;// + vstream->overflow_dts;
-    } else {
-        new_frame->full_time = pts;// + vstream->overflow_dts;
-    }*/
-
     new_frame->duration = new_frame->full_time - vstream->last_full_time;
     new_frame->first_timestamp = vstream->first_timestamp;
     new_frame->source = source;
     new_frame->sub_stream = 0;
 
-    fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%d\n\n\n",
+    /*fprintf(stderr,"\n\n\nRECEIVED FEEDER CALLBACK: PTS:%ld DTS:%ld FIRSTVIDEO:%ld  DURATION:%d\n\n\n",
             pts,
             dts,
             vstream->first_timestamp,
             new_frame->duration);
+    */
 
     vstream->last_full_time = new_frame->full_time;
 
@@ -1595,11 +1734,11 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     core->scte35_duration_remaining = scte35_data->pts_duration;
                     core->scte35_triggered = 0;
                     send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                    //pts_adjustment- non-zero
+                    // pts_adjustment- non-zero
                 } else {
-                    //additional modes needs to be included
-                    //non pts_duration mode
-                    //also need to look for signal back to network feed
+                    // additional modes needs to be included
+                    // non pts_duration mode
+                    // also need to look for signal back to network feed
                     core->scte35_ready = 0;
                 }
             } else {
@@ -1609,7 +1748,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             core->scte35_ready = 0;
         }
     } else if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC) {
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
         sorted_frame_struct *new_frame;
         uint8_t *new_buffer;
         struct timespec current_time;
@@ -1765,9 +1904,9 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 new_frame->splice_duration_remaining = core->scte35_duration;
                 core->scte35_triggered = 1;
                 syslog(LOG_INFO,"SCTE35 - SETTING IT TO TRIGGERED\n");
-                //trigger point
+                // trigger point
             } else if (scte35_time_diff < 0) {
-                //it's already too late- not sure what happened
+                // it's already too late- not sure what happened
                 core->scte35_ready = 0;
                 core->scte35_last_pts_diff = 0;
                 core->scte35_duration = 0;
@@ -1843,41 +1982,52 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
         }
     } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3 || sample_type == STREAM_TYPE_MPEG) {
-        audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
-        video_stream_struct *vstream = (video_stream_struct*)core->source_stream[source].video_stream;
+        audio_stream_struct *astream;
+        video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
         uint8_t *new_buffer;
         sorted_frame_struct *new_frame;
         struct timespec current_time;
         int64_t br;
         int64_t diff;
 
+#if defined(ENABLE_TRANSCODE)
+        astream = (audio_stream_struct*)core->source_audio_stream[sub_source].audio_stream;
+#else
+        astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;
+        audio_streams = core->cd->active_audio_sources;
+#endif
+
         if (enable_verbose) {
-            fprintf(stderr,"STATUS: RECEIVE_FRAME (AUDIO:%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d (AUDIO STREAM:%d)\n",
+            fprintf(stderr,"STATUS: RECEIVE_FRAME (AUDIO:%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d (AUDIO STREAM:%d)  ASTREAM:%p  TOTAL AUDIO STREAMS:%d\n",
                     source,
                     sample_type,
                     pts,
                     dts,
                     vstream->found_key_frame,
-                    sub_source);
+                    sub_source,
+                    astream,
+                    audio_streams);
         }
 
         if (sub_source < 0 || sub_source > MAX_AUDIO_SOURCES) {
-            //error
+            // error
         }
 
         if (audio_streams != -1) {
             if (sub_source >= audio_streams) {
-                //rejecting additional audio streams
+                // rejecting additional audio streams
                 return 0;
             }
         }
 
+#if defined(ENABLE_TRANSCODE)
         if (source != core->cd->audio_source_index && core->cd->audio_source_index != -1) {
             // take audio only from the specified stream
             // if we are being fed with multiple spts of audio then we should just grab the first set
             // this should be made configurable
             return 0;
         }
+#endif
 
         if (!vstream->found_key_frame) {
             return 0;
@@ -2051,7 +2201,8 @@ int main(int argc, char **argv)
      config_data.window_size = DEFAULT_WINDOW_SIZE;
      config_data.segment_length = DEFAULT_SEGMENT_LENGTH;
      config_data.rollover_size = MAX_ROLLOVER_SIZE;
-     config_data.active_sources = 0;
+     config_data.active_video_sources = 0;
+     config_data.active_audio_sources = 0;
      config_data.identity = 1000;
      config_data.enable_youtube_output = 0;
      config_data.enable_ts_output = 0;
@@ -2076,14 +2227,20 @@ int main(int argc, char **argv)
      snprintf(config_data.manifest_fmp4,MAX_STR_SIZE-1,"masterfmp4.m3u8");
 
      ret = parse_input_options(argc, argv);
-     if ((ret < 0 || config_data.active_sources == 0)) {
+#if defined(ENABLE_TRANSCODE)
+     if (config_data.active_video_sources > 0) {
+         config_data.active_audio_sources = audio_streams;
+     }
+#endif
+     if ((ret < 0 || config_data.active_video_sources == 0 || config_data.active_audio_sources == 0)) {
          fprintf(stderr,"\n");
          fprintf(stderr,"fillet is a live/vod transcoding and packaging service/application for IP based OTT content redistribution\n");
          fprintf(stderr,"\n");
          fprintf(stderr,"usage: fillet [options]\n");
          fprintf(stderr,"\n\n");
-         fprintf(stderr,"PACKAGING OPTIONS\n");
-         fprintf(stderr,"       --sources       [NUMBER OF SOURCES - FOR TRANSCODING: 1 SOURCE, FOR ABR SOURCES: MUST BE >= 1 && <= 10]\n");
+         fprintf(stderr,"PACKAGING OPTIONS (AUDIO AND VIDEO CAN BE SEPARATE STREAMS)\n");
+         fprintf(stderr,"       --vsources      [NUMBER OF VIDEO SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]\n");
+         fprintf(stderr,"       --asources      [NUMBER OF AUDIO SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]\n");
          fprintf(stderr,"       --type          [TYPE OF SOURCE - stream,file]\n");
          fprintf(stderr,"\n");
          fprintf(stderr,"INPUT OPTIONS (when --type stream)\n");
@@ -2166,7 +2323,11 @@ int main(int argc, char **argv)
      }
 #endif // ENABLE_TRANSCODE
 
-     core = create_fillet_core(&config_data, config_data.active_sources);
+     fprintf(stderr,"FILLET: Creating core fillet application (active_video_sources:%d active_audio_sources:%d)\n",
+             config_data.active_video_sources,
+             config_data.active_audio_sources);
+
+     core = create_fillet_core(&config_data, config_data.active_video_sources, config_data.active_audio_sources);
 
      // basic command line mode for testing purposes
      core->session_id = 1;
@@ -2185,14 +2346,14 @@ int main(int argc, char **argv)
 
          start_signal_thread(core);
 
-         for (i = 0; i < config_data.active_sources; i++) {
+         for (i = 0; i < config_data.active_video_sources; i++) {
              struct in_addr addr;
-             snprintf(core->fillet_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
-             snprintf(core->fillet_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_source[i].active_ip);
-             if (inet_aton(config_data.active_source[i].active_ip, &addr) == 0) {
+             snprintf(core->fillet_video_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
+             snprintf(core->fillet_video_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_video_source[i].active_ip);
+             if (inet_aton(config_data.active_video_source[i].active_ip, &addr) == 0) {
                  fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
-                         config_data.active_source[i].active_ip);
-                 if (strlen(config_data.active_source[i].active_ip) == 0) {
+                         config_data.active_video_source[i].active_ip);
+                 if (strlen(config_data.active_video_source[i].active_ip) == 0) {
                      fprintf(stderr,"\n\nNO IP ADDRESS WAS SPECIFIED\n\n");
                  }
                  send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");
@@ -2200,8 +2361,28 @@ int main(int argc, char **argv)
                  destroy_fillet_core(core);
                  exit(0);
              }
-             core->fillet_input[i].udp_source_port = config_data.active_source[i].active_port;
+             core->fillet_video_input[i].udp_source_port = config_data.active_video_source[i].active_port;
          }
+#if !defined(ENABLE_TRANSCODE)
+         for (i = 0; i < config_data.active_audio_sources; i++) {
+             struct in_addr addr;
+
+             snprintf(core->fillet_audio_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
+             snprintf(core->fillet_audio_input[i].udp_source_ipaddr,UDP_MAX_IFNAME-1,"%s",config_data.active_audio_source[i].active_ip);
+             if (inet_aton(config_data.active_audio_source[i].active_ip, &addr) == 0) {
+                 fprintf(stderr,"\nERROR: INVALID IP ADDRESS: %s\n\n",
+                         config_data.active_audio_source[i].active_ip);
+                 if (strlen(config_data.active_audio_source[i].active_ip) == 0) {
+                     fprintf(stderr,"\n\nNO IP ADDRESS WAS SPECIFIED\n\n");
+                 }
+                 send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");
+                 stop_signal_thread(core);
+                 destroy_fillet_core(core);
+                 exit(0);
+             }
+             core->fillet_audio_input[i].udp_source_port = config_data.active_audio_source[i].active_port;
+         }
+#endif // ENABLE_TRANSCODE
 
          hlsmux_create(core);
          start_webdav_threads(core);
@@ -2209,9 +2390,30 @@ int main(int argc, char **argv)
          sync_thread_running = 1;
          pthread_create(&frame_sync_thread_id, NULL, frame_sync_thread, (void*)core);
          core->source_running = 1;
-         for (i = 0; i < config_data.active_sources; i++) {
-             pthread_create(&core->source_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)core);
+
+         // need to adapt for combined audio and video sources
+         // also where are these cleaned up?
+
+         for (i = 0; i < config_data.active_video_sources; i++) {
+             udp_thread_data_struct *video_udp;
+             video_udp = (udp_thread_data_struct*)malloc(sizeof(udp_thread_data_struct));
+             video_udp->core = core;
+             video_udp->source_index = i;
+             snprintf(video_udp->udp_source_ipaddr, MAX_STR_SIZE-1, "%s", core->fillet_video_input[i].udp_source_ipaddr);
+             video_udp->udp_source_port = core->fillet_video_input[i].udp_source_port;
+             pthread_create(&core->source_video_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)video_udp);
          }
+#if !defined(ENABLE_TRANSCODE)
+         for (i = 0; i < config_data.active_audio_sources; i++) {
+             udp_thread_data_struct *audio_udp;
+             audio_udp = (udp_thread_data_struct*)malloc(sizeof(udp_thread_data_struct));
+             audio_udp->core = core;
+             audio_udp->source_index = i;
+             snprintf(audio_udp->udp_source_ipaddr, MAX_STR_SIZE-1, "%s", core->fillet_audio_input[i].udp_source_ipaddr);
+             audio_udp->udp_source_port = core->fillet_audio_input[i].udp_source_port;
+             pthread_create(&core->source_audio_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)audio_udp);
+         }
+#endif
 
 #if defined(ENABLE_TRANSCODE)
          pthread_create(&client_thread_id, NULL, status_thread, (void*)core);

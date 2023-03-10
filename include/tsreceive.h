@@ -1,5 +1,5 @@
 /*****************************************************************************
-  Copyright (C) 2018-2020 John William
+  Copyright (C) 2018-2023 John William
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -22,6 +22,13 @@
 
 #if !defined(_TS_RECEIVE_H_)
 #define _TS_RECEIVE_H_
+
+typedef struct _udp_thread_data_struct_ {
+    fillet_app_struct *core;
+    int               source_index;
+    char              udp_source_ipaddr[MAX_STR_SIZE];
+    int               udp_source_port;
+} udp_thread_data_struct;
 
 void *udp_source_thread(void *context);
 
