@@ -86,6 +86,7 @@ static struct option long_options[] = {
 #if defined(ENABLE_TRANSCODE)
      {"sources", required_argument, 0, 'S'},
      {"ip", required_argument, 0, 'i'},
+     {"gpu", required_argument, 0, 'g'},
 #else
      {"vsources", required_argument, 0, 'V'},  // video sources
      {"asources", required_argument, 0, 'S'},  // audio sources
@@ -436,6 +437,19 @@ static int parse_input_options(int argc, char **argv)
               }
               fprintf(stderr,"STATUS: Configured source type: %d\n", config_data.source_type);
               break;
+          case 'g':
+              if (optarg) {
+                  config_data.gpu = atoi(optarg);
+                  if (config_data.gpu < 0) {
+                      fprintf(stderr,"ERROR: Invalid GPU selection was specified\n");
+                      return -1;
+                  }
+              } else {
+                  fprintf(stderr,"ERROR: No GPU selection was specified\n");
+                  return -1;
+              }
+              fprintf(stderr,"STATUS: Selected GPU: %d\n", config_data.gpu);
+              break;
           case 'l':
               if (optarg) {
                   config_data.stream_select = atoi(optarg);
@@ -485,15 +499,15 @@ static int parse_input_options(int argc, char **argv)
                   for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
                       config_data.transvideo_info[c].encoder_quality = atoi(optarg);
                       if (config_data.transvideo_info[c].encoder_quality < ENCODER_QUALITY_BASIC ||
-                          config_data.transvideo_info[c].encoder_quality > ENCODER_QUALITY_CRAZY) {
-                          config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_MEDIUM;
+                          config_data.transvideo_info[c].encoder_quality > ENCODER_QUALITY_PROFESSIONAL) {
+                          config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_STREAMING;
                           fprintf(stderr,"ERROR: Unknown quality provided- defaulting to MEDIUM\n");
                       }
                   }
               } else {
                   int c;
                   for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
-                      config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_MEDIUM;
+                      config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_STREAMING;
                   }
               }
 #endif // ENABLE_TRANSCODE
@@ -1545,6 +1559,8 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     pthread_mutex_lock(&sync_lock);
     audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
     if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
+        fprintf(stderr,"SESSION:%d (MAIN) ERROR: excessive audio_synchronizer_entries:%d\n",
+                core->session_id, audio_synchronizer_entries);
         restart_sync_thread = 1;
     }
     pthread_mutex_unlock(&sync_lock);
@@ -2209,10 +2225,11 @@ int main(int argc, char **argv)
      config_data.enable_fmp4_output = 0;
      config_data.audio_source_index = 0;
      config_data.stream_select = 0;
+     config_data.gpu = 0;
 
 #if defined(ENABLE_TRANSCODE)
      for (c = 0; c < MAX_TRANS_OUTPUTS; c++) {
-         config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_MEDIUM;
+         config_data.transvideo_info[c].encoder_quality = ENCODER_QUALITY_STREAMING;
          config_data.transvideo_info[c].encoder_profile = ENCODER_PROFILE_MAIN;
      }
 #endif // ENABLE_TRANSCODE
@@ -2238,22 +2255,33 @@ int main(int argc, char **argv)
          fprintf(stderr,"\n");
          fprintf(stderr,"usage: fillet [options]\n");
          fprintf(stderr,"\n\n");
-         fprintf(stderr,"PACKAGING OPTIONS (AUDIO AND VIDEO CAN BE SEPARATE STREAMS)\n");
+#if defined(ENABLE_TRANSCODE)
+         fprintf(stderr,"INPUT TRANSCODE OPTIONS (AUDIO AND VIDEO MUST BE ON SAME TRANSPORT STREAM)\n");
+         fprintf(stderr,"       --sources      [NUMBER OF SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]\n");
+         //fprintf(stderr,"       --type          [TYPE OF SOURCE - stream,file]\n");
+#else
+         fprintf(stderr,"INPUT PACKAGING OPTIONS (AUDIO AND VIDEO CAN BE SEPARATE STREAMS)\n");
          fprintf(stderr,"       --vsources      [NUMBER OF VIDEO SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]\n");
          fprintf(stderr,"       --asources      [NUMBER OF AUDIO SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]\n");
-         fprintf(stderr,"       --type          [TYPE OF SOURCE - stream,file]\n");
+         //fprintf(stderr,"       --type          [TYPE OF SOURCE - stream,file]\n");
+#endif
          fprintf(stderr,"\n");
          fprintf(stderr,"INPUT OPTIONS (when --type stream)\n");
+#if defined(ENABLE_TRANSCODE)
          fprintf(stderr,"       --ip            [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF SOURCES)\n");
+#else
+         fprintf(stderr,"       --vip           [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF VIDEO SOURCES)\n");
+         fprintf(stderr,"       --aip           [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF AUDIO SOURCES)\n");
+#endif
          fprintf(stderr,"       --interface     [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]\n");
-         fprintf(stderr,"                       If multicast, make sure route is in place\n\n");
+         fprintf(stderr,"                       If multicast, make sure route is in place (route add -net 224.0.0.0 netmask 240.0.0.0 interface)\n\n");
+         //fprintf(stderr,"\n");
+         //fprintf(stderr,"INPUT OPTIONS (when --type file)\n");
+         //fprintf(stderr,"       --input         [INPUT FILENAME (FULL PATH)]\n");
+         //fprintf(stderr,"       --output-dir    [OUTPUT DIRECTORY (FULL PATH)]\n");
+         //fprintf(stderr,"       --output-prefix [OUTPUT PREFIX]\n");
          fprintf(stderr,"\n");
-         fprintf(stderr,"INPUT OPTIONS (when --type file)\n");
-         fprintf(stderr,"       --input         [INPUT FILENAME (FULL PATH)]\n");
-         fprintf(stderr,"       --output-dir    [OUTPUT DIRECTORY (FULL PATH)]\n");
-         fprintf(stderr,"       --output-prefix [OUTPUT PREFIX]\n");
-         fprintf(stderr,"\n");
-         fprintf(stderr,"PACKAGING OPTIONS\n");
+         fprintf(stderr,"OUTPUT PACKAGING OPTIONS\n");
          fprintf(stderr,"       --window        [WINDOW IN SEGMENTS FOR MANIFEST]\n");
          fprintf(stderr,"       --segment       [SEGMENT LENGTH IN SECONDS]\n");
          fprintf(stderr,"       --manifest      [MANIFEST DIRECTORY \"/var/www/hls/\"]\n");
@@ -2269,8 +2297,9 @@ int main(int argc, char **argv)
          fprintf(stderr,"       --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]\n");
          fprintf(stderr,"\n");
 #if defined(ENABLE_TRANSCODE)
-         fprintf(stderr,"TRANSCODE OPTIONS\n");
+         fprintf(stderr,"OUTPUT TRANSCODE OPTIONS\n");
          fprintf(stderr,"       --transcode   [ENABLE TRANSCODER AND NOT JUST PACKAGING]\n");
+         fprintf(stderr,"       --gpu         [GPU NUMBER TO USE FOR TRANSCODING - defaults to 0 if GPU encoding is enabled]\n");
          fprintf(stderr,"       --select      [PICK A STREAM FROM AN MPTS- INDEX IS BASED ON PMT INDEX - defaults to 0]\n");
          fprintf(stderr,"       --outputs     [NUMBER OF OUTPUT LADDER BITRATE PROFILES TO BE TRANSCODED]\n");
          fprintf(stderr,"       --vcodec      [VIDEO CODEC - needs to be hevc or h264]\n");
@@ -2279,9 +2308,9 @@ int main(int argc, char **argv)
          fprintf(stderr,"       --acodec      [AUDIO CODEC - needs to be aac, ac3 or pass]\n");
          fprintf(stderr,"       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96]\n");
          fprintf(stderr,"       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]\n");
-         fprintf(stderr,"       --scte35      [PASSTHROUGH SCTE35 TO MANIFEST (still finishing up)]\n");
+         fprintf(stderr,"       --scte35      [PASSTHROUGH SCTE35 TO MANIFEST (for HLS packaging)]\n");
          fprintf(stderr,"       --stereo      [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]\n");
-         fprintf(stderr,"       --quality     [VIDEO ENCODING QUALITY LEVEL 0-3 (0-BASIC,1-MEDIUM,2-HIGH,3-CRAZY)\n");
+         fprintf(stderr,"       --quality     [VIDEO ENCODING QUALITY LEVEL 0-3 (0-BASIC,1-STREAMING,2-BROADCAST,3-PROFESSIONAL)\n");
          fprintf(stderr,"                      LOADING WILL AFFECT CHANNEL DENSITY-SOME PLATFORMS MAY NOT RUN HIGHER QUALITY REAL-TIME\n");
          fprintf(stderr,"\n");
          fprintf(stderr,"H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)\n");

@@ -233,8 +233,8 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
         snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
         snprintf(scratch,MAX_STR_SIZE-1,"                \"source-ip\": \"%s:%d\",\n",
-                 core->cd->active_source[source].active_ip,
-                 core->cd->active_source[source].active_port);
+                 core->cd->active_video_source[source].active_ip,
+                 core->cd->active_video_source[source].active_port);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
         snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %ld,\n", vstream->video_bitrate);
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);

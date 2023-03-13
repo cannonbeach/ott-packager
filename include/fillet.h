@@ -95,10 +95,10 @@
 #define MSG_PING                   0xb1
 #define MSG_STATUS                 0xb2
 
-#define ENCODER_QUALITY_BASIC      0x00
-#define ENCODER_QUALITY_MEDIUM     0x01
-#define ENCODER_QUALITY_HIGH       0x02
-#define ENCODER_QUALITY_CRAZY      0x03
+#define ENCODER_QUALITY_BASIC         0x00
+#define ENCODER_QUALITY_STREAMING     0x01
+#define ENCODER_QUALITY_BROADCAST     0x02
+#define ENCODER_QUALITY_PROFESSIONAL  0x03
 
 #define ENCODER_PROFILE_BASE       66
 #define ENCODER_PROFILE_MAIN       77
@@ -195,6 +195,7 @@ typedef struct _config_options_struct_ {
     int              segment_length;
     int              rollover_size;
     int              identity;
+    int              gpu;
 
     int              enable_ts_output;
     int              enable_fmp4_output;

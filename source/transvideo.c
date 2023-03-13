@@ -283,6 +283,7 @@ void *video_encode_thread_nvenc(void *context)
             enum AVHWDeviceType type;
             enum AVPixelFormat hw_pix_fmt;
             int ret;
+            char gpu_select_string[MAX_FILENAME_SIZE];
 
             type = AV_HWDEVICE_TYPE_CUDA;
             hw_pix_fmt = AV_PIX_FMT_CUDA;
@@ -302,8 +303,10 @@ void *video_encode_thread_nvenc(void *context)
             gpu_data[current_encoder].encode_avctx = avcodec_alloc_context3(gpu_data[current_encoder].encode_codec);
             fprintf(stderr,"NVENC: encode_avctx=%p\n", gpu_data[current_encoder].encode_avctx);
 
+            snprintf(gpu_select_string,MAX_FILENAME_SIZE-1,"/dev/dri/card%d",core->cd->gpu);
+
             ret = av_hwdevice_ctx_create(&gpu_data[current_encoder].hw_device_ctx,
-                                         type, "/dev/dri/card0", NULL, 0);
+                                         type, gpu_select_string, NULL, 0);
 
             fprintf(stderr,"NVENC: av_hwdevice_ctx_create=%d\n", ret);
 
@@ -655,14 +658,14 @@ void *video_encode_thread_x265(void *context)
                 // these really need to be tuned
                 if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_BASIC) {
                     // basic quality is default
-                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_MEDIUM) {
+                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_STREAMING) {
                     x265_data[current_encoder].param->rdLevel = 3;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
                     x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH;
                     x265_data[current_encoder].param->subpelRefine = 3;
                     x265_data[current_encoder].param->maxNumMergeCand = 2;
                     x265_data[current_encoder].param->maxNumReferences = 2;
-                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_HIGH) {
+                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_BROADCAST) {
                     x265_data[current_encoder].param->rdLevel = 5;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
                     x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH;
@@ -670,7 +673,7 @@ void *video_encode_thread_x265(void *context)
                     x265_data[current_encoder].param->maxNumMergeCand = 2;
                     x265_data[current_encoder].param->maxNumReferences = 3;
                     x265_data[current_encoder].param->bframes = 3;  // set configuration
-                } else {  // ENCODER_QUALITY_CRAZY
+                } else {  // ENCODER_QUALITY_PROFESSIONAL
                     x265_data[current_encoder].param->rdLevel = 5;
                     x265_data[current_encoder].param->bEnableEarlySkip = 1;
                     x265_data[current_encoder].param->searchMethod = X265_DIA_SEARCH;
@@ -1042,13 +1045,13 @@ void *video_encode_thread_x264(void *context)
                     x264_data[current_encoder].param.i_frame_reference = 1;
                     x264_data[current_encoder].param.rc.i_lookahead = (int)(fps+0.5)/2;
                     x264_data[current_encoder].param.i_bframe = 0;
-                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_MEDIUM) {
+                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_STREAMING) {
                     x264_data[current_encoder].param.analyse.i_me_method = X264_ME_HEX;
                     x264_data[current_encoder].param.analyse.i_subpel_refine = 5;
                     x264_data[current_encoder].param.i_frame_reference = 3;
                     x264_data[current_encoder].param.rc.i_lookahead = (int)(fps+0.5);
                     x264_data[current_encoder].param.i_bframe = 2;
-                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_HIGH) {
+                } else if (core->cd->transvideo_info[current_encoder].encoder_quality == ENCODER_QUALITY_BROADCAST) {
                     x264_data[current_encoder].param.analyse.i_me_method = X264_ME_HEX;
                     x264_data[current_encoder].param.analyse.i_subpel_refine = 7;
                     x264_data[current_encoder].param.i_frame_reference = 3;
