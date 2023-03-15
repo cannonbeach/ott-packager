@@ -347,9 +347,11 @@ img {
           <tr class="header">
             <th>Add Transcode Service<div>Add Transcode Service</div></th>
             <th>Add Repackage Service<div>Add Repackage Service</div></th>
-            <th>Backup Service Configs<div>Backup Service Configs</div></th>
+<!--            <th>Backup Service Configs<div>Backup Service Configs</div></th>
             <th>Restore Service Configs<div>Restore Service Configs</div></th>
-            <th>Download Logs<div>Download Logs</div></th>
+-->
+<!--            <th>Download Logs<div>Download Logs</div></th>
+-->
           </tr>
         </thead>
         <tbody>
@@ -360,15 +362,19 @@ img {
             <td>
               <button id='repackage_button'>New Repackage Service</button>
             </td>
+<!--	    
             <td>
               <button id='backup_button'>Backup Services</button>
             </td>
             <td>
               <button id='reload_button'>Restore Services</button>
             </td>
+-->
+<!--	    
             <td>
               <button id='download_button'>Download Logs</button>
             </td>
+-->
           </tr>
         </tbody>
       </table>
@@ -820,9 +826,24 @@ img {
                   <td>
                     <select id="videoquality">
                       <option value="0">BASIC</option>
-                      <option value="1">MEDIUM</option>
-                      <option value="2">HIGH</option>
-                      <option value="3">MAX</option>
+                      <option value="1">STREAMING</option>
+                      <option value="2">BROADCAST</option>
+                      <option value="3">PROFESSIONAL</option>
+                    </select>
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>
+                    <label>Select Your GPU</label>
+                  </td>
+                  <td>
+                    <select id="gpuselect">
+		      <option value="-1">Default</option>
+                      <option value="0">0</option>
+                      <option value="1">1</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
                     </select>
                   </td>
                 </tr>
