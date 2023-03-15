@@ -377,6 +377,11 @@ submit_button_transcode.addEventListener('click', function(e) {
         console.log('invalid service name');
     }
 
+    if (enablehls == true && videocodec === "hevc") {
+        safe = 6;
+        console.log('hevc and transport stream based hls invalid combination');
+    }
+
     if (enablehls == false && enabledash == false) {
         safe = 4;
         console.log('hls and dash are disabled');
@@ -456,7 +461,7 @@ submit_button_transcode.addEventListener('click', function(e) {
         obj.enablescte35 = enablescte35;
         obj.videocodec = videocodec;
         obj.videoquality = videoquality;
-	obj.gpuselet = gpuselect;
+        obj.gpuselet = gpuselect;
         obj.audiosources = audiosources;
         obj.enablestereo = enablestereo;
         obj.audiobitrate = audiobitrate;
@@ -518,6 +523,8 @@ submit_button_transcode.addEventListener('click', function(e) {
             alert("Invalid HLS/DASH combination!");
         } else if (safe == 5) {
             alert("Invalid output stream combination!");
+        } else if (safe == 6) {
+            alert("HEVC and TS based HLS invalid combination!");
         }
     }
 });
@@ -841,7 +848,7 @@ function request_service_status(service)
                     } else if (video_codec == 0x03) { // hevc
                         output_string += '<p>Video is HEVC<br>Quality '+quality_string+'<br>';
                     }
-		    output_string += '<p>GPU '+service_words.gpu+'</p><br>';		    		    
+                    output_string += '<p>GPU '+service_words.gpu+'</p><br>';
                     output_string += 'Audio is AAC @ '+audiochannelsoutput0+' channels </p>';
                 }
 
@@ -984,6 +991,11 @@ function update_service_status()
             var gpucount = words.gpucount;
             var gpucountstring = '<p>'+gpucount+'</p>';
             document.getElementById(elementname_gpucount).innerHTML = gpucountstring;
+
+            var elementname_gpudriver = 'gpudriver';
+            var gpudriver = words.gpudriver;
+            var gpudriverstring = '<p>'+gpudriver+'</p>';
+            document.getElementById(elementname_gpudriver).innerHTML = gpudriverstring;
         })
 }
 
