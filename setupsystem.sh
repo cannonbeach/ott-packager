@@ -128,6 +128,8 @@ echo "STATUS- install winston logger (global)"
 sudo npm install -g winston
 echo "STATUS- install read-last-lines file reader (global)"
 sudo npm install -g read-last-lines
+echo "STATUS- install npm-nvidia-smi (global)"
+sudo npm install -g node-nvidia-smi
 echo "STATUS- creating node_modules symbolic link to current directory"
 sudo ln -s /usr/lib/node_modules ./node_modules
 popd

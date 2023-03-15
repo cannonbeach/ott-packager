@@ -30,6 +30,7 @@ const express = require('express');
 const readLastLines = require('read-last-lines');
 var bodyParser = require('body-parser');
 const fs = require('fs');
+const smi = require('node-nvidia-smi');
 const app = express();
 var path = require('path');
 
@@ -171,12 +172,13 @@ cpuILoad = (function() {
 app.get('/api/v1/system_information', (req, res) => {
     var retdata;
 
-    obj = new Object();
+    /*obj = new Object();
     obj.cpuinfo = cpuILoad();
     obj.totalmem = os.totalmem();
     obj.freemem = os.freemem();
+*/
 
-    var nvidia_cmd = 'nvidia-smi pmon -c 1 -f /var/tmp/nvidia.txt';
+    /*var nvidia_cmd = 'nvidia-smi pmon -c 1 -f /var/tmp/nvidia.txt';
 
     exec(nvidia_cmd, (err, stdout, stderr) => {
         if (err) {
@@ -196,12 +198,42 @@ app.get('/api/v1/system_information', (req, res) => {
             }
         }
     });
+    */
+    var gpucount = 0;
+    var gpudriver = "500";
 
-    obj.gpucount = 1;
+    smi(function (err, data) {
+        if (err) {
+            console.warn(err);
+        } else {
+            var retdata;
+            var gpudata = JSON.stringify(data, null, ' ');
+            var words = JSON.parse(gpudata);
 
-    retdata = JSON.stringify(obj);
-    //console.log(retdata);
-    res.send(retdata);
+            obj = new Object();
+            obj.cpuinfo = cpuILoad();
+            obj.totalmem = os.totalmem();
+            obj.freemem = os.freemem();
+
+            console.log(words.nvidia_smi_log.driver_version);
+            console.log(words.nvidia_smi_log.cuda_version);
+            console.log(words.nvidia_smi_log.attached_gpus);
+            //console.log(gpudata);
+            gpucount = words.nvidia_smi_log.attached_gpus;
+            gpudriver = words.nvidia_smi_log.driver_version;
+
+            obj.gpucount = gpucount;
+            obj.gpudriver = gpudriver;
+            retdata = JSON.stringify(obj);
+            console.log(retdata);
+            res.send(retdata);
+        }
+    });
+//    obj.gpucount = gpucount;
+//    obj.gpudriver = gpudriver;
+//    retdata = JSON.stringify(obj);
+//    console.log(retdata);
+//    res.send(retdata);
 });
 
 app.get('/api/v1/backup_services', (req, res) => {
