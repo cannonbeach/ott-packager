@@ -328,6 +328,7 @@ submit_button_transcode.addEventListener('click', function(e) {
     var enablescte35 = document.getElementById("enablescte35").value;
     var videocodec = document.getElementById("videocodec").value;
     var videoquality = document.getElementById("videoquality").value;
+    var gpuselect = document.getElementById("gpuselect").value;
     var audiosources = document.getElementById("audiosources").value;
     var enablestereo = document.getElementById("enablestereo").value;
     var audiobitrate = document.getElementById("audiobitrate").value;
@@ -455,6 +456,7 @@ submit_button_transcode.addEventListener('click', function(e) {
         obj.enablescte35 = enablescte35;
         obj.videocodec = videocodec;
         obj.videoquality = videoquality;
+	obj.gpuselet = gpuselect;
         obj.audiosources = audiosources;
         obj.enablestereo = enablestereo;
         obj.audiobitrate = audiobitrate;
@@ -826,11 +828,11 @@ function request_service_status(service)
                     if (video_quality == 0) {
                         quality_string = 'BASIC';
                     } else if (video_quality == 1) {
-                        quality_string = 'MEDIUM';
+                        quality_string = 'STREAMING';
                     } else if (video_quality == 2) {
-                        quality_string = 'HIGH';
+                        quality_string = 'BROADCAST';
                     } else if (video_quality == 3) {
-                        quality_string = 'MAX';
+                        quality_string = 'PROFESSIONAL';
                     } else {
                         quality_string = 'N/A';
                     }
@@ -839,6 +841,7 @@ function request_service_status(service)
                     } else if (video_codec == 0x03) { // hevc
                         output_string += '<p>Video is HEVC<br>Quality '+quality_string+'<br>';
                     }
+		    output_string += '<p>GPU '+service_words.gpu+'</p><br>';		    		    
                     output_string += 'Audio is AAC @ '+audiochannelsoutput0+' channels </p>';
                 }
 

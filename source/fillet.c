@@ -1477,6 +1477,7 @@ static void *frame_sync_thread(void *context)
 
                 no_grab++;
                 if (no_grab >= 300) {  // was 15
+                    fprintf(stderr,"WAITING TOO LONG FOR LIVE CONTENT - SIGNALING SYNC THREAD RESTART\n");
                     quit_sync_thread = 1;
                     continue;
                 }

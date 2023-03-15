@@ -306,6 +306,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
              "            \"hls-active\": %d,\n"
              "            \"dash-fmp4-active\": %d,\n"
              "            \"scte35\": %d,\n"
+             "            \"gpu\": %d,\n"
              "            \"latency\": \"%.2f ms\"\n"
              "        },\n"
              "        \"source\": {\n"
@@ -358,6 +359,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
              core->cd->enable_ts_output,
              core->cd->enable_fmp4_output,
              core->cd->enable_scte35,
+             core->cd->gpu,
              latency,
              core->cd->active_video_sources,
              core->cd->stream_select,

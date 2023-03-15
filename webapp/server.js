@@ -310,7 +310,7 @@ app.get('/api/v1/get_control_page', (req, res) => {
     html += '<th>Source<div>Source</div></th>';
     html += '<th>Output<div>Output</div></th>';
     html += '<th>Info<div>Info</div></th>';
-    html += '<th>Thumbnail<div>Thumbnail</div></th>';
+    html += '<th>Input Thumbnail<div>Input Thumbnail</div></th>';
     html += '<th>Status<div>Status</div></th>';
     html += '</tr>';
     html += '</thead>';
@@ -766,6 +766,11 @@ app.post('/api/v1/start_service/:uid', (req, res) => {
                         }
                     }
 
+                    var gpuselect = parseInt(words.gpuselect);
+                    if (isNaN(gpuselect)) {
+                        gpuselect = 0;
+                    }
+
                     var selectedstream1 = parseInt(words.selectedstream1);
 
                     manifest_string += '--manifest-hls '+hlsmanifest+' ';
@@ -776,7 +781,7 @@ app.post('/api/v1/start_service/:uid', (req, res) => {
 
                     // enablestereo on by default for now
                     // aspect not currently set
-                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' '+gpu_mapping+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 '+output_scte35_enable+' --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' '+output_hls_enable+' '+output_dash_enable+' --astreams '+astreams+' '+manifest_string;
+                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' '+gpu_mapping+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --gpu '+gpuselect+' --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 '+output_scte35_enable+' --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' '+output_hls_enable+' '+output_dash_enable+' --astreams '+astreams+' '+manifest_string;
 
                     console.log('start command: ', start_cmd);
 
@@ -1083,6 +1088,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             obj.audiosamplerate0 = words.data.source.audiosamplerate0;
                             obj.audiosamplerate1 = words.data.source.audiosamplerate1;
 
+                            obj.gpu = words.data.system["gpu"];
                             obj.window_size = words.data.system["window-size"];
                             obj.segment_length = words.data.system["segment-length"];
                             obj.hls_active = words.data.system["hls-active"];
@@ -1155,6 +1161,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             obj.audiochannelsoutput1 = 0;
                             obj.audiosamplerate0 = 48000;
                             obj.audiosamplerate1 = 0;
+                            obj.gpu = 0;
 
                             obj.window_size = words.windowsize;
                             obj.segment_length = words.segmentsize;
