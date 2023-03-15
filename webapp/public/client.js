@@ -996,6 +996,21 @@ function update_service_status()
             var gpudriver = words.gpudriver;
             var gpudriverstring = '<p>'+gpudriver+'</p>';
             document.getElementById(elementname_gpudriver).innerHTML = gpudriverstring;
+
+            var elementname_gpudecodeload = 'gpudecodeload';
+            var gpudecodeload = words.gpudecodeload;
+            var gpudecodeloadstring = '<p>'+gpudecodeload+'</p>';
+            document.getElementById(elementname_gpudecodeload).innerHTML = gpudecodeloadstring;
+
+            var elementname_gpuencodeload = 'gpuencodeload';
+            var gpuencodeload = words.gpuencodeload;
+            var gpuencodeloadstring = '<p>'+gpuencodeload+'</p>';
+            document.getElementById(elementname_gpuencodeload).innerHTML = gpuencodeloadstring;
+
+            var elementname_gpucudaload = 'gpucudaload';
+            var gpucudaload = words.gpucudaload;
+            var gpucudaloadstring = '<p>'+gpucudaload+'</p>';
+            document.getElementById(elementname_gpucudaload).innerHTML = gpucudaloadstring;
         })
 }
 
