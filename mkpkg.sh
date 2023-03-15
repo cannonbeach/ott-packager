@@ -28,7 +28,10 @@ sudo cp ./docker/dockerfillet.tar .
 
 rm -rf build
 cp -a distribution build
-cp -a ./webapp ./build/var/app
+mkdir -p ./build/var/app
+mkdir -p ./build/usr/bin
+mkdir -p ./build/dockerimages
+cp -a ./webapp/* ./build/var/app
 find build -type f -name ".gitignore" -exec rm -rf {} \;
 cp fillet build/usr/bin
 sudo cp dockerfillet.tar build/dockerimages
