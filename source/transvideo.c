@@ -1709,6 +1709,10 @@ void *video_monitor_thread(void *context)
         }
     }
 cleanup_video_monitor_thread:
+    if (saved_video_frame) {
+        free(saved_video_frame);
+        saved_video_frame = NULL;
+    }
     return NULL;
 }
 
