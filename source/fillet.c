@@ -2340,9 +2340,9 @@ int main(int argc, char **argv)
 #if defined(ENABLE_TRANSCODE)
      if (enable_transcode && config_data.transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
          if (config_data.enable_ts_output) {
-             fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- TS output enabled with HEVC encoding\n");
+             fprintf(stderr,"FILLET: ERROR: Incompatible runtime mode- TS output enabled with HEVC encoding, disabling TS output mode\n");
              fprintf(stderr,"\n");
-             return 1;
+             config_data.enable_ts_output = 0;
          }
      }
 
