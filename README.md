@@ -7,7 +7,7 @@ OTT live streaming encoder and packager supporting ABR streaming for HLS and DAS
 This application is intended to serve as a reliable and scalable OTT streaming repackager (with optional transcoding) to deliver content as part of an overall media streaming platform. There are two key variations of OTT streaming technologies that this software accommodates:
 
     HLS (HTTP Live Streaming) - Transport Stream HLS and Fragmented MP4 HLS (CMAF style)
-    DASH (Dynamic Adaptive Streaming over HTTP) - Fragmented MP4 
+    DASH (Dynamic Adaptive Streaming over HTTP) - Fragmented MP4
 
 With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally transcode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.  I also expect to have SRT support available on the input in the coming future to make it easier to deploy into the cloud.  I will put together a matrix layout of the supported modes as I get closer to a v1.0 release.
 
@@ -17,7 +17,7 @@ There are two ways to use this application.  The first and simplest method is us
 
 ## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
 
-If something doesn't work here for you, then please post a bug in GitHub.  
+If something doesn't work here for you, then please post a bug in GitHub.
 
 ```
 Please follow the directions below *very* closely:
@@ -101,7 +101,7 @@ PACKAGING OPTIONS
        --webvtt        [ENABLE WEBVTT CAPTION ENCODING]
        --cdnusername   [USERNAME FOR WEBDAV ACCOUNT]
        --cdnpassword   [PASSWORD FOR WEBDAV ACCOUNT]
-       --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]       
+       --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]
        --astreams      [NUMBER OF SOURCE AUDIO STREAMS TO ENABLE]
 
 TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
@@ -121,7 +121,7 @@ TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
 H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)
        --profile       [H264 ENCODING PROFILE - needs to be base,main or high]
 
-PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED                                                                      
+PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED
 
 ```
 Simple Repackaging Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
@@ -131,7 +131,7 @@ cannonbeach@insanitywave:$ sudo ./fillet --sources 2 --ip 127.0.0.1:4000,127.0.0
 <br>
 This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.
 
-This will write the manifests into the /var/www/html/hls directory (this is a common Apache directory).  
+This will write the manifests into the /var/www/html/hls directory (this is a common Apache directory).
 
 <br>
 <br>
@@ -141,7 +141,7 @@ cannonbeach@insanitywave:$ sudo route add -net 224.0.0.0 netmask 240.0.0.0 dev e
 ```
 <br>
 In addition to having the multicast route in place, you may also need to turn off the reverse-path filter for multicast traffic:
-In /etc/sysctl.conf, there are multiple entries that control reverse-path filtering. In some instances depending on how your network is setup and where the source is coming from, you may have to disable reverse-path filtering.  Older variations of Linux had this enabled by default, but it can cause issues with multicast coming from a different subnet.  
+In /etc/sysctl.conf, there are multiple entries that control reverse-path filtering. In some instances depending on how your network is setup and where the source is coming from, you may have to disable reverse-path filtering.  Older variations of Linux had this enabled by default, but it can cause issues with multicast coming from a different subnet.
 
 <br>
 
@@ -153,7 +153,7 @@ net.ipv4.conf.all.rp_filter=0
 After you've made those changes, please run the following for the changes to take effect
 
 ```
-sudo sysctl -p 
+sudo sysctl -p
 ````
 
 <br>
@@ -234,13 +234,13 @@ The application will also POST event messages to a third party client (or log) f
 - High Source Errors Over Period of Time (threshold TBD/ms)
 ```
 
-And instead of building a full dashboard monitoring system, I've been looking at other open source services to have a nice interface for tracking the health of the systems and generated streams.  
+And instead of building a full dashboard monitoring system, I've been looking at other open source services to have a nice interface for tracking the health of the systems and generated streams.
 
 ### Troubleshooting
 
 There is nothing more frustrating when you clone an open source project off of GitHub and can't get it to compile or work!  I do my best to make sure everything works within the context of the resources I have available to me.  I am not doing nightly builds and do not have a complicated autotest framework.  I work on this in my spare time so it's possible something may slip by.   *If something doesn't work, then please reach out to me or post a bug in the "Issues" section.*  I know the instructions and setup scripts are a bit extensive and detailed, but if you follow them line by line they *do* work.
 
-I am currently using Winston to log messages back through the NodeJS interace.  Here is a sample of the logging information provided which is currently logged to /var/log/eventlog.log on the "Host" system.  I have not finalized this format because I'd like to add the docker container identifier to this along with some additional supporting data (like time of day, IP address, etc).  
+I am currently using Winston to log messages back through the NodeJS interace.  Here is a sample of the logging information provided which is currently logged to /var/log/eventlog.log on the "Host" system.  I have not finalized this format because I'd like to add the docker container identifier to this along with some additional supporting data (like time of day, IP address, etc).
 
 Some troubleshooting tips:
 1. You can run the webapp through the command line and see messages on the console:
@@ -258,7 +258,7 @@ sudo node server.js
 sudo tcpdump -n udp -i eth0
 this will quickly tell if you are receiving content
 
-or 
+or
 
 ffprobe udp://@:5000
 that'll quickly identify if something is on that port, etc.
@@ -268,12 +268,12 @@ that'll quickly identify if something is on that port, etc.
 
 ```
 Check inside /var/tmp/status for .lock files.  If the Docker container got out of sync from the webapp, then you may need to manaully delete the .lock file for the specific configuration you are having problems with.
-The configuration files are also stored in /var/www/configs.
+The configuration files are also stored in /var/tmp/configs.
 ```
 
 5. If you need to change a config setting....
 ```
-You can change config settings manually by editing the .json files in /var/www/configs
+You can change config settings manually by editing the .json files in /var/tmp/configs
 ```
 
 I suggest you be resourceful and try to debug things.  These types of systems are not always easy to setup.
@@ -344,7 +344,7 @@ I've been off doing other projects and have been meaning to come back to this pr
 (03/04/19) Project is still in active development.  I am still pushing for a v1.0 in the next couple of months.  I pushed up a small update today to clean up a few minor issues:
 
 - MPEG audio decoding
-- Fix for audio switching from 5.1 to 2.0 back to 5.1 during commercials.  This is working now, but the audio levels are quieter on these commercials so I am looking at the levels to see if the main downmix can be adjusted to match.  
+- Fix for audio switching from 5.1 to 2.0 back to 5.1 during commercials.  This is working now, but the audio levels are quieter on these commercials so I am looking at the levels to see if the main downmix can be adjusted to match.
 - Fixed a few small minor code issues (you could call this cleanup)
 
 (02/20/19) As I mentioned in earlier posts, the application is still in active development, but I am getting closer to a v1.0 release.  This most recent update has included some significant transcoding feature improvements.
@@ -361,7 +361,7 @@ I've been off doing other projects and have been meaning to come back to this pr
 
 And finally, I am also thinking of putting together a "Pro" version to help me fund the development of this project.  It'll be based on a reasonable yearly fee and provide access to an additional repository that contains a full NodeJS web interface, a more complete Docker integration, benchmarks, cloud deployment examples, deployment/installation scripts, priority support, fully documented API (along with scripts), SNMP traps, and active/passive failover support.
 
-But for those of you that don't wish to take advantage of things like support, the source code for the core application will remain available in the existing repository.  
+But for those of you that don't wish to take advantage of things like support, the source code for the core application will remain available in the existing repository.
 
 I also plan to start adapting this current solution over to file version after the v1.0 has been finished and released.
 
