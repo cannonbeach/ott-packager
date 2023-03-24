@@ -1,6 +1,6 @@
 # ott-streaming-packager
 
-![Optional Text](../master/images/mediagateway1.jpg)
+![Optional Text](../master/images/content_publishing_media_gateway_v2.jpg)
 
 OTT live streaming encoder and packager supporting ABR streaming for HLS and DASH
 
