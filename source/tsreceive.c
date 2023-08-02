@@ -156,6 +156,18 @@ void *udp_source_thread(void *context)
             goto _cleanup_udp_source_thread;
         }
 
+        if (no_signal_counter >= 3) {
+            if (udp_socket > 0) {
+                socket_udp_close(udp_socket);
+            }
+            udp_socket = socket_udp_open(core->fillet_video_input[source_count].interface,  // interface is the same for video and audio
+                                         udp_source_ipaddr,
+                                         udp_source_port,
+                                         mcast_flag, UDP_FLAG_INPUT, 1);
+            no_signal_counter = 0;
+            continue;
+        }
+
         anysignal = socket_udp_ready(udp_socket, timeout_ms, &sockset);
         if (anysignal == 0) {
             syslog(LOG_WARNING,"SESSION:%d (TSRECEIVE) WARNING: NO SOURCE SIGNAL PRESENT (SOCKET:%d) %s:%d:%s (%ld)\n",
