@@ -100,8 +100,9 @@ void *udp_source_thread(void *context)
     core->input_signal = 0;
     core->source_interruptions = 0;
 
-    fprintf(stderr,"SESSION:%d SOURCE:%d (TSRECEIVE) STATUS: SOURCE ADDRESS PROVIDED: %s\n",
-            core->session_id, source_count, udp_source_ipaddr);
+    fprintf(stderr,"SESSION:%d SOURCE:%d (TSRECEIVE) STATUS: SOURCE ADDRESS PROVIDED: %s  INTERFACE: %s\n",
+            core->session_id, source_count, udp_source_ipaddr,
+            core->fillet_video_input[source_count].interface);
 
     scanned = sscanf(udp_source_ipaddr,"%3d.%3d.%3d.%3d",
                      &num_ipaddr0,
@@ -160,7 +161,7 @@ void *udp_source_thread(void *context)
             if (udp_socket > 0) {
                 socket_udp_close(udp_socket);
             }
-            udp_socket = socket_udp_open(core->fillet_video_input[source_count].interface,  // interface is the same for video and audio
+            udp_socket = socket_udp_open(core->fillet_video_input[source_count-1].interface,  // interface is the same for video and audio
                                          udp_source_ipaddr,
                                          udp_source_port,
                                          mcast_flag, UDP_FLAG_INPUT, 1);
