@@ -1,5 +1,5 @@
 /*****************************************************************************
-  Copyright (C) 2018-2021 John William
+  Copyright (C) 2018-2023 John William
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -42,18 +42,15 @@ app.use(express.static('public'));
 const logfilename = '/var/log/eventlog.log';
 
 const logger = createLogger({
-    level: 'info',
-    format: format.combine(
-        format.json(),
-        format.timestamp()
-    ),
+//    format: format.combine(
+//        format.json(),
+//        format.timestamp()
+    //    ),
+    format: format.json(),
     transports: [
         new transports.File( {
-            level: 'info',
             filename: logfilename,
             json: true,
-            maxsize: 5242880,
-            maxFiles: 10,
             colorize: true
         })
     ]
@@ -81,7 +78,6 @@ function getNewestFile(dir, regexp) {
     newest = null;
     files = fs.readdirSync(dir)
     one_matched = 0
-
     for (i = 0; i < files.length; i++) {
         if (regexp.test(files[i]) == false) {
             continue;
@@ -192,21 +188,21 @@ app.get('/api/v1/system_information', (req, res) => {
             obj.totalmem = os.totalmem();
             obj.freemem = os.freemem();
 
-            console.log(gpudata);
+            //console.log(gpudata);
             gpucount = words.nvidia_smi_log.attached_gpus;
             gpudriver = words.nvidia_smi_log.driver_version;
 
-            console.log(gpucount);
-            console.log(gpudriver);
+            //console.log(gpucount);
+            //console.log(gpudriver);
             if (gpucount == 1) {
                 gpuname = words.nvidia_smi_log.gpu.product_name;
                 gpudecodeload = words.nvidia_smi_log.gpu.utilization.decoder_util;
                 gpuencodeload = words.nvidia_smi_log.gpu.utilization.encoder_util;
                 gpucudaload = words.nvidia_smi_log.gpu.utilization.gpu_util;
             }
-            console.log(gpudecodeload);
-            console.log(gpuencodeload);
-            console.log(gpucudaload);
+            //console.log(gpudecodeload);
+            //console.log(gpuencodeload);
+            //console.log(gpucudaload);
 
             obj.gpucount = gpucount;
             obj.gpudriver = gpudriver;
@@ -214,7 +210,7 @@ app.get('/api/v1/system_information', (req, res) => {
             obj.gpuencodeload = gpuencodeload;
             obj.gpucudaload = gpucudaload;
             retdata = JSON.stringify(obj);
-            console.log(retdata);
+            //console.log(retdata);
             res.send(retdata);
         }
     });
@@ -309,6 +305,98 @@ app.get('/api/v1/get_scan_data', (req, res) => {
     }
 });
 
+app.get('/api/v1/get_repackage_page', (req, res) => {
+    var html = '';
+
+    html += '<div class="row">';
+    html += '<div class="col-50">';
+    html += '<h2>Add A New Source For Stream Repackaging</h2>';
+    html += '<section class="configtable">';
+    html += '<table>';
+    html += '<thead>';
+    html += '<tr>';
+    html += '<th><div>Config Option</div></th>';
+    html += '<th><div>Config Information </div></th>';
+    html += '<th><div></div></th>';
+    html += '<th><div></div></th>';
+    html += '</tr>';
+    html += '</thead>';
+    html += '<tbody>';
+    html += '<tr>';
+    html += '<td>';
+    html += '<label>Channel Name</label>';
+    html += '</td>';
+    html += '<td>';
+    html += '<input type="text" id="repackage_sourcename" name="repackage_sourcename" placeholder="XYZ Sports Network"/>';
+    html += '</td>';
+    html += '</tr>';
+    html += '<tr>';
+    html += '<td>';
+    html += '<label>Video Sources</label>';
+    html += '</td>';
+    html += '<td>';
+    html += '<select id="repackage_videosources" onchange="update_videosources(this)">';
+    html += '<option value="1">1 Video Profile</option>';
+    html += '<option value="2">2 Video Profiles</option>';
+    html += '<option value="3">3 Video Profiles</option>';
+    html += '<option value="4">4 Video Profiles</option>';
+    html += '<option value="5">5 Video Profiles</option>';
+    html += '<option value="6">6 Video Profiles</option>';
+    html += '<option value="7">7 Video Profiles</option>';
+    html += '<option value="8">8 Video Profiles</option>';
+    html += '</select>';
+    html += '</td>';
+    html += '<td>';
+    html += '</td>';
+    html += '<td>';
+    html += '</td>';
+    html += '</tr>';
+    html += '<tr>';
+    html += '<td>';
+    html += '<label>Audio Sources</label>';
+    html += '</td>';
+    html += '<td>';
+    html += '<select id="repackage_audiosources">';
+    html += '<option value="1">1 Audio Profile</option>';
+    html += '<option value="2">2 Audio Profiles</option>';
+    html += '</select>';
+    html += '</td>';
+    html += '<td>';
+    html += '</td>';
+    html += '<td>';
+    html += '</td>';
+    html += '</tr>';
+    html += '<tr>';
+    html += '<td>';
+    html += '<label>Network Interface</label>';
+    html += '</td>';
+    html += '<td>';
+    html += '<select id="repackage_inputinterface">';
+
+    var parsedJSON = JSON.parse(JSON.stringify(networkInterfaces));
+    for (var prop in parsedJSON) {
+        if (parsedJSON.hasOwnProperty(prop)) {
+            html += '<option value='+prop+'>'+prop+'</option>';
+        }
+    }
+
+    html += '</select>';
+    html += '</td>';
+    html += '</tr>';
+    html += '</tbody>';
+    html += '</table>';
+    html += '</section>';
+    html += '</div>';
+    html += '</div>';
+
+    res.writeHead(200, {
+        'Content-Type': 'text/html',
+        'Content-Length': html.length,
+        'Expires': new Date().toUTCString()
+    });
+    res.end(html);
+});
+
 app.get('/api/v1/get_control_page', (req, res) => {
     var html = '';
     var i;
@@ -344,40 +432,78 @@ app.get('/api/v1/get_control_page', (req, res) => {
             listedfiles++;
             //console.log(listedfiles);
 
-            html += '<tr>';
-            html += '<td>' + configindex + '</td>';
-            html += '<td>' + words.sourcename + '</td>';
-            html += '<td>';
-            html += '<button style="width:95%" id=\'start_service'+configindex+'\'>Start </button><br>';
-            html += '<button style="width:95%" id=\'stop_service'+configindex+'\'>Stop </button><br>';
-            html += '<button hidden style="width:95%" id=\'reset_button'+configindex+'\'>Reset</button>';
-            html += '</td>';
-            html += '<td><div id=\'active'+configindex+'\'>';
-            html += '</div></td>';
-            html += '<td><div id=\'uptime'+configindex+'\'>';
-            html += '</div></td>';
-            html += '<td><div id=\'input'+configindex+'\'>';
-            html += '</div></td>';
-            html += '<td>';
-            html += '<table>';
-            html += '<tr>';
-            html += '<td><div id=\'output'+configindex+'\'></div></td>';
-            html += '</tr>';
-            html += '<tr>';
-            html += '<td><div id=\'event'+configindex+'\'></div></td>';
-            html += '</tr>';
-            html += '</table>';
-            html += '</td>';
-            html += '<td>';
-            html += '<button style="width:95%" id=\'log'+configindex+'\' type=\'log\'>Event<br>Log</button><br>';
-            //html += '<button style="width:95%" id=\'status'+configindex+'\' type=\'button\'>Detailed<br>Status</button><br>';
-            html += '<button style="width:95%" id=\'remove'+configindex+'\' type=\'remove\'>Remove<br>Service</button>';
-            html += '</td>';
-            html += '<td>';
-            html += '<img src=\'http://'+req.hostname+'/thumbnail'+fileprefix+'.jpg?='+ new Date().getTime() +'\' id=\'thumbnail'+fileprefix+'\'/>';
-            html += '</td>'
-            html += '<td><div id=\'statusinfo'+configindex+'\'></div></td>';
-            html += '</tr>';
+            if (words.filletmode == "transcode") {
+                html += '<tr>';
+                html += '<td>' + configindex + '</td>';
+                html += '<td>' + words.sourcename + '</td>';
+                html += '<td>';
+                html += '<button style="width:95%" id=\'start_service'+configindex+'\'>Start </button><br>';
+                html += '<button style="width:95%" id=\'stop_service'+configindex+'\'>Stop </button><br>';
+                html += '<button hidden style="width:95%" id=\'reset_button'+configindex+'\'>Reset</button>';
+                html += '</td>';
+                html += '<td><div id=\'active'+configindex+'\'>';
+                html += '</div></td>';
+                html += '<td><div id=\'uptime'+configindex+'\'>';
+                html += '</div></td>';
+                html += '<td><div id=\'input'+configindex+'\'>';
+                html += '</div></td>';
+                html += '<td>';
+                html += '<table>';
+                html += '<tr>';
+                html += '<td><div id=\'output'+configindex+'\'></div></td>';
+                html += '</tr>';
+                html += '<tr>';
+                html += '<td><div id=\'event'+configindex+'\'></div></td>';
+                html += '</tr>';
+                html += '</table>';
+                html += '</td>';
+                html += '<td>';
+                html += '<button style="width:95%" id=\'log'+configindex+'\' type=\'log\'>Event<br>Log</button><br>';
+                //html += '<button style="width:95%" id=\'status'+configindex+'\' type=\'button\'>Detailed<br>Status</button><br>';
+                html += '<button style="width:95%" id=\'remove'+configindex+'\' type=\'remove\'>Remove<br>Service</button>';
+                html += '</td>';
+                html += '<td>';
+                html += '<img src=\'http://'+req.hostname+'/thumbnail'+fileprefix+'.jpg?='+ new Date().getTime() +'\' id=\'thumbnail'+fileprefix+'\'/>';
+                html += '</td>'
+                html += '<td><div id=\'statusinfo'+configindex+'\'></div></td>';
+                html += '</tr>';
+            } else {
+                html += '<tr>';
+                html += '<td>' + configindex + '</td>';
+                html += '<td>' + words.sourcename + '</td>';
+                html += '<td>';
+                html += '<button style="width:95%" id=\'start_service'+configindex+'\'>Start </button><br>';
+                html += '<button style="width:95%" id=\'stop_service'+configindex+'\'>Stop </button><br>';
+                html += '<button hidden style="width:95%" id=\'reset_button'+configindex+'\'>Reset</button>';
+                html += '</td>';
+                html += '<td><div id=\'active'+configindex+'\'>';
+                html += '</div></td>';
+                html += '<td><div id=\'uptime'+configindex+'\'>';
+                html += '</div></td>';
+                html += '<td><div id=\'input'+configindex+'\'>';
+                html += '</div></td>';
+                html += '<td>';
+                html += '<table>';
+                html += '<tr>';
+                html += '<td><div id=\'output'+configindex+'\'></div></td>';
+                html += '</tr>';
+                html += '<tr>';
+                html += '<td><div id=\'event'+configindex+'\'></div></td>';
+                html += '</tr>';
+                html += '</table>';
+                html += '</td>';
+                html += '<td>';
+                html += '<button style="width:95%" id=\'log'+configindex+'\' type=\'log\'>Event<br>Log</button><br>';
+                //html += '<button style="width:95%" id=\'status'+configindex+'\' type=\'button\'>Detailed<br>Status</button><br>';
+                html += '<button style="width:95%" id=\'remove'+configindex+'\' type=\'remove\'>Remove<br>Service</button>';
+                html += '</td>';
+                html += '<td>';
+                html += '<label>No Thumbnail<br>Available<br>In Repackage Mode</label>';
+                //html += '<img src=\'http://'+req.hostname+'/thumbnail'+fileprefix+'.jpg?='+ new Date().getTime() +'\' id=\'thumbnail'+fileprefix+'\'/>';
+                html += '</td>'
+                html += '<td><div id=\'statusinfo'+configindex+'\'></div></td>';
+                html += '</tr>';
+            }
         }
     })
 
@@ -411,7 +537,8 @@ app.get('/api/v1/get_last_success/:uid', (req, res) => {
 app.get('/api/v1/get_event_log/:uid', (req, res) => {
     //console.log('received event log request: ', req.params.uid);
 
-    var newestlog = getNewestFile(logFolder, new RegExp('eventlog*.log'))
+    var newestlog = 'eventlog.log';
+    //getNewestFile(logFolder, new RegExp('eventlog.log'))
     console.log('newest log filename: ', newestlog);
 
     readLastLines.read(newestlog, 500)
@@ -687,7 +814,128 @@ app.post('/api/v1/start_service/:uid', (req, res) => {
                 }
 
                 if (operationmode === 'repackage') {
-                    //to be completed
+                    var videosources = words.videosources;
+                    var audiosources = words.audiosources;
+                    var output_dash_enable = '';
+                    if (words.enabledash === 'on') {
+                        output_dash_enable = '--dash';
+                    }
+                    var output_hls_enable = '';
+                    var output_scte35_enable = '';
+                    if (words.enablehls === 'on') {
+                        output_hls_enable = '--hls';
+                    }
+
+                    var manifest_string = '';
+                    var manifestdirectory;
+                    if (words.manifestdirectory === null || words.manifestdirectory === '' || !words.manifestdirectory) {
+                        manifestdirectory = apacheFolder+'/hls';
+                    } else {
+                        manifestdirectory = words.manifestdirectory;
+                    }
+                    var hlsmanifest;
+                    if (words.hlsmanifest === null || words.hlsmanifest === '' || !words.hlsmanifest) {
+                        hlsmanifest = 'master.m3u8';
+                    } else {
+                        hlsmanifest = words.hlsmanifest;
+                    }
+                    var fmp4manifest;
+                    if (words.fmp4manifest === null || words.fmp4manifest === '' || !words.fmp4manifest) {
+                        fmp4manifest = 'masterfmp4.m3u8';
+                    } else {
+                        fmp4manifest = words.fmp4manifest;
+                    }
+                    var dashmanifest;
+                    if (words.dashmanifest === null || words.dashmanifest === '' || !words.dashmanifest) {
+                        dashmanifest = 'master.mpd';
+                    } else {
+                        dashmanifest = words.dashmanifest;
+                    }
+
+                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet_repackage /usr/bin/fillet_repackage --vsources '+videosources+' --asources '+audiosources+' ';
+
+                    start_cmd += '--vip';
+                    if (videosources >= 1) {
+                        start_cmd += ' '+words.source_video1;
+                    }
+                    if (videosources >= 2) {
+                        start_cmd += ','+words.source_video2;
+                    }
+                    if (videosources >= 3) {
+                        start_cmd += ','+words.source_video3;
+                    }
+                    if (videosources >= 4) {
+                        start_cmd += ','+words.source_video4;
+                    }
+                    if (videosources >= 5) {
+                        start_cmd += ','+words.source_video5;
+                    }
+                    if (videosources >= 6) {
+                        start_cmd += ','+words.source_video6;
+                    }
+                    if (videosources >= 7) {
+                        start_cmd += ','+words.source_video7;
+                    }
+                    if (videosources >= 8) {
+                        start_cmd += ','+words.source_video8;
+                    }
+                    start_cmd += ' ';
+                    start_cmd += '--aip';
+                    if (audiosources >= 1) {
+                        start_cmd += ' '+words.source_audio1;
+                    }
+                    if (audiosources >= 2) {
+                        start_cmd += ','+words.source_audio2;
+                    }
+                    start_cmd += ' ';
+                    start_cmd += '--interface '+words.inputinterface;
+                    start_cmd += ' ';
+                    start_cmd += '--manifest '+manifestdirectory;
+                    start_cmd += ' ';
+                    start_cmd += '--identity '+fileprefix;
+                    start_cmd += ' ';
+
+                    start_cmd += output_hls_enable;
+                    // dash?
+                    start_cmd += ' ';
+
+                    manifest_string += '--manifest-hls '+hlsmanifest+' ';
+                    manifest_string += '--manifest-fmp4 '+fmp4manifest+' ';
+                    manifest_string += '--manifest-dash '+dashmanifest;
+
+                    start_cmd += manifest_string;
+
+// --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --gpu '+gpuselect+' --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 '+output_scte35_enable+' --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' '+output_hls_enable+' '+output_dash_enable+' --astreams '+astreams+' '+manifest_string;
+
+                    console.log('start command: ', start_cmd);
+
+                    responding = 1;
+                    exec(start_cmd, (err, stdout, stderr) => {
+                        if (err) {
+                            var retdata;
+                            var current_status = 'failed';
+
+                            console.log('Unable to run Docker');
+                            fs.unlinkSync(touchfile);
+                            obj = new Object();
+                            obj.status = current_status;
+                            retdata = JSON.stringify(obj);
+                            console.log(retdata);
+                            res.send(retdata);
+                        } else {
+                            var retdata;
+                            var current_status = 'success';
+
+                            console.log('Started Docker container');
+                            fs.unlinkSync(touchfile);
+
+                            obj = new Object();
+                            obj.status = current_status;
+                            retdata = JSON.stringify(obj);
+                            console.log(retdata);
+                            res.send(retdata);
+                        }
+                    });
                 }
 
                 if (operationmode === 'transcode') {
@@ -797,7 +1045,7 @@ app.post('/api/v1/start_service/:uid', (req, res) => {
 
                     // enablestereo on by default for now
                     // aspect not currently set
-                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' '+gpu_mapping+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet /usr/bin/fillet --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --gpu '+gpuselect+' --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 '+output_scte35_enable+' --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' '+output_hls_enable+' '+output_dash_enable+' --astreams '+astreams+' '+manifest_string;
+                    var start_cmd = 'sudo docker run -itd --net=host --name livestream'+fileprefix+' --restart=unless-stopped --log-opt max-size=25m -v /var/tmp:/var/tmp -v '+configFolder+':'+configFolder+' -v '+statusFolder+':'+statusFolder+' '+gpu_mapping+' -v '+manifestdirectory+':'+manifestdirectory+' -v '+apacheFolder+':'+apacheFolder+' dockerfillet_transcode /usr/bin/fillet_transcode --sources 1 --window '+words.windowsize+' --segment '+words.segmentsize+' --transcode --gpu '+gpuselect+' --outputs '+output_count+' --vcodec '+codec+' --resolutions '+resolution_string+' --vrate '+bitrate_string+' --acodec aac --arate '+words.audiobitrate+' --aspect 16:9 '+output_scte35_enable+' --quality '+words.videoquality+' --stereo --ip '+words.ipaddr_primary+' --interface '+words.inputinterface1+' --manifest '+manifestdirectory+' --select '+selectedstream1+' --identity '+fileprefix+' '+output_hls_enable+' '+output_dash_enable+' --astreams '+astreams+' '+manifest_string;
 
                     console.log('start command: ', start_cmd);
 
@@ -1048,6 +1296,13 @@ function output_stream(height, width, video_bitrate) {
     this.video_bitrate = video_bitrate;
 }
 
+function input_stream(ip, port, input_interface, bitrate) {
+    this.ip = ip;
+    this.port = port;
+    this.input_interface = input_interface;
+    this.bitrate = bitrate;
+}
+
 app.get('/api/v1/get_service_status/:uid', (req, res) => {
     console.log('getting signal status: ', req.params.uid);
 
@@ -1081,61 +1336,100 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             obj = new Object();
                             var retdata;
                             var current_output;
+                            var current_input;
 
                             uptime = words.data.system.uptime;
                             obj.uptime = uptime;
-                            obj.input_signal = words.data.system["input-signal"];
-                            obj.input_interface = words.data.source["interface"];
-                            obj.source_ip = words.data.source.stream0["source-ip"];
-                            obj.stream_select = words.data.source["stream-select"];
-                            obj.source_width = words.data.source.width;
-                            obj.source_height = words.data.source.height;
-                            obj.fpsnum = words.data.source.fpsnum;
-                            obj.fpsden = words.data.source.fpsden;
-                            obj.aspectnum = words.data.source.aspectnum;
-                            obj.aspectden = words.data.source.aspectden;
-                            obj.videomediatype = words.data.source.videomediatype;
-                            obj.audiomediatype0 = words.data.source.audiomediatype0;
-                            obj.audiomediatype1 = words.data.source.audiomediatype1;
-                            obj.audiochannelsinput0 = words.data.source.audiochannelsinput0;
-                            obj.audiochannelsinput1 = words.data.source.audiochannelsinput1;
-                            obj.audiochannelsoutput0 = words.data.source.audiochannelsoutput0;
-                            obj.audiochannelsoutput1 = words.data.source.audiochannelsoutput1;
-                            obj.audiosamplerate0 = words.data.source.audiosamplerate0;
-                            obj.audiosamplerate1 = words.data.source.audiosamplerate1;
+                            if (words.data.system["transcoding"] == 0) {
+                                obj.filletmode = "repackage";
 
-                            obj.gpu = words.data.system["gpu"];
+                                var vstreams = [];
+                                var astreams = [];
+                                var input_interface;
+
+                                for (current_input = 0; current_input < words.data.vstreams.length; current_input++) {
+                                    var ip = words.data.vstreams[current_input]["source-ip"];
+                                    var port = words.data.vstreams[current_input]["port"];
+                                    var local_input_interface = words.data.vstreams[current_input]["interface"];
+                                    var bitrate = words.data.vstreams[current_input]["bitrate"];
+                                    var istream = new input_stream(ip, port, local_input_interface, bitrate);
+                                    vstreams.push(istream);
+                                }
+                                obj.vstreams = vstreams;
+
+                                for (current_input = 0; current_input < words.data.astreams.length; current_input++) {
+                                    var ip = words.data.astreams[current_input]["source-ip"];
+                                    var port = words.data.astreams[current_input]["port"];
+                                    var local_input_interface = words.data.astreams[current_input]["interface"];
+                                    var bitrate = words.data.astreams[current_input]["bitrate"];
+                                    var istream = new input_stream(ip, port, local_input_interface, bitrate);
+                                    astreams.push(istream);
+                                }
+                                obj.astreams = astreams;
+
+                                obj.input_interface = local_input_interface;
+
+                                obj.video_synchronizer_entries = words.data.system["video-synchronizer-entries"];
+                                obj.audio_synchronizer_entries = words.data.system["audio-synchronizer-entries"];
+                                obj.current_video_time = words.data.system["current-video-time"];
+                                obj.current_audio_time = words.data.system["current-audio-time"];
+                            } else {
+                                obj.filletmode = "transcode";
+                                obj.input_interface = words.data.source["interface"];
+                                obj.source_ip = words.data.source.stream0["source-ip"];
+                                obj.stream_select = words.data.source["stream-select"];
+                                obj.source_width = words.data.source.width;
+                                obj.source_height = words.data.source.height;
+                                obj.fpsnum = words.data.source.fpsnum;
+                                obj.fpsden = words.data.source.fpsden;
+                                obj.aspectnum = words.data.source.aspectnum;
+                                obj.aspectden = words.data.source.aspectden;
+                                obj.videomediatype = words.data.source.videomediatype;
+                                obj.audiomediatype0 = words.data.source.audiomediatype0;
+                                obj.audiomediatype1 = words.data.source.audiomediatype1;
+                                obj.audiochannelsinput0 = words.data.source.audiochannelsinput0;
+                                obj.audiochannelsinput1 = words.data.source.audiochannelsinput1;
+                                obj.audiochannelsoutput0 = words.data.source.audiochannelsoutput0;
+                                obj.audiochannelsoutput1 = words.data.source.audiochannelsoutput1;
+                                obj.audiosamplerate0 = words.data.source.audiosamplerate0;
+                                obj.audiosamplerate1 = words.data.source.audiosamplerate1;
+                                obj.gpu = words.data.system["gpu"];
+                                obj.video_codec = words.data.system.codec;
+                                obj.video_profile = words.data.system.profile;
+                                obj.video_quality = words.data.system.quality;
+                                obj.latency = words.data.system.latency;
+
+                                obj.outputs = words.data.output.outputs;
+
+                                var streams = [];
+                                for (current_output = 0; current_output < words.data.output.outputs; current_output++) {
+                                    var outputstream = 'stream'+current_output;
+                                    var height = words.data.output[outputstream]["output-height"];
+                                    var width = words.data.output[outputstream]["output-width"];
+                                    var video_bitrate = words.data.output[outputstream]["video-bitrate"];
+
+                                    var ostream = new output_stream(height, width, video_bitrate);
+                                    streams.push(ostream);
+                                }
+
+                                obj.output_streams = streams;
+                                obj.video_bitrate = words.data.source.stream0["video-bitrate"];
+                                obj.video_frames = words.data.source.stream0["video-received-frames"];
+                            }
+
+                            obj.input_signal = words.data.system["input-signal"];
+
                             obj.window_size = words.data.system["window-size"];
                             obj.segment_length = words.data.system["segment-length"];
                             obj.hls_active = words.data.system["hls-active"];
                             obj.dash_active = words.data.system["dash-fmp4-active"];
-                            obj.video_codec = words.data.system.codec;
-                            obj.video_profile = words.data.system.profile;
-                            obj.video_quality = words.data.system.quality;
-                            obj.latency = words.data.system.latency;
 
                             obj.source_interruptions = words.data.system["source-interruptions"];
                             obj.source_errors = words.data.system["source-errors"];
                             obj.error_count = words.data.system.error_count;
                             obj.transcoding = words.data.system.transcoding;
                             obj.scte35 = words.data.system.scte35;
-                            obj.video_bitrate = words.data.source.stream0["video-bitrate"];
-                            obj.video_frames = words.data.source.stream0["video-received-frames"];
 
-                            obj.outputs = words.data.output.outputs;
-
-                            var streams = [];
-                            for (current_output = 0; current_output < words.data.output.outputs; current_output++) {
-                                var outputstream = 'stream'+current_output;
-                                var height = words.data.output[outputstream]["output-height"];
-                                var width = words.data.output[outputstream]["output-width"];
-                                var video_bitrate = words.data.output[outputstream]["video-bitrate"];
-
-                                var ostream = new output_stream(height, width, video_bitrate);
-                                streams.push(ostream);
-                            }
-
-                            obj.output_streams = streams;
                             retdata = JSON.stringify(obj);
 
                             //console.log(retdata);
@@ -1156,47 +1450,65 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             var current_output;
 
                             uptime = -1;
+                            obj.filletmode = words.filletmode;
                             obj.uptime = uptime;
                             obj.input_signal = 0;
-                            obj.input_interface = words.inputinterface1;
-                            obj.source_ip = words.ipaddr_primary;
-                            //console.log('interface:',words.inputinterface1);
-                            //console.log('ipaddr_primary:',words.ipaddr_primary);
-                            obj.source_width = 0;
-                            obj.source_height = 0;
-                            obj.fpsnum = 0;
-                            obj.fpsden = 0;
-                            obj.aspectnum = 0;
-                            obj.aspectden = 0;
-                            obj.videomediatype = 0;
-                            obj.audiomediatype0 = 0;
-                            obj.audiomediatype1 = 0;
-                            obj.audiochannelsinput0 = 0;
-                            obj.audiochannelsinput1 = 0;
-                            obj.audiochannelsoutput0 = 0;
-                            obj.audiochannelsoutput1 = 0;
-                            obj.audiosamplerate0 = 48000;
-                            obj.audiosamplerate1 = 0;
-                            obj.gpu = 0;
-
-                            obj.window_size = words.windowsize;
-                            obj.segment_length = words.segmentsize;
-                            obj.hls_active = 0;//words.data.system["hls-active"];
-                            obj.dash_active = 0;//words.data.system["dash-fmp4-active"];
-                            obj.video_codec = 0;//words.data.system.codec;
-                            obj.video_profile = 0;//words.data.system.profile;
-                            obj.video_quality = 0;//words.data.system.quality;
-
-                            obj.stream_select = 0;
-                            obj.source_interruptions = 0;//words.data.system["source-interruptions"];
-                            obj.source_errors = 0;//words.data.system["source-errors"];
-                            obj.error_count = 0;//words.data.system.error_count;
-                            obj.transcoding = 1;//words.data.system.transcoding;
-                            obj.scte35 = 0;//words.data.system.scte35;
-                            obj.video_bitrate = 0;//words.data.source.stream0["video-bitrate"];
-                            obj.video_frames = 0;//words.data.source.stream0["video-received-frames"];
-
-                            obj.outputs = 0;//words.data.output.outputs;
+                            if (words.filletmode == "transcode") {
+                                obj.input_interface = words.inputinterface1;
+                                obj.source_ip = words.ipaddr_primary;
+                                obj.source_width = 0;
+                                obj.source_height = 0;
+                                obj.fpsnum = 0;
+                                obj.fpsden = 0;
+                                obj.aspectnum = 0;
+                                obj.aspectden = 0;
+                                obj.videomediatype = 0;
+                                obj.audiomediatype0 = 0;
+                                obj.audiomediatype1 = 0;
+                                obj.audiochannelsinput0 = 0;
+                                obj.audiochannelsinput1 = 0;
+                                obj.audiochannelsoutput0 = 0;
+                                obj.audiochannelsoutput1 = 0;
+                                obj.audiosamplerate0 = 48000;
+                                obj.audiosamplerate1 = 0;
+                                obj.gpu = 0;
+                                obj.window_size = words.windowsize;
+                                obj.segment_length = words.segmentsize;
+                                obj.hls_active = 0;//words.data.system["hls-active"];
+                                obj.dash_active = 0;//words.data.system["dash-fmp4-active"];
+                                obj.video_codec = 0;//words.data.system.codec;
+                                obj.video_profile = 0;//words.data.system.profile;
+                                obj.video_quality = 0;//words.data.system.quality;
+                                obj.stream_select = 0;
+                                obj.source_interruptions = 0;//words.data.system["source-interruptions"];
+                                obj.source_errors = 0;//words.data.system["source-errors"];
+                                obj.error_count = 0;//words.data.system.error_count;
+                                obj.transcoding = 1;//words.data.system.transcoding;
+                                obj.scte35 = 0;//words.data.system.scte35;
+                                obj.video_bitrate = 0;//words.data.source.stream0["video-bitrate"];
+                                obj.video_frames = 0;//words.data.source.stream0["video-received-frames"];
+                                obj.outputs = 0;//words.data.output.outputs;
+                            } else {
+                                obj.input_interface = words.inputinterface;
+                                obj.videosources = words.videosources;
+                                obj.audiosources = words.audiosources;
+                                obj.repackage_source_video1 = words.source_video1;
+                                obj.repackage_source_video2 = words.source_video2;
+                                obj.repackage_source_video3 = words.source_video3;
+                                obj.repackage_source_video4 = words.source_video4;
+                                obj.repackage_source_video5 = words.source_video5;
+                                obj.repackage_source_video6 = words.source_video6;
+                                obj.repackage_source_video7 = words.source_video7;
+                                obj.repackage_source_video8 = words.source_video8;
+                                obj.repackage_source_audio1 = words.source_audio1;
+                                obj.repackage_source_audio2 = words.source_audio2;
+                                obj.hls_active = words.enablehls;
+                                obj.dash_active = words.enabledash;
+                                obj.window_size = words.windowsize;
+                                obj.segment_length = words.segmentsize;
+                                obj.scte35 = words.enablescte35;
+                                obj.outputs = 0;
+                            }
 
                             /*
                             var streams = [];

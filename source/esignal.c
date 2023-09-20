@@ -37,9 +37,7 @@
 #include "fillet.h"
 #include "dataqueue.h"
 #include "esignal.h"
-#if defined(ENABLE_TRANSCODE)
 #include "curl.h"
-#endif
 
 #define MAX_SIGNAL_RESPONSE_SIZE 1024
 #define MAX_FORMATTED_TIME 128
@@ -86,8 +84,6 @@ int stop_signal_thread(fillet_app_struct *core)
     free(error_buffer);
     return 0;
 }
-
-#if defined(ENABLE_TRANSCODE)
 
 int send_signal(fillet_app_struct *core, int signal_type, const char *message)
 {
@@ -184,7 +180,7 @@ int send_direct_error(fillet_app_struct *core, int signal_type, const char *mess
 
     snprintf(error_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
              "{\n"
-             "    \"time\": \"%s\",\n"
+             "    \"accesstime\": \"%s\",\n"
              "    \"host\": \"%s\",\n"
              "    \"id\": %ld,\n"
              "    \"status\": \"fatal error\",\n"
@@ -234,7 +230,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_START_SERVICE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
@@ -248,7 +244,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_STOP_SERVICE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
@@ -262,7 +258,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_NO_INPUT_SIGNAL) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
@@ -281,7 +277,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_SCTE35_START) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
@@ -295,7 +291,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_SCTE35_END) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
@@ -309,7 +305,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_SEGMENT_PUBLISHED) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
@@ -323,7 +319,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_SEGMENT_FAILED) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"error\",\n"
@@ -337,7 +333,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_HIGH_CPU) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
@@ -351,7 +347,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_LOW_DISK_SPACE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
@@ -365,7 +361,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_INPUT_SIGNAL_LOCKED) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
@@ -381,12 +377,12 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_SEGMENT_WRITTEN) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"segment written\",\n"
-                         "    \"filename\": \"%s\"\n"
+                         "    \"segment\": \"%s\"\n"
                          "}\n",
                          formattedtime,
                          node_hostname,
@@ -397,12 +393,12 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_MANIFEST_WRITTEN) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"manifest written\",\n"
-                         "    \"filename\": \"%s\"\n"
+                         "    \"segment\": \"%s\"\n"
                          "}\n",
                          formattedtime,
                          node_hostname,
@@ -413,7 +409,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_FRAME_REPEAT) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
@@ -428,7 +424,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_INSERT_SILENCE) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
@@ -443,7 +439,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_DROP_AUDIO) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"warning\",\n"
@@ -458,7 +454,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_DECODE_ERROR) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"error\",\n"
@@ -473,7 +469,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_ENCODE_ERROR) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"error\",\n"
@@ -488,7 +484,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_PARSE_ERROR) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"error\",\n"
@@ -503,7 +499,7 @@ void *signal_thread(void *context)
             if (buffer_type == SIGNAL_MALFORMED_DATA) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"
-                         "    \"time\": \"%s\",\n"
+                         "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"error\",\n"
@@ -522,21 +518,3 @@ void *signal_thread(void *context)
 
     return NULL;
 }
-#endif // ENABLE_TRANSCODE
-
-#if !defined(ENABLE_TRANSCODE)
-void *signal_thread(void *context)
-{
-    return NULL;
-}
-
-int send_signal(fillet_app_struct *core, int signal_type, const char *message)
-{
-    return 0;
-}
-
-int send_direct_error(fillet_app_struct *core, int signal_type, const char *message)
-{
-    return 0;
-}
-#endif // !ENABLE_TRANSCODE

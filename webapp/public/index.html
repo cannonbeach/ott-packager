@@ -362,7 +362,7 @@ img {
             <td>
               <button id='repackage_button'>New Repackage Service</button>
             </td>
-<!--	    
+<!--
             <td>
               <button id='backup_button'>Backup Services</button>
             </td>
@@ -370,7 +370,7 @@ img {
               <button id='reload_button'>Restore Services</button>
             </td>
 -->
-<!--	    
+<!--
             <td>
               <button id='download_button'>Download Logs</button>
             </td>
@@ -410,192 +410,265 @@ img {
 
 <div class="row" id="newrepackagesourcepage">
   <div class="col-75">
-    <div class="container">
+    <div class="container" id="repackagetable">
+            <script>
+            fetch('/api/v1/get_repackage_page',{method: 'GET'})
+            .then(response => {
+                if (response.ok) {
+                    return response.text();
+                } else {
+                    return Promise.reject('something went wrong!');
+                }
+            })
+            .then(data => {
+                document.getElementById("repackagetable").innerHTML = data;
+            })
+            </script>
+    </div>
+    <div class="container" id="repackagetable_data">
       <div class="row">
         <div class="col-50">
-          <h2>Add A New Source For Stream Repackaging</h2>
-
+          <h2>Packaging Options</h2>
           <section class="configtable">
             <table>
               <thead>
                 <tr>
-                  <th><div></div></th>
-                  <th><div>Source Information </div></th>
-                  <th><div>Network Interface</div></th>
-                  <th><div>Information</div></th>
+                  <th><div>Config Option</div></th>
+                  <th><div>Config Information</div></th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
                   <td>
-                    <label>Channel Name</label>
+                    <label>Enable HLS Output (Transport Stream w/m3u8 Manifest)</label>
                   </td>
                   <td>
-                    <input type="text" id="repackage_sourcename" name="repackage_sourcename" placeholder="XYZ Sports Network"/>
+                    <input type="checkbox" checked="checked" id="repackage_enablehls" name="repackage_enablehls"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Enable DASH/fMP4 Output (MP4 w/MPD And m3u8 Manifest)</label>
+                  </td>
+                  <td>
+                    <input type="checkbox" checked="checked" id="repackage_enabledash" name="repackage_enabledash"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Manifest Window Size (segments)</label>
+                  </td>
+                  <td>
+                    <input type="text" style="width:20%" id="repackage_windowsize" name="repackage_windowsize" placeholder="20"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Target Segment Size (seconds)</label>
+                  </td>
+                  <td>
+                    <input type="text" style="width:20%" id="repackage_segmentsize" name="repackage_segmentsize" placeholder="2"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Enable SCTE35 Passthrough (HLS Only)</label>
+                  </td>
+                  <td>
+                    <input type="checkbox" checked="checked" id="repackage_enablescte35" name="repackage_enablescte35"/>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-50">
+          <h2>Video Sources</h2>
+          <section class="configtable">
+            <table>
+              <thead>
+                <tr>
+                  <th><div>Video Source Description</div></th>
+                  <th><div>IP:PORT Information</div></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <label>Video Profile 1 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video1" name="repackage_source_video1" placeholder="239.192.10.10:6001"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 2 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video2" name="repackage_source_video2" placeholder="239.192.10.10:6002"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 3 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video3" name="repackage_source_video3" placeholder="239.192.10.10:6003"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 4 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video4" name="repackage_source_video4" placeholder="239.192.10.10:6004"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 5 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video5" name="repackage_source_video5" placeholder="239.192.10.10:6005"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 6 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video6" name="repackage_source_video6" placeholder="239.192.10.10:6006"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 7 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video7" name="repackage_source_video7" placeholder="239.192.10.10:6007"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Video Profile 8 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_video8" name="repackage_source_video8" placeholder="239.192.10.10:6008"/>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-50">
+          <h2>Audio Sources</h2>
+          <section class="configtable">
+            <table>
+              <thead>
+                <tr>
+                  <th><div>Audio Source Description</div></th>
+                  <th><div>IP:PORT Information</div></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <label>Audio Profile 1 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_audio1" name="repackage_source_audio1" placeholder="239.192.10.10:6001"/>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label>Audio Profile 2 IP Source</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_source_audio2" name="repackage_source_audio1" placeholder="239.192.10.10:6002"/>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-50">
+          <h2>CDN Options</h2>
+          <section class="configtable">
+            <table>
+              <thead>
+                <tr>
+                  <th><div>Config Option</div></th>
+                  <th><div>Config Information</div></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <label>Manifest Directory (location on the server)</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_manifestdirectory" name="repackage_manifestdirectory" placeholder="/var/www/html/hls"/>
                   </td>
                 </tr>
 
                 <tr>
                   <td>
-                    <label>UDP Source IP:PORT</label>
+                    <label>HLS Manifest Filename (TS)</label>
                   </td>
                   <td>
-                    <input type="text" id="repackage_ipaddr1" name="repackage_ipaddress1" placeholder="239.192.10.10:6000"/>
-                  </td>
-                  <td>
-                    <select id="repackage_inputinterface1">
-                      <script>
-                        fetch('/api/v1/get_interfaces',{method: 'GET'})
-                            .then(response => {
-                            if (response.ok) {
-                                return response.json()
-                            } else {
-                                return Promise.reject('something went wrong!')
-                            }
-                        })
-                        .then(data => {
-                            console.log('data is', data);
-
-                            var parsedJSON = JSON.parse(JSON.stringify(data));
-                            select = document.getElementById('repackage_inputinterface1');
-                            for (var prop in parsedJSON) {
-                                if (parsedJSON.hasOwnProperty(prop)) {
-                                    console.log("prop: " + prop);
-                                    var opt = document.createElement('option');
-                                    opt.value = prop;
-                                    opt.innerHTML = prop;
-                                    select.appendChild(opt);
-                                }
-                            }
-                        })
-                      </script>
-                    </select>
-                  </td>
-                  <td>
-                    <label id="scan_label1" style="visibility:hidden">Scanning...</label>
+                    <input type="text" id="repackage_hlsmanifest" name="repackage_hlsmanifest" placeholder="master.m3u8"/>
                   </td>
                 </tr>
 
                 <tr>
                   <td>
-                    <label>UDP Source IP:PORT</label>
+                    <label>HLS Manifest Filename (Fragmented MP4)</label>
                   </td>
                   <td>
-                    <input type="text" id="repackage_ipaddr2" name="repackage_ipaddress2" placeholder="239.192.10.10:7000"/>
-                  </td>
-                  <td>
-                    <select id="repackage_inputinterface2">
-                      <script>
-                        fetch('/api/v1/get_interfaces',{method: 'GET'})
-                            .then(response => {
-                            if (response.ok) {
-                                return response.json()
-                            } else {
-                                return Promise.reject('something went wrong!')
-                            }
-                        })
-                        .then(data => {
-                            console.log('data is', data);
-
-                            var parsedJSON = JSON.parse(JSON.stringify(data));
-                            select = document.getElementById('repackage_inputinterface2');
-                            for (var prop in parsedJSON) {
-                                if (parsedJSON.hasOwnProperty(prop)) {
-                                    console.log("prop: " + prop);
-                                    var opt = document.createElement('option');
-                                    opt.value = prop;
-                                    opt.innerHTML = prop;
-                                    select.appendChild(opt);
-                                }
-                            }
-                        })
-                      </script>
-                    </select>
-                  </td>
-                  <td>
-                    <label id="scan_label2" style="visibility:hidden">Scanning...</label>
+                    <input type="text" id="repackage_fmp4manifest" name="repackage_fmp4manifest" placeholder="fmp4.m3u8"/>
                   </td>
                 </tr>
 
                 <tr>
                   <td>
-                    <label>UDP Source IP:PORT</label>
+                    <label>DASH Manifest Filename</label>
                   </td>
                   <td>
-                    <input type="text" id="repackage_ipaddr3" name="repackage_ipaddress3" placeholder="239.192.10.10:8000"/>
-                  </td>
-                  <td>
-                    <select id="repackage_inputinterface3">
-                      <script>
-                        fetch('/api/v1/get_interfaces',{method: 'GET'})
-                            .then(response => {
-                            if (response.ok) {
-                                return response.json()
-                            } else {
-                                return Promise.reject('something went wrong!')
-                            }
-                        })
-                        .then(data => {
-                            console.log('data is', data);
-
-                            var parsedJSON = JSON.parse(JSON.stringify(data));
-                            select = document.getElementById('repackage_inputinterface3');
-                            for (var prop in parsedJSON) {
-                                if (parsedJSON.hasOwnProperty(prop)) {
-                                    console.log("prop: " + prop);
-                                    var opt = document.createElement('option');
-                                    opt.value = prop;
-                                    opt.innerHTML = prop;
-                                    select.appendChild(opt);
-                                }
-                            }
-                        })
-                      </script>
-                    </select>
-                  </td>
-                  <td>
-                    <label id="scan_label3" style="visibility:hidden">Scanning...</label>
+                    <input type="text" id="repackage_dashmanifest" name="repackage_dashmanifest" placeholder="master.mpd"/>
                   </td>
                 </tr>
 
                 <tr>
                   <td>
-                    <label>UDP Source IP:PORT</label>
+                    <label>CDN Publishing Point (leave blank if none)</label>
                   </td>
                   <td>
-                    <input type="text" id="repackage_ipaddr4" name="repackage_ipaddress4" placeholder="239.192.10.10:9000"/>
+                    <input type="text" id="repackage_publishpoint1" name="repackage_publishpoint1" placeholder="http://www.mycdn.com/publishname">
                   </td>
-                  <td>
-                    <select id="repackage_inputinterface4">
-                      <script>
-                        fetch('/api/v1/get_interfaces',{method: 'GET'})
-                            .then(response => {
-                            if (response.ok) {
-                                return response.json()
-                            } else {
-                                return Promise.reject('something went wrong!')
-                            }
-                        })
-                        .then(data => {
-                            console.log('data is', data);
+                </tr>
 
-                            var parsedJSON = JSON.parse(JSON.stringify(data));
-                            select = document.getElementById('repackage_inputinterface4');
-                            for (var prop in parsedJSON) {
-                                if (parsedJSON.hasOwnProperty(prop)) {
-                                    console.log("prop: " + prop);
-                                    var opt = document.createElement('option');
-                                    opt.value = prop;
-                                    opt.innerHTML = prop;
-                                    select.appendChild(opt);
-                                }
-                            }
-                        })
-                      </script>
-                    </select>
+                <tr>
+                  <td>
+                    <label>CDN Username</label>
                   </td>
                   <td>
-                    <label id="scan_label3" style="visibility:hidden">Scanning...</label>
+                    <input type="text" id="repackage_cdnusername1" name="repackage_cdnusername1" placeholder="cdnuser">
+                  </td>
+                </tr>
+
+                <tr>
+                  <td>
+                    <label>CDN Password</label>
+                  </td>
+                  <td>
+                    <input type="text" id="repackage_cdnpassword1" name="repackage_cdnpassword1" placeholder="password">
                   </td>
                 </tr>
 
@@ -605,7 +678,6 @@ img {
         </div>
       </div>
     </div>
-    <button id='scan_button_repackage' class="btnblue">Scan Sources</button>
     <button id='submit_button_repackage' class="btngreen">Submit New Source</button>
     <button id='abort_button_repackage' class="btnred">Abort</button>
   </div>
@@ -770,6 +842,7 @@ img {
                   <td>
                     <input type="checkbox" checked="checked" id="enablehls" name="enablehls"/>
                   </td>
+                </tr>
 
                 <tr>
                   <td>
@@ -839,7 +912,7 @@ img {
                   </td>
                   <td>
                     <select id="gpuselect">
-		      <option value="-1">Default</option>
+                      <option value="-1">Default</option>
                       <option value="0">0</option>
                       <option value="1">1</option>
                       <option value="2">2</option>

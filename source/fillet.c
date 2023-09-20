@@ -1446,6 +1446,9 @@ static void *frame_sync_thread(void *context)
                     pthread_mutex_lock(&sync_lock);
                     audio_synchronizer_entries = use_frame(core, core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
                     pthread_mutex_unlock(&sync_lock);
+                    core->info.audio_synchronizer_entries = audio_synchronizer_entries;
+                    core->info.current_audio_time = current_audio_time;
+
                     if (output_frame) {
                         dataqueue_message_struct *msg;
                         msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
@@ -1466,6 +1469,7 @@ static void *frame_sync_thread(void *context)
                     }
                 }
             } else {
+                /*
                 fprintf(stderr,"NOT GRABBING AUDIO: DELTA:%ld (CVT:%ld CAT:%ld) AS:%d ASE:%d VSE:%d\n",
                         current_video_time - current_audio_time,
                         current_video_time,
@@ -1473,6 +1477,7 @@ static void *frame_sync_thread(void *context)
                         active_video_sources,
                         audio_synchronizer_entries,
                         video_synchronizer_entries);
+                */
                 first_grab = 0;
 
                 no_grab++;
@@ -1491,6 +1496,9 @@ static void *frame_sync_thread(void *context)
                 pthread_mutex_lock(&sync_lock);
                 video_synchronizer_entries = use_frame(core, core->video_frame_data, video_synchronizer_entries, 0, &current_video_time, first_grab, &output_frame);
                 pthread_mutex_unlock(&sync_lock);
+
+                core->info.video_synchronizer_entries = video_synchronizer_entries;
+                core->info.current_video_time = current_video_time;
 
                 if (output_frame) {
                     dataqueue_message_struct *msg;
@@ -2376,6 +2384,8 @@ int main(int argc, char **argv)
 
          start_signal_thread(core);
 
+         fprintf(stderr,"FILLET: Active video sources: %d\n", config_data.active_video_sources);
+
          for (i = 0; i < config_data.active_video_sources; i++) {
              struct in_addr addr;
              snprintf(core->fillet_video_input[i].interface,UDP_MAX_IFNAME-1,"%s",config_data.active_interface);
@@ -2394,6 +2404,9 @@ int main(int argc, char **argv)
              core->fillet_video_input[i].udp_source_port = config_data.active_video_source[i].active_port;
          }
 #if !defined(ENABLE_TRANSCODE)
+
+         fprintf(stderr,"FILLET: Active audio sources: %d\n", config_data.active_audio_sources);
+
          for (i = 0; i < config_data.active_audio_sources; i++) {
              struct in_addr addr;
 
@@ -2431,6 +2444,7 @@ int main(int argc, char **argv)
              video_udp->source_index = i;
              snprintf(video_udp->udp_source_ipaddr, MAX_STR_SIZE-1, "%s", core->fillet_video_input[i].udp_source_ipaddr);
              video_udp->udp_source_port = core->fillet_video_input[i].udp_source_port;
+             fprintf(stderr,"starting video udp_source_thread: %d\n", i);
              pthread_create(&core->source_video_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)video_udp);
          }
 #if !defined(ENABLE_TRANSCODE)
@@ -2441,15 +2455,18 @@ int main(int argc, char **argv)
              audio_udp->source_index = i;
              snprintf(audio_udp->udp_source_ipaddr, MAX_STR_SIZE-1, "%s", core->fillet_audio_input[i].udp_source_ipaddr);
              audio_udp->udp_source_port = core->fillet_audio_input[i].udp_source_port;
+             fprintf(stderr,"starting audio udp_source_thread: %d\n", i);
              pthread_create(&core->source_audio_stream[i].udp_source_thread_id, NULL, udp_source_thread, (void*)audio_udp);
          }
 #endif
 
-#if defined(ENABLE_TRANSCODE)
          pthread_create(&client_thread_id, NULL, status_thread, (void*)core);
-#else
+
+         /*#if defined(ENABLE_TRANSCODE)
+         pthread_create(&client_thread_id, NULL, status_thread, (void*)core);
+         #else
          pthread_create(&client_thread_id, NULL, client_thread, (void*)core);
-#endif
+         #endif*/
          while (core->source_running) {
              if (quit_sync_thread) {
                  while (sync_thread_running) {
@@ -2617,7 +2634,7 @@ int main(int argc, char **argv)
                  //fprintf(stderr,"SESSION: %d (MAIN) STATUS: NO MESSAGE TO PROCESS\n", core->session_id);
              }
          }
-         pthread_join(client_thread_id, NULL);
+         //pthread_join(client_thread_id, NULL);
 
 cleanup_main_app:
          stop_webdav_threads(core);

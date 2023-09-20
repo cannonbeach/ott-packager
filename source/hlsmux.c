@@ -3311,7 +3311,7 @@ void *mux_pump_thread(void *context)
 
                 if (core->cd->enable_fmp4_output) {
                     // FIX FIX FIX FIX FIX FIX FIX !!
-                    audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;//[sub_stream];
+                    audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;
                     int fragment_duration;
 
                     if (frame->media_type == MEDIA_TYPE_AAC) {

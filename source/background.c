@@ -37,9 +37,7 @@
 #include "dataqueue.h"
 #include "esignal.h"
 #include "background.h"
-#if defined(ENABLE_TRANSCODE)
 #include "curl.h"
-#endif // ENABLE_TRANSCODE
 
 #define MAX_CONNECTIONS    8
 #define MAX_REQUEST_SIZE   65535
@@ -73,51 +71,60 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
     struct tm currentUTC;
     int source;
     int output;
+    char scratch[MAX_STR_SIZE];
 
     memset(input_streams,0,sizeof(input_streams));
     memset(output_streams,0,sizeof(output_streams));
 
-    for (source = 0; source < core->cd->active_video_sources; source++) {
-        char scratch[MAX_STR_SIZE];
-        int sub_source = 0;
+    current = time(NULL);
+    gmtime_r(&current, &currentUTC);
+    strftime(response_timestamp,MAX_STR_SIZE-1,"%Y-%m-%dT%H:%M:%SZ", &currentUTC);
 
-        //audio_stream_struct *astream = (audio_stream_struct*)core->source_stream[source].audio_stream[sub_source];
+    snprintf(scratch,MAX_STR_SIZE-1,"        \"vstreams\": [");
+    strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+    for (source = 0; source < core->cd->active_video_sources; source++) {
         video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
 
-        snprintf(scratch,MAX_STR_SIZE-1,"            \"stream%d\": {\n", source);
-        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-#if defined(ENABLE_TRANSCODE)
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-ip\": \"%s:%d\",\n",
-                 core->cd->active_video_source[source].active_ip,
-                 core->cd->active_video_source[source].active_port);
-#else
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-video-ip\": \"%s:%d\",\n",
-                 core->cd->active_video_source[source].active_ip,
-                 core->cd->active_video_source[source].active_port);
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"source-audio-ip\": \"%s:%d\",\n",
-                 core->cd->active_audio_source[source].active_ip,
-                 core->cd->active_audio_source[source].active_port);
-#endif
-        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-bitrate\": %ld,\n", vstream->video_bitrate);
-        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-first-timestamp\": %ld,\n", vstream->first_timestamp);
-        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-current-duration\": %ld,\n", vstream->last_full_time);
-        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
-        snprintf(scratch,MAX_STR_SIZE-1,"                \"video-received-frames\": %ld\n", vstream->current_receive_count);
+        snprintf(scratch,MAX_STR_SIZE-1," { \"source-ip\": \"%s\", \"port\":%d, \"interface\":\"%s\", \"bitrate\":%ld }",
+                 core->fillet_video_input[source].udp_source_ipaddr,
+                 core->fillet_video_input[source].udp_source_port,
+                 core->fillet_video_input[source].interface,
+                 vstream->video_bitrate / 1000);
+
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
         if (source == core->cd->active_video_sources - 1) {
-            snprintf(scratch,MAX_STR_SIZE-1,"            }\n");
+            snprintf(scratch,MAX_STR_SIZE-1,"\n");
         } else {
-            snprintf(scratch,MAX_STR_SIZE-1,"            },\n");
+            snprintf(scratch,MAX_STR_SIZE-1,",\n");
         }
         strncat(input_streams, scratch, MAX_LIST_SIZE-1);
     }
 
-    current = time(NULL);
-    gmtime_r(&current, &currentUTC);
-    strftime(response_timestamp,MAX_STR_SIZE-1,"%Y-%m-%dT%H:%M:%SZ", &currentUTC);
+    snprintf(scratch,MAX_STR_SIZE-1,"],\n");
+    strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+
+    snprintf(scratch,MAX_STR_SIZE-1,"        \"astreams\": [");
+    strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+    for (source = 0; source < core->cd->active_audio_sources; source++) {
+        audio_stream_struct *astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;
+
+        snprintf(scratch,MAX_STR_SIZE-1," { \"source-ip\": \"%s\", \"port\":%d, \"interface\":\"%s\", \"bitrate\":%ld }",
+                 core->fillet_audio_input[source].udp_source_ipaddr,
+                 core->fillet_audio_input[source].udp_source_port,
+                 core->fillet_audio_input[source].interface,
+                 astream->audio_bitrate / 1000);
+
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+        if (source == core->cd->active_audio_sources - 1) {
+            snprintf(scratch,MAX_STR_SIZE-1,"\n");
+        } else {
+            snprintf(scratch,MAX_STR_SIZE-1,",\n");
+        }
+        strncat(input_streams, scratch, MAX_LIST_SIZE-1);
+    }
+
+    snprintf(scratch,MAX_STR_SIZE-1,"],\n");
+    strncat(input_streams, scratch, MAX_LIST_SIZE-1);
 
     snprintf(status_response, MAX_RESPONSE_SIZE-1,
              "{\n"
@@ -139,15 +146,13 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
              "            \"youtube-active\": %d,\n"
              "            \"hls-active\": %d,\n"
              "            \"dash-fmp4-active\": %d,\n"
+             "            \"video-synchronizer-entries\": %d,\n"
+             "            \"audio-synchronizer-entries\": %d,\n"
+             "            \"current-video-time\": %ld,\n"
+             "            \"current-audio-time\": %ld,\n"
              "            \"scte35\": %d\n"
              "        },\n"
-             "        \"source\": {\n"
-             "            \"inputs\": %d,\n"
-             "            \"interface\": \"%s\",\n"
-             "%s"
-             "        },\n"
-             "        \"ad-insert\": {\n"
-             "        },\n"
+             "        %s\n"
              "        \"output\": {\n"
              "            \"output-directory\": \"%s\",\n"
              "            \"hls-manifest\": \"%s\",\n"
@@ -169,9 +174,12 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
              core->cd->enable_youtube_output,
              core->cd->enable_ts_output,
              core->cd->enable_fmp4_output,
+             core->info.video_synchronizer_entries,
+             core->info.audio_synchronizer_entries,
+             core->info.current_video_time,
+             core->info.current_audio_time,
              core->cd->enable_scte35,
-             core->cd->active_video_sources,
-             core->cd->active_interface,
+             //core->cd->active_interface,
              input_streams,
              core->cd->manifest_directory,
              core->cd->manifest_hls,
@@ -197,9 +205,9 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
     return 0;
 }
 
-#if defined(ENABLE_TRANSCODE)
 int build_response_transcode(fillet_app_struct *core, char *response_buffer, int *content_length, int full)
 {
+#if defined(ENABLE_TRANSCODE)
     char status_response[MAX_RESPONSE_SIZE];
     char response_timestamp[MAX_STR_SIZE];
 #define MAX_LIST_SIZE MAX_RESPONSE_SIZE/4
@@ -403,11 +411,10 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
         snprintf(response_buffer, MAX_RESPONSE_SIZE-1, "%s", status_response);
         *content_length = strlen(response_buffer);
     }
+#endif // ENABLE_TRANSCODE
     return 0;
 }
-#endif // ENABLE_TRANSCODE
 
-#if defined(ENABLE_TRANSCODE)
 void *status_thread(void *context)
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
@@ -428,7 +435,9 @@ void *status_thread(void *context)
         optional_data = curl_slist_append(optional_data, "Expect:");
 
         if (core->transcode_enabled) {
+#if defined(ENABLE_TRANSCODE)
             build_response_transcode(core, response_buffer, &content_length, 0);
+#endif
         } else {
             build_response_repackage(core, response_buffer, &content_length, 0);
         }
@@ -467,7 +476,6 @@ void *status_thread(void *context)
     free(response_buffer);
     return NULL;
 }
-#endif // ENABLE_TRANSCODE
 
 void *client_thread(void *context)
 {
@@ -569,7 +577,7 @@ void *client_thread(void *context)
                 memset(httpver, 0, sizeof(httpver));
 
                 request = request_buffer;
-                //fix string handling- we don't want sscanf to go out of bounds
+                //fix string handling - we don't want sscanf to go out of bounds
                 vals = sscanf((char*)request,"%20s %128s HTTP/%15s", method, url, httpver);
                 if (vals != 3) {
                     syslog(LOG_WARNING,"SESSION:%d (RESTFUL) WARNING: RECEIVED MALFORMED DATA\n",

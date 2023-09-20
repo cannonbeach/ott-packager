@@ -107,6 +107,13 @@
 #define SOURCE_TYPE_STREAM         0
 #define SOURCE_TYPE_FILE           1
 
+typedef struct _basic_info_struct_ {
+    int                    video_synchronizer_entries;
+    int                    audio_synchronizer_entries;
+    int64_t                current_video_time;
+    int64_t                current_audio_time;
+} basic_info_struct;
+
 #if defined(ENABLE_TRANSCODE)
 typedef struct _trans_video_output_struct_ {
     int                    video_codec;
@@ -416,6 +423,8 @@ typedef struct _fillet_app_struct_
     void                          *compressed_audio_pool;
     void                          *raw_video_pool;
     void                          *raw_audio_pool;
+
+    basic_info_struct             info;
 
 #if defined(ENABLE_TRANSCODE)
     monitorvideo_internal_struct  *monitorvideo;

@@ -126,15 +126,18 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
     char host[NI_MAXHOST];
     struct in_addr addrcheck;
 
+    memset(host, 0, sizeof(host));
+
     if (inet_aton(addr, &addrcheck) == 0) {
         fprintf(stderr,"ERROR: INVALID IP ADDRESS: %s\n",
                 addr);
         return -1;
     }
 
-
     memset(&ifr,0,sizeof(ifr));
     memset(interface_name,0,sizeof(interface_name));
+
+    fprintf(stderr,"socket_udp_open: interface:%s", iface);
 
     snprintf(interface_name, UDP_MAX_IFNAME-1, "%s", iface);
     retcode = inet_aton(addr, &ip_addr);
@@ -177,11 +180,13 @@ int socket_udp_open(const char *iface, const char *addr, int port, int mcast, in
             family = ifa->ifa_addr->sa_family;
         }
 
+        //fprintf(stderr,"interface: %s  interface: %s\n", ifa->ifa_name, interface_name);
         if ((!strcasecmp(ifa->ifa_name, interface_name)) && (family == AF_INET)) {
             s = getnameinfo(ifa->ifa_addr, (family == AF_INET) ? sizeof(struct sockaddr_in) :
                             sizeof(struct sockaddr_in6),
                             host, NI_MAXHOST, NULL,
                             0, NI_NUMERICHOST);
+            break;
         }
     }
     freeifaddrs(ifaddr);
