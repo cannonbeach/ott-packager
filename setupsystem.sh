@@ -156,3 +156,6 @@ sudo apt-get install apache2 -y
 echo "STATUS- updating pm2 (if needed)"
 sudo npm install pm2@latest -g
 sudo pm2 update
+echo ""
+echo "Please make sure you also run setuptranscode.sh!!"
+echo ""
