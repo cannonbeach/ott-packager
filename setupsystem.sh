@@ -35,45 +35,45 @@ else
     echo "STATUS- /var/app/public already exists"
 fi
 
-echo "STATUS- checking for ./webapp/server.js"
-if [ -f "./webapp/server.js" ]; then
-    echo "STATUS- found server.js- installing"
-    sudo cp ./webapp/server.js /var/app
-else
-    echo "STATUS- unable to find server.js - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"
-    exit
-fi
-
-echo "STATUS-checking for ./webapp/public/client.js"
-if [ -f "./webapp/public/client.js" ]; then
-    echo "STATUS- found client.js- installing"
-    sudo cp ./webapp/public/client.js /var/app/public
-else
-    echo "STATUS- unable to find client.js - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"
-    exit
-fi
-
-echo "STATUS-checking for ./webapp/public/index.html"
-if [ -f "./webapp/public/index.html" ]; then
-    echo "STATUS- found index.html- installing"
-    sudo cp ./webapp/public/index.html /var/app/public
-else
-    echo "STATUS- unable to find index.html - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"
-    exit
-fi
-
-echo "STATUS-checking for ./webapp/package.json"
-if [ -f "./webapp/package.json" ]; then
-    echo "STATUS- found package.json- installing"
-    sudo cp ./webapp/package.json /var/app
-else
-    echo "STATUS- unable to find package.json - aborting!!!"
-    echo "STATUS- please make sure you are running this script from the cloned project directory"
-    exit
-fi
+#echo "STATUS- checking for ./webapp/server.js"
+#if [ -f "./webapp/server.js" ]; then
+#    echo "STATUS- found server.js- installing"
+#    sudo cp ./webapp/server.js /var/app
+#else
+#    echo "STATUS- unable to find server.js - aborting!!!"
+#    echo "STATUS- please make sure you are running this script from the cloned project directory"
+#    exit
+#fi
+#
+#echo "STATUS-checking for ./webapp/public/client.js"
+#if [ -f "./webapp/public/client.js" ]; then
+#    echo "STATUS- found client.js- installing"
+#    sudo cp ./webapp/public/client.js /var/app/public
+#else
+#    echo "STATUS- unable to find client.js - aborting!!!"
+#    echo "STATUS- please make sure you are running this script from the cloned project directory"
+#    exit
+#fi
+#
+#echo "STATUS-checking for ./webapp/public/index.html"
+#if [ -f "./webapp/public/index.html" ]; then
+#    echo "STATUS- found index.html- installing"
+#    sudo cp ./webapp/public/index.html /var/app/public
+#else
+#    echo "STATUS- unable to find index.html - aborting!!!"
+#    echo "STATUS- please make sure you are running this script from the cloned project directory"
+#    exit
+#fi
+#
+#echo "STATUS-checking for ./webapp/package.json"
+#if [ -f "./webapp/package.json" ]; then
+#    echo "STATUS- found package.json- installing"
+#    sudo cp ./webapp/package.json /var/app
+#else
+#    echo "STATUS- unable to find package.json - aborting!!!"
+#    echo "STATUS- please make sure you are running this script from the cloned project directory"
+#    exit
+#fi
 
 echo "STATUS-performing global Ubuntu update"
 sudo apt-get update -y
@@ -85,15 +85,20 @@ echo "STATUS-intallling libssl-dev packages"
 sudo apt-get install libssl-dev -y
 echo "STATUS-installing curl packages"
 sudo apt-get install curl -y
+echo "STATUS-installing ca-certificates"
+sudo apt-get install -y ca-certificates
+echo "STATUS-installing gnupg"
+sudo apt-get install -y gnupg
+echo "STATUS-making keyrings directory /etc/apt/keyrings for Nodesource GPG key"
+sudo mkdir -p /etc/apt/keyrings
+echo "STATUS-importing Nodesource GPG key"
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
 
-echo "STATUS-installing nodejs- grabbing setup script"
-curl -sL https://deb.nodesource.com/setup_12.x -o nodesource_setup.sh
-if [ -f "nodesource_setup.sh" ]; then
-    echo "STATUS- downloading the nodesource_setup.sh script for NodeJS installation"
-else
-    echo "STATUS- unable to download nodesource_setup.sh script - aborting!!!"
-    exit
-fi
+NODE_MAJOR=18
+echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_$NODE_MAJOR.x nodistro main" | sudo tee /etc/apt/sources.list.d/nodesource.list
+
+sudo apt-get update
+sudo apt-get install -y nodejs
 
 echo "STATUS- check to see if cleanup.sh installed in crontab"
 CRON_TAB_DUMP=`crontab -l > checkcrontab.txt`
@@ -108,11 +113,11 @@ echo "STATUS- copying cleanup.sh to /usr/bin"
 sudo cp cleanup.sh /usr/bin
 sudo chmod +x /usr/bin/cleanup.sh
 
-sudo chmod +x nodesource_setup.sh
-echo "STATUS- running nodesource_setup.sh"
-sudo ./nodesource_setup.sh
-echo "STATUS- installing nodejs- full package from local repository"
-sudo apt-get install -y nodejs
+#sudo chmod +x nodesource_setup.sh
+#echo "STATUS- running nodesource_setup.sh"
+#sudo ./nodesource_setup.sh
+#echo "STATUS- installing nodejs- full package from local repository"
+#sudo apt-get install -y nodejs
 echo "STATUS- installing pm2"
 sudo npm install -g pm2
 pushd /var/app
@@ -148,3 +153,6 @@ echo "STATUS- installing apache"
 sudo apt-get install apache2 -y
 
 #https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#installing-on-ubuntu-and-debian
+echo "STATUS- updating pm2 (if needed)"
+sudo npm install pm2@latest -g
+sudo pm2 update
