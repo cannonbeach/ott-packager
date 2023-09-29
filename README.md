@@ -2,7 +2,7 @@
 
 ![Optional Text](../master/images/content_publishing_media_gateway_v2.jpg)
 
-OTT live streaming encoder and packager supporting ABR streaming for HLS and DASH
+OTT live streaming encoder and packager (or independent packaging) supporting ABR streaming for HLS and DASH
 
 This application is intended to serve as a reliable and scalable OTT streaming repackager (with optional transcoding) to deliver content as part of an overall media streaming platform. There are two key variations of OTT streaming technologies that this software accommodates:
 
@@ -13,7 +13,7 @@ With this application, you can ingest *live* MPEG2 transport streams carried ove
 
 There are two ways to use this application.  The first and simplest method is use to the command version of the application.  You can quickly clone the repository, compile and easily start streaming.  The Quickstart for the web application is further down in the README and is a bit more involved to get setup and running, but provides a scriptable API as well as a nice clean interface with thumbnails and other status information in the transcoding mode.  The web application is still in the early stages and I will continually be adding features for managing these types of streaming services.
 
-I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time since most of this work is unfunded.  If there are specific features you would like to see, a funding donation goes a long way in making it happen.
+I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time.  If there are specific features you would like to see, a funding donation goes a long way in making it happen.  I can also offer support services for deployment to address any devops type of issues, troubleshoot hardware (or software issues), or just offer general advice.  I've been in the industry for 20+ years, spent time at companies big and small, including AWS, and have a great understanding of video as well as deployment of large scale real-time systems on Linux.
 <br>
 
 ## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
@@ -51,7 +51,7 @@ cannonbeach@insanitywave:$ sudo dpkg -i fillet-1.1.deb
 
 Then point web browser to port 8080, for example: http://10.0.0.200:8080 and the web application will come up.  If for some reason, it does not come up, you need to review the steps above to make sure you followed everything correctly.
 
-You will notice that the Apache web server was also installed.  It allows you to easily serve content directly off the same system.
+You will notice that the Apache web server was also installed.  It allows you to easily serve content directly off the same system.  The content will be available from the directories that you specified in your configurations.
 ```
 
 ![Optional Text](../master/images/mediagateway2.jpg)
@@ -59,62 +59,99 @@ You will notice that the Apache web server was also installed.  It allows you to
 
 <br>
 
-## Quickstart (Command Line Packager or Encoder Mode)
+## More advanced quickstart (Command Line Packager or Encoder Mode)
 
 The software install guide here is for Ubuntu 20.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.  I do not maintain a CentOS installation guide.
 
 ```
 ```
-<br>
+There are now two versions of the application that get built.  The transcode/package (fillet_transcode) and the independent packager (fillet_repackage).  <br>
 
 ```
 The fillet application must be run as a user with *root* privileges, otherwise it will *not* work.
 
-usage: fillet [options]
+usage: fillet_repackage [options]
 
-PACKAGING OPTIONS
-       --sources       [NUMBER OF ABR SOURCES - MUST BE >= 1 && <= 10]
-       --ip            [IP:PORT,IP:PORT,etc.] (Please make sure this matches the number of sources)
+INPUT PACKAGING OPTIONS (AUDIO AND VIDEO CAN BE SEPARATE STREAMS)
+       --vsources      [NUMBER OF VIDEO SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]
+       --asources      [NUMBER OF AUDIO SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]
+
+INPUT OPTIONS (when --type stream)
+       --vip           [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF VIDEO SOURCES)
+       --aip           [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF AUDIO SOURCES)
        --interface     [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]
-                       If multicast, make sure route is in place (see note below)
+                       If multicast, make sure route is in place (route add -net 224.0.0.0 netmask 240.0.0.0 interface)
+
+OUTPUT PACKAGING OPTIONS
        --window        [WINDOW IN SEGMENTS FOR MANIFEST]
        --segment       [SEGMENT LENGTH IN SECONDS]
-       --manifest      [MANIFEST DIRECTORY "/var/www/html/hls/"]
+       --manifest      [MANIFEST DIRECTORY "/var/www/hls/"]
        --identity      [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]
        --hls           [ENABLE TRADITIONAL HLS TRANSPORT STREAM OUTPUT - NO ARGUMENT REQUIRED]
        --dash          [ENABLE FRAGMENTED MP4 STREAM OUTPUT (INCLUDES DASH+HLS FMP4) - NO ARGUMENT REQUIRED]
        --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]
        --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]
        --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]
-       --webvtt        [ENABLE WEBVTT CAPTION ENCODING]
+       --webvtt        [ENABLE WEBVTT CAPTION OUTPUT]
        --cdnusername   [USERNAME FOR WEBDAV ACCOUNT]
        --cdnpassword   [PASSWORD FOR WEBDAV ACCOUNT]
        --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]
-       --astreams      [NUMBER OF SOURCE AUDIO STREAMS TO ENABLE]
-
-TRANSCODE OPTIONS (needs to be compiled with option enabled - see Makefile)
-       --transcode     [ENABLE TRANSCODER AND NOT JUST PACKAGING]
-       --outputs       [NUMBER OF OUTPUT PROFILES TO BE TRANSCODED]
-       --vcodec        [VIDEO CODEC - h264 or hevc]
-       --resolutions   [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720]
-       --vrate         [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500]
-       --acodec        [AUDIO CODEC - needs to be aac]
-       --arate         [AUDIO BITRATES IN KBPS - formatted as: 128,96]
-       --aspect        [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]
-       --scte35        [PASSTHROUGH SCTE35 TO MANIFEST]
-       --stereo        [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]
-       --quality       [VIDEO ENCODING QUALITY LEVEL 0-3 (0-LOW,1-MED,2-HIGH,3-CRAZY)
-                       LOADING WILL AFFECT CHANNEL DENSITY-SOME PLATFORMS MAY NOT RUN HIGHER QUALITY REAL-TIME
-
-H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)
-       --profile       [H264 ENCODING PROFILE - needs to be base,main or high]
 
 PACKAGING AND TRANSCODING OPTIONS CAN BE COMBINED
 
+And for the transcode/package, usage is follows:
+
+usage: fillet_transcode [options]
+
+
+INPUT TRANSCODE OPTIONS (AUDIO AND VIDEO MUST BE ON SAME TRANSPORT STREAM)
+       --sources      [NUMBER OF SOURCES - TO PACKAGE ABR SOURCES: MUST BE >= 1 && <= 10]
+
+INPUT OPTIONS (when --type stream)
+       --ip            [IP:PORT,IP:PORT,etc.] (THIS MUST MATCH NUMBER OF SOURCES)
+       --interface     [SOURCE INTERFACE - lo,eth0,eth1,eth2,eth3]
+                       If multicast, make sure route is in place (route add -net 224.0.0.0 netmask 240.0.0.0 interface)
+
+
+OUTPUT PACKAGING OPTIONS
+       --window        [WINDOW IN SEGMENTS FOR MANIFEST]
+       --segment       [SEGMENT LENGTH IN SECONDS]
+       --manifest      [MANIFEST DIRECTORY "/var/www/hls/"]
+       --identity      [RUNTIME IDENTITY - any number, but must be unique across multiple instances of fillet]
+       --hls           [ENABLE TRADITIONAL HLS TRANSPORT STREAM OUTPUT - NO ARGUMENT REQUIRED]
+       --dash          [ENABLE FRAGMENTED MP4 STREAM OUTPUT (INCLUDES DASH+HLS FMP4) - NO ARGUMENT REQUIRED]
+       --manifest-dash [NAME OF THE DASH MANIFEST FILE - default: masterdash.mpd]
+       --manifest-hls  [NAME OF THE HLS MANIFEST FILE - default: master.m3u8]
+       --manifest-fmp4 [NAME OF THE fMP4/CMAF MANIFEST FILE - default: masterfmp4.m3u8]
+       --webvtt        [ENABLE WEBVTT CAPTION OUTPUT]
+       --cdnusername   [USERNAME FOR WEBDAV ACCOUNT]
+       --cdnpassword   [PASSWORD FOR WEBDAV ACCOUNT]
+       --cdnserver     [HTTP(S) URL FOR WEBDAV SERVER]
+
+OUTPUT TRANSCODE OPTIONS
+       --transcode   [ENABLE TRANSCODER AND NOT JUST PACKAGING]
+       --gpu         [GPU NUMBER TO USE FOR TRANSCODING - defaults to 0 if GPU encoding is enabled]
+       --select      [PICK A STREAM FROM AN MPTS- INDEX IS BASED ON PMT INDEX - defaults to 0]
+       --outputs     [NUMBER OF OUTPUT LADDER BITRATE PROFILES TO BE TRANSCODED]
+       --vcodec      [VIDEO CODEC - needs to be hevc or h264]
+       --resolutions [OUTPUT RESOLUTIONS - formatted as: 320x240,640x360,960x540,1280x720]
+       --vrate       [VIDEO BITRATES IN KBPS - formatted as: 800,1250,2500,500]
+       --acodec      [AUDIO CODEC - needs to be aac, ac3 or pass]
+       --arate       [AUDIO BITRATES IN KBPS - formatted as: 128,96]
+       --aspect      [FORCE THE ASPECT RATIO - needs to be 16:9, 4:3, or other]
+       --scte35      [PASSTHROUGH SCTE35 TO MANIFEST (for HLS packaging)]
+       --stereo      [FORCE ALL AUDIO OUTPUTS TO STEREO- will downmix if source is 5.1 or upmix if source is 1.0]
+       --quality     [VIDEO ENCODING QUALITY LEVEL 0-3 (0-BASIC,1-STREAMING,2-BROADCAST,3-PROFESSIONAL)
+                      LOADING WILL AFFECT CHANNEL DENSITY-SOME PLATFORMS MAY NOT RUN HIGHER QUALITY REAL-TIME
+
+H.264 SPECIFIC OPTIONS (valid when --vcodec is h264)
+       --profile     [H264 ENCODING PROFILE - needs to be base,main or high]
+
+
 ```
-Simple Repackaging Command Line Example Usage (see Wiki page for Docker deployment instructions which is the recommended deployment method):<br>
+Simple Repackaging Command Line Example Usage:<br>
 ```
-cannonbeach@insanitywave:$ sudo ./fillet --sources 2 --ip 127.0.0.1:4000,127.0.0.1:4200 --interface lo --window 5 --segment 5 --manifest /var/www/html/hls --identity 1000
+cannonbeach@insanitywave:$ sudo ./fillet_repackage --vsources 2 --vip 0.0.0.0:20000,0.0.0.0:20001 --asources 2 --aip 0.0.0.0:20002,0.0.0.0:20003 --interface eno1 --window 10 --segment 2 --hls --manifest /var/www/html/hls
 ```
 <br>
 This command line tells the application that there are two unicast sources that contain audio and video on the loopback interface. The manifests and output files will be placed into the /var/www/html/hls directory. If you are using multicast, please make sure you have multicast routes in place on the interface you are using, otherwise you will *not* receive the traffic.
@@ -166,12 +203,10 @@ A key value add to this packager is that source discontinuities are handled quit
 Another differentiator (which is a bit more common practice now) is that the segments are written out to separate audio and video files instead of a single multiplexed output file containing both audio and video.  This provides additional degrees of freedom when selecting different audio and video streams for playback (it does make testing a bit more difficult though).
 
 <br>
-In order to use the optional transcoding mode, you must enable the ENABLE_TRANSCODE flag manually in the Makefile and rebuild.  You will also need to run the script setuptranscode.sh which will download and install the necessary third party packages used in the transcoding mode.
-<br>
 
 ## H.264 Transcoding Example
 ```
-cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec h264 --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,2500 --acodec aac --arate 128 --aspect 16:9 --scte35 --quality 0 --profile base --stereo
+cannonbeach@insanitywave:$ ./fillet_transcode --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec h264 --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,2500 --acodec aac --arate 128 --aspect 16:9 --scte35 --quality 0 --profile base --stereo
 
 ```
 
@@ -180,7 +215,7 @@ cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface et
 ## HEVC Transcoding Example
 
 ```
-cannonbeach@insanitywave:$ ./fillet --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec hevc --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,1250 --acodec aac --arate 128 --aspect 16:9 --quality 0 --stereo
+cannonbeach@insanitywave:$ ./fillet_transcode --sources 1 --ip 0.0.0.0:5000 --interface eth0 --window 20 --segment 2 --identity 1000 --hls --dash --transcode --outputs 2 --vcodec hevc --resolutions 320x240,960x540 --manifest /var/www/html/hls --vrate 500,1250 --acodec aac --arate 128 --aspect 16:9 --quality 0 --stereo
 
 ````
 
@@ -205,7 +240,8 @@ http://127.0.0.1:8080/api/v1/system_information
 
 ```
 
-The application will also POST event messages to a third party client (or log) for the following events.  The Winston logging system is being used now within the NodeJS framework, so it is quite easy to extend this to meet your own needs.
+The application will also POST event messages to a third party client (or log) for the following events.  The Winston logging system is being used now within the NodeJS framework, so it is quite easy to extend this to meet your own needs.  The default log will be /var/log/eventlog.log.
+It is recommended that you add it to the system logrotate.
 
 ```
 - Start Service (Container Start)
@@ -295,7 +331,9 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 
 ### Current Status
 
-(09/26/23)
+(09/26/23) Ok, ok, ok....the weather is getting colder and I am not ready for winter
+
+I figured it was time to come back to this project and do some things.  I added webapp support for packaging, so you can now add a packaging service or a transcoding service using the webapp.  I also updated NodeJS from 12 to 18, and made the transcode a separate compile from the repackager.  You must follow the new set of instructions to get everything up and running and you no longer have a choice to build one or the other (at least with the scripts I am providing).  Reach out if there is an issue or a question.  I'd love to hear from you.
 
 (03/15/22) It's been awhile....
 
