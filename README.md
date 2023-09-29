@@ -9,10 +9,11 @@ This application is intended to serve as a reliable and scalable OTT streaming r
     HLS (HTTP Live Streaming) - Transport Stream HLS and Fragmented MP4 HLS (CMAF style)
     DASH (Dynamic Adaptive Streaming over HTTP) - Fragmented MP4
 
-With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally transcode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.  I also expect to have SRT support available on the input in the coming future to make it easier to deploy into the cloud.  I will put together a matrix layout of the supported modes as I get closer to a v1.0 release.
+With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally transcode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.
 
 There are two ways to use this application.  The first and simplest method is use to the command version of the application.  You can quickly clone the repository, compile and easily start streaming.  The Quickstart for the web application is further down in the README and is a bit more involved to get setup and running, but provides a scriptable API as well as a nice clean interface with thumbnails and other status information in the transcoding mode.  The web application is still in the early stages and I will continually be adding features for managing these types of streaming services.
 
+I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time since most of this work is unfunded.  If there are specific features you would like to see, a funding donation goes a long way in making it happen.
 <br>
 
 ## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
@@ -27,36 +28,30 @@ cannonbeach@insanitywave:$ sudo apt install build-essential
 cannonbeach@insanitywave:$ sudo apt install libz-dev
 cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
 cannonbeach@insanitywave:$ cd ott-packager
-cannonbeach@insanitywave:$ make
+
+*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
+(VERY IMPORTANT: Please advise - if you are planning to run on a NVIDIA GPU system, you need to make sure that prior to running setuptranscode.sh that the cudainclude and cudalib directories are set correctly in the script, otherwise it will fail to setup properly).  Please also make sure that MakefileTranscode also has the correct paths.
+
+You can get updated CUDA deb packages from here: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/
+You can get updated NVIDIA drivers here: https://www.nvidia.com/download/index.aspx
+You can get updated NVIDIA patch here: https://github.com/keylase/nvidia-patch
+*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
+
 cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
 cannonbeach@insanitywave:$ ./setuptranscode.sh
 
 *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
-(VERY IMPORTANT: when you get to the x265 setup (which is towards the end of the script execution, please set ENABLE_SHARED to OFF and set ENABLE_ASSEMLBY to ON, then hit the letter 'c' for configuration and then hit 'g' for generate and exit)
+(VERY IMPORTANT: If you are not compiling on an NVIDIA GPU system, when you get to the x265 setup (which is towards the end of the script execution, please set ENABLE_SHARED to OFF and set ENABLE_ASSEMLBY to ON, then hit the letter 'c' for configuration and then hit 'g' for generate and exit)
 *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
 
 cannonbeach@insanitywave:$ chmod +x setupsystem.sh
 cannonbeach@insanitywave:$ ./setupsystem.sh
+cannonbeach@insanitywave:$ ./mkpkg.sh
+cannonbeach@insanitywave:$ sudo dpkg -i fillet-1.1.deb
 
-*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
-You need to *manually* update the Makefile to enable transcoding support (remove # from #ENABLE_TRANSCODE=1)
-I do not enable the transcode mode by default
-*IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANE*
+Then point web browser to port 8080, for example: http://10.0.0.200:8080 and the web application will come up.  If for some reason, it does not come up, you need to review the steps above to make sure you followed everything correctly.
 
-cannonbeach@insanitywave:$ make clean
-cannonbeach@insanitywave:$ make
-cannonbeach@insanitywave:$ cp fillet ./docker
-cannonbeach@insanitywave:$ cd ./docker
-cannonbeach@insanitywave:$ sudo docker build -t dockerfillet .
-cannonbeach@insanitywave:$ cd /var/app
-cannonbeach@insanitywave:$ sudo pm2 start server.js
-cannonbeach@insanitywave:$ sudo pm2 status server
-cannonbeach@insanitywave:$ sudo pm2 startup systemd
-cannonbeach@insanitywave:$ sudo pm2 save
-
-Then point web browser to port 8080- for example: http://10.0.0.200:8080 and the web application should come up
-
-You will notice that the Apache web server was also installed.  You technically don't need to install it, but it allows you to easily serve content directly off the same system for quick testing (or for a very lightweight setup).
+You will notice that the Apache web server was also installed.  It allows you to easily serve content directly off the same system.
 ```
 
 ![Optional Text](../master/images/mediagateway2.jpg)
@@ -69,14 +64,7 @@ You will notice that the Apache web server was also installed.  You technically 
 The software install guide here is for Ubuntu 20.04 server only, however, you can run this on older/newer versions of Ubuntu as well as in Docker containers for AWS/Google cloud based deployments.  I do not maintain a CentOS installation guide.
 
 ```
-cannonbeach@insanitywave:$ sudo apt install git
-cannonbeach@insanitywave:$ sudo apt install build-essential
-cannonbeach@insanitywave:$ sudo apt install libz-dev
-cannonbeach@insanitywave:$ git clone https://github.com/cannonbeach/ott-packager.git
-cannonbeach@insanitywave:$ cd ott-packager
-cannonbeach@insanitywave:$ make
 ```
-The above steps will compile the application (it is named "fillet"). Please ensure that you already have a basic development environment setup.<br>
 <br>
 
 ```
@@ -146,8 +134,11 @@ In /etc/sysctl.conf, there are multiple entries that control reverse-path filter
 <br>
 
 ```
-net.ipv4.conf.default.rp_filter=0
-net.ipv4.conf.all.rp_filter=0
+net.ipv4.conf.default.rp_filter = 0
+net.ipv4.conf.all.rp_filter = 0
+net.ipv4.conf.eth0.rp_filter = 0
+and so on...
+
 ```
 
 After you've made those changes, please run the following for the changes to take effect
@@ -303,6 +294,8 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 <br>
 
 ### Current Status
+
+(09/26/23)
 
 (03/15/22) It's been awhile....
 
