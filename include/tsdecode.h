@@ -42,6 +42,7 @@
 #define STREAM_TYPE_AAC      0x06
 #define STREAM_TYPE_MPEG     0x07
 #define STREAM_TYPE_SCTE35   0x08
+#define STREAM_TYPE_AV1      0x09
 #define STREAM_TYPE_PASS     0xff
 
 #define TABLE_ID_TVCT        200

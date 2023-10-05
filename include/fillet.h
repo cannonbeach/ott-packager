@@ -112,6 +112,8 @@ typedef struct _basic_info_struct_ {
     int                    audio_synchronizer_entries;
     int64_t                current_video_time;
     int64_t                current_audio_time;
+    int                    source_video_codec;
+    int                    source_audio_codec;
 } basic_info_struct;
 
 #if defined(ENABLE_TRANSCODE)

@@ -541,7 +541,7 @@ app.get('/api/v1/get_event_log/:uid', (req, res) => {
     //getNewestFile(logFolder, new RegExp('eventlog.log'))
     console.log('newest log filename: ', newestlog);
 
-    readLastLines.read(newestlog, 500)
+    readLastLines.read(newestlog, 10)
         .then((lines) => {
             console.log(lines)
             var retdata;
@@ -1373,6 +1373,8 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                                 obj.audio_synchronizer_entries = words.data.system["audio-synchronizer-entries"];
                                 obj.current_video_time = words.data.system["current-video-time"];
                                 obj.current_audio_time = words.data.system["current-audio-time"];
+                                obj.source_video_codec = words.data.system["source-video-codec"];
+                                obj.source_audio_codec = words.data.system["source-audio-codec"];
                             } else {
                                 obj.filletmode = "transcode";
                                 obj.input_interface = words.data.source["interface"];

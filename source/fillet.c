@@ -1772,7 +1772,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         } else {
             core->scte35_ready = 0;
         }
-    } else if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC) {
+    } else if (sample_type == STREAM_TYPE_H264 || sample_type == STREAM_TYPE_MPEG2 || sample_type == STREAM_TYPE_HEVC || sample_type == STREAM_TYPE_AV1) {
         video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[source].video_stream;
         sorted_frame_struct *new_frame;
         uint8_t *new_buffer;
@@ -1788,6 +1788,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     dts,
                     sample_flags);
         }
+
+        core->info.source_video_codec = sample_type;
 
         if (vstream->total_video_bytes == 0) {
             clock_gettime(CLOCK_REALTIME, &vstream->video_clock_start);
@@ -2021,6 +2023,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         astream = (audio_stream_struct*)core->source_audio_stream[source].audio_stream;
         audio_streams = core->cd->active_audio_sources;
 #endif
+
+        core->info.source_audio_codec = sample_type;
 
         if (enable_verbose) {
             fprintf(stderr,"STATUS: RECEIVE_FRAME (AUDIO:%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d (AUDIO STREAM:%d)  ASTREAM:%p  TOTAL AUDIO STREAMS:%d\n",

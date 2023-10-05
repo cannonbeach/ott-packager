@@ -150,6 +150,8 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
              "            \"audio-synchronizer-entries\": %d,\n"
              "            \"current-video-time\": %ld,\n"
              "            \"current-audio-time\": %ld,\n"
+             "            \"source-video-codec\": %d,\n"
+             "            \"source-audio-codec\": %d,\n"
              "            \"scte35\": %d\n"
              "        },\n"
              "        %s\n"
@@ -178,6 +180,8 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
              core->info.audio_synchronizer_entries,
              core->info.current_video_time,
              core->info.current_audio_time,
+             core->info.source_video_codec,
+             core->info.source_audio_codec,
              core->cd->enable_scte35,
              //core->cd->active_interface,
              input_streams,

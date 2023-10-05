@@ -1149,8 +1149,29 @@ function request_service_status(service)
                     trigger_image_update();
                 } else {
                     var i;
+                    var video_codec = '';
+                    var audio_codec = '';
                     input_string += '<p>Network Interface: '+service_words.input_interface;
-                    input_string += '<p>Video Sources: '+service_words.vstreams.length+'<br>';
+                    if (service_words.source_video_codec == 0x02) {
+                        video_codec += 'H264';
+                    } else if (service_words.source_video_codec == 0x03) {
+                        video_codec += 'HEVC';
+                    } else if (service_words.source_video_codec == 0x09) {
+                        video_codec += 'AV1';
+                    } else {
+                        video_codec += 'Unknown';
+                    }
+                    if (service_words.source_audio_codec == 0x04) {
+                        audio_codec += 'AC3';
+                    } else if (service_words.source_audio_codec == 0x05) {
+                        audio_codec += 'EAC3';
+                    } else if (service_words.source_audio_codec == 0x06) {
+                        audio_codec += 'AAC';
+                    } else if (service_words.source_audio_codec == 0x07) {
+                        audio_codec += 'MPEG';
+                    }
+
+                    input_string += '<p>Video Sources: '+service_words.vstreams.length+' ('+video_codec+')<br>';
                     if (service_words.vstreams.length >= 1) {
                         input_string += 'Video Source 1 IP is '+service_words.vstreams[0].ip+':'+service_words.vstreams[0].port+' @ '+service_words.vstreams[0].bitrate+' kbps <br>'
                     }
@@ -1176,7 +1197,7 @@ function request_service_status(service)
                         input_string += 'Video Source 8 IP is '+service_words.vstreams[7].ip+':'+service_words.vstreams[7].port+' @ '+service_words.vstreams[7].bitrate+' kbps <br>'
                     }
                     input_string += '</p>';
-                    input_string += '<p>Audio Sources: '+service_words.astreams.length+'<br>';
+                    input_string += '<p>Audio Sources: '+service_words.astreams.length+' ('+audio_codec+')<br>';
                     if (service_words.astreams.length >= 1) {
                         input_string += 'Audio Source 1 IP is '+service_words.astreams[0].ip+':'+service_words.astreams[0].port+' @ '+service_words.astreams[0].bitrate+' kbps <br>'
                     }
