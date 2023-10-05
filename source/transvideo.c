@@ -57,6 +57,10 @@
 #include "../x265_3.0/source/x265.h"
 #endif // ENABLE_GPU
 
+#if defined(ENABLE_GPU)
+//#define ENABLE_GPU_DECODE
+#endif
+
 static volatile int video_decode_thread_running = 0;
 static volatile int video_scale_thread_running = 0;
 static volatile int video_monitor_thread_running = 0;
@@ -2236,6 +2240,14 @@ void *video_decode_thread(void *context)
     int output_stride[4];
     int last_video_frame_size = -1;
 
+#if defined(ENABLE_GPU_DECODE)
+    AVHWFramesContext *nvidia_frames_ctx = NULL;
+    AVBufferRef *nvidia_device_ctx = NULL;
+    AVFrame *nvidia_surface = NULL;
+    enum AVHWDeviceType nvidia_type;
+    nvidia_type = AV_HWDEVICE_TYPE_CUDA;
+#endif
+
 #define MAX_SIGNAL_WINDOW 30
     signal_struct signal_data[MAX_SIGNAL_WINDOW];
     int signal_write_index = 0;
@@ -2270,12 +2282,19 @@ void *video_decode_thread(void *context)
             sorted_frame_struct *frame = (sorted_frame_struct*)msg->buffer;
             if (frame) {
                 int retcode;
+                char gpu_select_string[MAX_FILENAME_SIZE];
 
                 if (!video_decoder_ready) {
                     if (frame->media_type == MEDIA_TYPE_MPEG2) {
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_MPEG2VIDEO);
                     } else if (frame->media_type == MEDIA_TYPE_H264) {
+#if defined(ENABLE_GPU_DECODE)
+                        decode_codec = avcodec_find_decoder_by_name("h264_cuvid");
+                        snprintf(gpu_select_string,MAX_FILENAME_SIZE-1,"/dev/dri/card%d",core->cd->gpu);
+                        av_hwdevice_ctx_create(&nvidia_device_ctx, nvidia_type, gpu_select_string, NULL, 0);
+#else
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+#endif
                     } else if (frame->media_type == MEDIA_TYPE_HEVC) {
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
                     } else {
@@ -2284,8 +2303,31 @@ void *video_decode_thread(void *context)
                         exit(0);
                     }
                     decode_avctx = avcodec_alloc_context3(decode_codec);
+#if defined(ENABLE_GPU_DECODE)
+                    decode_avctx->pix_fmt = AV_PIX_FMT_NV12;
+                    decode_avctx->time_base = (AVRational){1001,30000};
+                    av_codec_set_pkt_timebase(decode_avctx, (AVRational){1001,30000});
+
+                    av_opt_set(decode_avctx->priv_data,"surfaces","16",0);
+                    av_opt_set(decode_avctx->priv_data,"gpu","1",0);
+                    decode_avctx->hw_device_ctx = av_buffer_ref(nvidia_device_ctx);
+                    decode_avctx->hw_frames_ctx = av_hwframe_ctx_alloc(nvidia_device_ctx);
+                    nvidia_frames_ctx = (AVHWFramesContext*)decode_avctx->hw_frames_ctx->data;
+
+                    nvidia_frames_ctx->format = AV_PIX_FMT_CUDA;
+                    nvidia_frames_ctx->sw_format = AV_PIX_FMT_NV12;
+                    nvidia_frames_ctx->width = 1920;
+                    nvidia_frames_ctx->height = 1088;
+                    nvidia_frames_ctx->initial_pool_size = 16;
+
+                    av_hwframe_ctx_init(decode_avctx->hw_frames_ctx);
+#endif
                     avcodec_open2(decode_avctx, decode_codec, NULL);
                     decode_av_frame = av_frame_alloc();
+#if defined(ENABLE_GPU_DECODE)
+                    nvidia_surface = av_frame_alloc();
+                    nvidia_surface->format = AV_PIX_FMT_CUDA;
+#endif
                     decode_pkt = av_packet_alloc();
                     video_decoder_ready = 1;
                 }//!video_decoder_ready
@@ -2334,13 +2376,21 @@ void *video_decode_thread(void *context)
                     int y_source_stride;
                     int uv_source_stride;
 
+#if defined(ENABLE_GPU_DECODE)
+                    retcode = avcodec_receive_frame(decode_avctx, nvidia_surface);
+#else
                     retcode = avcodec_receive_frame(decode_avctx, decode_av_frame);
+#endif
                     if (retcode == AVERROR(EAGAIN) || retcode == AVERROR_EOF) {
                         break;
                     }
                     if (retcode < 0) {
                         break;
                     }
+
+#if defined(ENABLE_GPU_DECODE)
+                    av_hwframe_transfer_data(decode_av_frame, nvidia_surface, 0);
+#endif
                     decoder_frame_count++;
 
                     if (core->video_decode_time_set == 0) {
@@ -2468,7 +2518,8 @@ void *video_decode_thread(void *context)
                             memcpy(caption_buffer+CAPTION_HEADER_SIZE,
                                    buffer,
                                    buffer_size);
-                            //fprintf(stderr,"status: decoder-- saving caption_buffer\n");
+
+                            fprintf(stderr,"video_decode_thread: caption found - %d\n", caption_size);
                             caption_size = buffer_size+CAPTION_HEADER_SIZE;
                             caption_buffer[caption_size+1] = 0xff;
                             caption_size++;
@@ -2476,18 +2527,32 @@ void *video_decode_thread(void *context)
                             caption_buffer = NULL;
                             caption_size = 0;
                         }
+                    } else {
+                        fprintf(stderr,"video_decode_thread: no caption buffer\n");
+                        caption_buffer = NULL;
+                        caption_size = 0;
                     }
 
                     prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                     if (prepare_msg) {
                         prepare_msg->buffer = output_video_frame;
                         prepare_msg->buffer_size = video_frame_size;
+#if defined(ENABLE_GPU_DECODE)
+                        prepare_msg->pts = nvidia_surface->pts;
+                        prepare_msg->dts = nvidia_surface->pkt_dts;
+#else
                         prepare_msg->pts = decode_av_frame->pts;
                         prepare_msg->dts = decode_av_frame->pkt_dts;
-                        /*fprintf(stderr,"DECODED VIDEO FRAME: PTS:%ld PKT_DTS:%ld PKT_PTS:%ld\n",
+#endif
+
+                        /*fprintf(stderr,"DECODED VIDEO FRAME: PTS:%ld PKT_DTS:%ld PKT_PTS:%ld  NPTS:%ld NPKT_DTS:%ld NPKT_PTS:%ld\n",
                                 decode_av_frame->pts,
                                 decode_av_frame->pkt_dts,
-                                decode_av_frame->pkt_pts);*/
+                                decode_av_frame->pkt_pts,
+                                nvidia_surface->pts,
+                                nvidia_surface->pkt_dts,
+                                nvidia_surface->pkt_pts);*/
+
                         if (!is_frame_interlaced) {
                             prepare_msg->tff = 1;
                         } else {
@@ -2557,6 +2622,10 @@ cleanup_video_decoder_thread:
 
     av_frame_free(&decode_av_frame);
     av_packet_free(&decode_pkt);
+#if defined(ENABLE_GPU_DECODE)
+    av_frame_free(&nvidia_surface);
+    av_buffer_unref(&nvidia_device_ctx);
+#endif
     avcodec_close(decode_avctx);
     avcodec_free_context(&decode_avctx);
     sws_freeContext(decode_converter);
