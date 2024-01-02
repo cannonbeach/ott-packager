@@ -331,6 +331,11 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 
 ### Current Status
 
+(01/02/24) Happy New Year!
+
+If anyone needs SRT support on the input side of the ott-packager, please use my other project opensrthub.  https://github.com/cannonbeach/opensrthub.git
+And as usual, if anyone needs something, send me an email.
+
 (09/26/23) Ok, ok, ok....the weather is getting colder and I am not ready for winter
 
 I figured it was time to come back to this project and do some things.  I added webapp support for packaging, so you can now add a packaging service or a transcoding service using the webapp.  I also updated NodeJS from 12 to 18, and made the transcode a separate compile from the repackager.  You must follow the new set of instructions to get everything up and running and you no longer have a choice to build one or the other (at least with the scripts I am providing).  Reach out if there is an issue or a question.  I'd love to hear from you.
