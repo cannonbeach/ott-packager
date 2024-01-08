@@ -13,7 +13,7 @@ With this application, you can ingest *live* MPEG2 transport streams carried ove
 
 There are two ways to use this application.  The first and simplest method is use to the command version of the application.  You can quickly clone the repository, compile and easily start streaming.  The Quickstart for the web application is further down in the README and is a bit more involved to get setup and running, but provides a scriptable API as well as a nice clean interface with thumbnails and other status information in the transcoding mode.  The web application is still in the early stages and I will continually be adding features for managing these types of streaming services.
 
-I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time.  If there are specific features you would like to see, a funding donation goes a long way in making it happen.  I can also offer support services for deployment to address any devops type of issues, troubleshoot hardware (or software issues), or just offer general advice.  I've been in the industry for 20+ years, spent time at companies big and small, including AWS, and have a great understanding of video as well as deployment of large scale real-time systems on Linux.
+I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time.  If there are specific features you would like to see, a funding donation goes a long way in making it happen.  I can also offer support services for deployment to address any devops type of issues, troubleshoot hardware (or software issues), or just offer general advice.
 <br>
 
 ## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
@@ -330,6 +330,11 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 <br>
 
 ### Current Status
+
+(01/02/24) Happy New Year!
+
+If anyone needs SRT support on the input side of the ott-packager, please use my other project opensrthub.  https://github.com/cannonbeach/opensrthub.git
+And as usual, if anyone needs something, send me an email.
 
 (09/26/23) Ok, ok, ok....the weather is getting colder and I am not ready for winter
 
