@@ -31,7 +31,7 @@ INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
 INC += -I./x265_3.0/build/linux
 INC += -I./cblibcurl/include/curl
 INC += -I./cbffmpeg
-BASELIBS += -lz -ldl -lcrypto -lssl
+BASELIBS += -lz -lcrypto -lssl -ldl
 
 ifdef ENABLE_GPU
         CFLAGS += -DENABLE_GPU
