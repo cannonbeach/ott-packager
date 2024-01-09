@@ -31,7 +31,7 @@ INC += -I./cbfdkaac/libAACenc/include -I./cbfdkaac/libSYS/include
 INC += -I./x265_3.0/build/linux
 INC += -I./cblibcurl/include/curl
 INC += -I./cbffmpeg
-BASELIBS += -lz -lcrypto -lssl -ldl
+BASELIBS += -lz -lcrypto -lssl
 
 ifdef ENABLE_GPU
         CFLAGS += -DENABLE_GPU
@@ -43,6 +43,7 @@ else
                             -lnuma
         endif
 endif
+BASELIBS += -ldl
 
 all: $(LIB) fillet_transcode
 
