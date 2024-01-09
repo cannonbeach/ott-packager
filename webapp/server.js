@@ -165,6 +165,21 @@ cpuILoad = (function() {
 
 })();
 
+app.get('/api/v1/thumbnail/:uid', (req, res) => {
+    console.log('thumbnail request: '+req.params.uid);
+
+    var thumbnailfile = '/var/www/html/'+req.params.uid;
+    if (fs.existsSync(thumbnailfile)) {
+        var thumbnaildata = fs.readFileSync(thumbnailfile);
+        res.statusCode = 200;
+        res.setHeader('Content-Type','image/jpeg');
+        res.end(thumbnaildata);
+    } else {
+        res.statusCode = 404;
+        res.end();
+    }
+});
+
 app.get('/api/v1/system_information', (req, res) => {
     var retdata;
 
@@ -463,7 +478,7 @@ app.get('/api/v1/get_control_page', (req, res) => {
                 html += '<button style="width:95%" id=\'remove'+configindex+'\' type=\'remove\'>Remove<br>Service</button>';
                 html += '</td>';
                 html += '<td>';
-                html += '<img src=\'http://'+req.hostname+'/thumbnail'+fileprefix+'.jpg?='+ new Date().getTime() +'\' id=\'thumbnail'+fileprefix+'\'/>';
+                html += '<img src=\'http://'+req.hostname+':8080/api/v1/thumbnail/thumbnail'+fileprefix+'.jpg?='+ new Date().getTime() +'\' id=\'thumbnail'+fileprefix+'\'/>';
                 html += '</td>'
                 html += '<td><div id=\'statusinfo'+configindex+'\'></div></td>';
                 html += '</tr>';
