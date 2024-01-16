@@ -1290,7 +1290,7 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
             fprintf(video_manifest,"#EXT-X-CUE-IN\n");
         }
 
-        fprintf(video_manifest,"#EXTINF:%.2f,\n", (float)sdata->segment_lengths_video[next_sequence_number]);
+        fprintf(video_manifest,"#EXTINF:%.3f,\n", (float)sdata->segment_lengths_video[next_sequence_number]);
         fprintf(video_manifest,"video_stream%d_%ld.ts\n", source, next_sequence_number);
     }
 
@@ -1352,7 +1352,7 @@ static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stre
             fprintf(audio_manifest,"#EXT-X-CUE-IN\n");
         }
 
-        fprintf(audio_manifest,"#EXTINF:%.2f,\n", (float)sdata->segment_lengths_audio[next_sequence_number][sub_stream]);
+        fprintf(audio_manifest,"#EXTINF:%.3f,\n", (float)sdata->segment_lengths_audio[next_sequence_number][sub_stream]);
         fprintf(audio_manifest,"audio_stream%d_substream_%d_%ld.ts\n", source, sub_stream, next_sequence_number);
     }
 
@@ -1568,7 +1568,7 @@ static int update_mp4_video_manifest(fillet_app_struct *core, stream_struct *str
         if (sdata->discontinuity[next_sequence_number]) {
             fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
         }
-        fprintf(video_manifest,"#EXTINF:%.2f,\n", (float)sdata->segment_lengths_video[next_sequence_number]);
+        fprintf(video_manifest,"#EXTINF:%.3f,\n", (float)sdata->segment_lengths_video[next_sequence_number]);
         fprintf(video_manifest,"video%d/segment%ld.mp4\n", source, next_sequence_number);
     }
 
@@ -1609,7 +1609,7 @@ static int update_mp4_audio_manifest(fillet_app_struct *core, stream_struct *str
         if (sdata->discontinuity[next_sequence_number]) {
             fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
         }
-        fprintf(audio_manifest,"#EXTINF:%.2f,\n", (float)sdata->segment_lengths_audio[next_sequence_number][sub_stream]);
+        fprintf(audio_manifest,"#EXTINF:%.3f,\n", (float)sdata->segment_lengths_audio[next_sequence_number][sub_stream]);
         fprintf(audio_manifest,"audio%d_substream%d/segment%ld.mp4\n", source, sub_stream, next_sequence_number);
     }
 
