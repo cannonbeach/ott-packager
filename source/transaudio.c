@@ -325,9 +325,16 @@ void *audio_monitor_thread(void *context)
                             encode_msg->pts = (int64_t)((double)monitor_anchor_pts+((double)total_dead_frames*(double)frame_delta)); // rolls over?
                             encode_msg->dts = (int64_t)((double)monitor_anchor_dts+((double)total_dead_frames*(double)frame_delta));
 
+                            if (encode_msg->pts > MAX_PTS) {
+                                encode_msg->pts = encode_msg->pts - MAX_PTS;
+                            }
+                            if (encode_msg->dts > MAX_DTS) {
+                                encode_msg->dts = encode_msg->dts - MAX_DTS;
+                            }
+
                             fprintf(stderr,"AUDIO MONITOR - INSERTING DEAD FRAME PTS:%ld DTS:%ld TOTAL:%ld SIZE:%d\n",
-                                    encode_msg->pts - monitor_first_pts,
-                                    encode_msg->dts - monitor_first_pts,
+                                    encode_msg->pts,// - monitor_first_pts,
+                                    encode_msg->dts,// - monitor_first_pts,
                                     total_audio_monitor_dead_time,
                                     monitor_audio_frame_size);
 
@@ -379,6 +386,9 @@ void *audio_monitor_thread(void *context)
             monitor_sample_rate = msg->sample_rate;
             monitor_first_pts = msg->first_pts;
 
+            fprintf(stderr,"Monitored audio information, PTS:%ld, DTS:%ld, CHANNELS:%d, SR:%d\n",
+                    monitor_anchor_pts, monitor_anchor_dts, monitor_channels, monitor_sample_rate);
+
             if (monitor_anchor_dts < last_monitor_anchor_dts) {
                 fprintf(stderr,"Monitored audio frame is late, not passing through - PTS:%ld DTS:%ld\n",
                         monitor_anchor_pts,
@@ -427,7 +437,7 @@ void *audio_decode_thread(void *context)
     int source_samples = 0;
     int output_samples = 0;
     int last_decode_channels = -1;
-    int output_channels;
+    int output_channels = 2;
     int64_t last_audio_pts = -1;
     int64_t last_data_amount = 0;
     int first_sync_sample = 1;
@@ -605,6 +615,7 @@ void *audio_decode_thread(void *context)
                         } else {
                             full_time = last_full_time;
                         }
+
                         last_full_time = full_time;
                         pts = decode_av_frame->pts;
                         if (first_decoded_pts == -1) {
@@ -687,8 +698,8 @@ void *audio_decode_thread(void *context)
                             if (previous_delta_time != -1 && ticks_per_sample != 0) {
                                 expected_audio_data = (int64_t)((double)delta_time / (double)0.9 * (double)ticks_per_sample);
                                 diff_audio = expected_audio_data - core->decoded_source_info.decoded_actual_audio_data[audio_stream];
-                                fprintf(stderr,"expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld\n",
-                                        expected_audio_data, core->decoded_source_info.decoded_actual_audio_data[audio_stream], full_time, diff_audio);
+                                fprintf(stderr,"expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld  ticks_per_sample:%f\n",
+                                        expected_audio_data, core->decoded_source_info.decoded_actual_audio_data[audio_stream], full_time, diff_audio, ticks_per_sample);
                                 //check how much source audio we have vs. how much we should have
                                 //if audio is missing, then there could be some missing data
                                 //that would throw off the a/v sync for the mp4 file output mode
@@ -737,7 +748,6 @@ void *audio_decode_thread(void *context)
                                 int64_t correct_data;
 
                                 correct_data = (int64_t)((double)diff / (double)0.9 * (double)ticks_per_sample);
-
                                 /*fprintf(stderr,"\n\n\nAUDIO DECODED: SIZE:%d CORRECT:%ld  DIFF:%ld\n\n\n",
                                   last_data_amount,
                                   correct_data,

@@ -68,9 +68,12 @@
 #define MAX_ROLLOVER_SIZE          128
 #define MIN_ROLLOVER_SIZE          32
 #define OVERFLOW_DTS               8589100000
+#define MAX_PTS                    8589934592
+#define MAX_DTS                    MAX_PTS
 #define MAX_SESSIONS               5
 #define MAX_SOURCES                8
 #define TBD                        0xff
+#define AV_SYNC_TRIGGER_LEVEL      30
 
 #define MAX_MSG_BUFFERS                   8192
 #define MAX_FRAME_BUFFERS                 (MAX_FRAME_DATA_SYNC_VIDEO+MAX_FRAME_DATA_SYNC_AUDIO)*2

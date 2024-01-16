@@ -1751,6 +1751,7 @@ void *video_prepare_thread(void *context)
     double fps = 30.0;
     opaque_struct *opaque_data = NULL;
     int thumbnail_count = 0;
+    int av_sync_compromised = 0;
 
     params->pixel_fmts = pix_fmts;
 
@@ -2055,10 +2056,18 @@ void *video_prepare_thread(void *context)
 
                         if (sync_diff > fps ||
                             sync_diff < -fps) {
-                            syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
-                            fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
-                            send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO) - Restarting Service");
-                            exit(0);
+                            av_sync_compromised++;
+                            if (av_sync_compromised == 1) {
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "Possible A/V Sync Drift, Check Input");
+                            }
+                            if (av_sync_compromised >= AV_SYNC_TRIGGER_LEVEL) {
+                                syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
+                                fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
+                                send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO) - Restarting Service");
+                                exit(0);
+                            }
+                        } else {
+                            av_sync_compromised = 0;
                         }
 
                         if (sync_diff < -1) {

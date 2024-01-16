@@ -1828,25 +1828,6 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                            vstream->last_timestamp_dts,
                            dts);
                 }
-                /*
-                } else if (delta_dts < 0 || delta_dts > 60000) {
-                    fprintf(stderr,"FILLET: DELTA_DTS:%ld OVERFLOW DTS:%ld (SIGNAL DISCONTINUITY)\n", delta_dts, vstream->overflow_dts);
-                    syslog(LOG_INFO,"(%d) VIDEO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW DTS:%ld  LAST:%ld  DTS:%ld (SIGNAL DISCONTINUITY)\n",
-                           source,
-                           delta_dts,
-                           vstream->overflow_dts,
-                           vstream->last_timestamp_dts,
-                           dts);
-                    fprintf(stderr,"(%d) VIDEO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW DTS:%ld  LAST:%ld  DTS:%ld (SIGNAL DISCONTINUITY)\n",
-                            source,
-                            delta_dts,
-                            vstream->overflow_dts,
-                            vstream->last_timestamp_dts,
-                            dts);
-                    fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
-                    restart_sync_thread = 1;
-                }
-                */
             }
 
             vstream->last_timestamp_dts = dts + vstream->overflow_dts;
@@ -2108,9 +2089,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                         astream->overflow_pts,
                         pts,
                         astream->last_timestamp_pts);
-
-                fprintf(stderr,"FILLET: (%d) RESTARTING SYNC THREAD\n", source);
-                restart_sync_thread = 1;
+                // signal ?
             }
         }
 
