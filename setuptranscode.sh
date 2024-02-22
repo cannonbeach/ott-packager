@@ -13,8 +13,8 @@ yasmcheck=`yasm --version`
 # IMPORTANT!!!
 # Please make sure your CUDA directories are setup corrrectly
 # This is how they are setup on my system.  Yours may be different.
-cudainclude="/usr/local/cuda-11.1/include"
-cudalib="/usr/local/cuda-11.1/lib64"
+cudainclude="/usr/local/cuda-11.6/include"
+cudalib="/usr/local/cuda-11.6/lib64"
 
 sudo apt-get update
 sudo apt-get upgrade
