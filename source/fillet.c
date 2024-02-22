@@ -244,6 +244,15 @@ static int destroy_fillet_core(fillet_app_struct *core)
     destroy_transvideo_core(core);
 #endif
 
+#if defined(ENABLE_TRANSCODE)
+    if (core->transcode_enabled) {
+        num_video_sources = core->cd->num_outputs;
+    } else {
+        num_video_sources = core->active_video_sources;
+    }
+#else
+    num_video_sources = core->active_video_sources;
+#endif
     num_video_sources = core->active_video_sources;
     num_audio_sources = core->active_audio_sources;
 
@@ -1632,6 +1641,8 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
         new_frame->splice_point = 0;
     }
 
+    //fprintf(stderr,"source=%d, new_frame=%p, vstream=%p\n", source, new_frame, vstream);
+
     new_frame->duration = new_frame->full_time - vstream->last_full_time;
     new_frame->first_timestamp = vstream->first_timestamp;
     new_frame->source = source;
@@ -2348,7 +2359,15 @@ int main(int argc, char **argv)
              config_data.active_video_sources,
              config_data.active_audio_sources);
 
+#if defined(ENABLE_TRANSCODE)
+     if (enable_transcode) {
+         core = create_fillet_core(&config_data, config_data.num_outputs, config_data.active_audio_sources);
+     } else {
+         core = create_fillet_core(&config_data, config_data.active_video_sources, config_data.active_audio_sources);
+     }
+#else
      core = create_fillet_core(&config_data, config_data.active_video_sources, config_data.active_audio_sources);
+#endif
 
      // basic command line mode for testing purposes
      core->session_id = 1;
