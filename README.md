@@ -18,7 +18,7 @@ I would also appreciate any funding support, even if it is a one time donation. 
 
 ## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
 
-If something doesn't work here for you, then please post a bug in GitHub.
+If something doesn't work here for you, then please post a bug in GitHub.  I know this process can be a pain in the arse to get going especially given everyone has a different environment, so please be patient in following the instructions.  If you do have an issue, I am more than willing to help out.  I will soon be deprecating the CPU based transcoding since it requires a lot of my time to maintain both code pathways.
 
 ```
 Please follow the directions below *very* closely:
@@ -32,9 +32,16 @@ cannonbeach@insanitywave:$ cd ott-packager
 *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
 (VERY IMPORTANT: Please advise - if you are planning to run on a NVIDIA GPU system, you need to make sure that prior to running setuptranscode.sh that the cudainclude and cudalib directories are set correctly in the script, otherwise it will fail to setup properly).  Please also make sure that MakefileTranscode also has the correct paths.
 
-You can get updated CUDA deb packages from here: https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/
-You can get updated NVIDIA drivers here: https://www.nvidia.com/download/index.aspx
-You can get updated NVIDIA patch here: https://github.com/keylase/nvidia-patch
+The Dockerfile is currently setup to use nvidia image for CUDA 11.6.1.  You can get the combo CUDA+Driver from here:
+https://developer.nvidia.com/cuda-11-6-1-download-archive
+You will download th file: cuda_11.6.1_510.47.03_linux.run
+And it will install the CUDA 11.6.1 and the NVIDIA Driver
+
+You can get updated NVIDIA patch here to enable more encoding sessions on consumer hardware.  This works extremely well and you should install it for maximum performance!!
+https://github.com/keylase/nvidia-patch
+
+If you need a different version, you need to update the Dockerfile_Transcode to the correct base image and update all of the other corresponding paths.  Email if you need help.  I have limited access to a lot of GPU hardware and I am looking to get my hands on something that supports AV1.  You can donate or provide me with cloud credits or even some other arrangement.
+
 *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
 
 cannonbeach@insanitywave:$ chmod +x setuptranscode.sh
@@ -330,6 +337,10 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 <br>
 
 ### Current Status
+
+(02/22/24) Small update
+
+Updated to a newer Cuda version in the Dockerfile since dockerhub deprecated the image I was previously using
 
 (01/02/24) Happy New Year!
 
