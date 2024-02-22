@@ -1,6 +1,7 @@
 #!/bin/bash
 echo "STATUS-loading docker image for fillet application"
-sudo docker load -i /dockerimages/dockerfillet.tar
+sudo docker load -i /dockerimages/dockerfillet_transcode.tar
+sudo docker load -i /dockerimages/dockerfillet_repackage.tar
 echo "STATUS-done loading docker image for fillet application"
 
 pushd /var/app

@@ -151,7 +151,8 @@ echo "STATUS- installing unzip"
 sudo apt-get install unzip -y
 echo "STATUS- installing apache"
 sudo apt-get install apache2 -y
-
+echo "STATUS- installing docker-buildx"
+sudo apt-get install docker-buildx -y
 #https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html#installing-on-ubuntu-and-debian
 echo "STATUS- updating pm2 (if needed)"
 sudo npm install pm2@latest -g

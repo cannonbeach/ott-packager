@@ -21,8 +21,9 @@ fi
 
 cp fillet_repackage ./docker_repackage
 pushd docker_repackage
-sudo docker build -t dockerfillet_repackage .
-sudo docker save -o dockerfillet_repackage.tar dockerfillet_repackage
+#sudo docker build -t dockerfillet_repackage .
+#sudo docker save -o dockerfillet_repackage.tar dockerfillet_repackage
+sudo docker buildx build . -t dockerfillet_repackage --output=type=tar,dest=dockerfillet_repackage.tar
 popd
 sudo cp ./docker_repackage/dockerfillet_repackage.tar .
 
@@ -39,8 +40,9 @@ fi
 
 cp fillet_transcode ./docker_transcode
 pushd docker_transcode
-sudo docker build -t dockerfillet_transcode .
-sudo docker save -o dockerfillet_transcode.tar dockerfillet_transcode
+#sudo docker build -t dockerfillet_transcode .
+#sudo docker save -o dockerfillet_transcode.tar dockerfillet_transcode
+sudo docker buildx build . -t dockerfillet_transcode --output=type=tar,dest=dockerfillet_transcode.tar
 popd
 sudo cp ./docker_transcode/dockerfillet_transcode.tar .
 

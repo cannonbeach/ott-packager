@@ -1,7 +1,7 @@
 #FROM ubuntu:20.04
-#FROM nvidia/cuda:11.2.2-runtime-ubuntu18.04
+#FROM nvidia/cuda:11.4.2-runtime-ubuntu18.04
 #FROM nvidia/cuda:10.2-runtime-ubuntu16.04
-FROM nvidia/cuda:11.1.1-runtime-ubuntu20.04
+FROM nvidia/cuda:11.6.1-runtime-ubuntu20.04
 LABEL maintainer="cannonbeachgoonie@gmail.com"
 #RUN apt-get install -y apt-utils
 RUN apt-get update
