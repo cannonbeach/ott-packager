@@ -283,7 +283,7 @@ void *audio_monitor_thread(void *context)
             if (monitor_ready) {
                 clock_gettime(CLOCK_MONOTONIC, &monitor_end);
                 audio_monitor_time = (double)time_difference(&monitor_end, &monitor_start);
-#define AUDIO_MONITOR_DEAD_TIME 500000
+#define AUDIO_MONITOR_DEAD_TIME 1000000
                 if (audio_monitor_time >= AUDIO_MONITOR_DEAD_TIME) {
                     clock_gettime(CLOCK_MONOTONIC, &monitor_start);
 
@@ -645,6 +645,12 @@ void *audio_decode_thread(void *context)
                                 av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_5POINT1,0);
                                 av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
                                 //"pan=stereo|FL=FC+0.30*FL+0.30*BL|FR=FC+0.30*FR+0.30*BR"
+                            } else if (decode_avctx->channels == 3 && output_channels == 2) {
+                                av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_2POINT1,0);
+                                av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
+                            } else if (decode_avctx->channels == 4 && output_channels == 2) {
+                                av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_QUAD,0);
+                                av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
                             } else if (decode_avctx->channels == 1 && output_channels == 2) {
                                 av_opt_set_int(swr,"in_channel_layout",AV_CH_LAYOUT_MONO,0);
                                 av_opt_set_int(swr,"out_channel_layout",AV_CH_LAYOUT_STEREO,0);
@@ -707,7 +713,7 @@ void *audio_decode_thread(void *context)
                                 //and if things are just really bad and unrecoverable for some unknown reason
                                 //then we'll just have the application quit out based on some threshold
                                 //and rely on the docker container to restart the application in a known healthy state
-                                int quit_threshold = 65535*output_channels;
+                                int quit_threshold = 65535*output_channels*2;
                                 if (diff_audio > quit_threshold ||
                                     diff_audio < -quit_threshold) {
                                     fprintf(stderr,"fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
