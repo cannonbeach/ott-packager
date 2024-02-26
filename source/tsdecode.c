@@ -587,8 +587,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                int cancel_indicator = 0;
                                int out_of_network_indicator = 0;
                                int64_t splice_event_id = 0;
-                               /*
-                               syslog(LOG_INFO,"SCTE35 TABLE ID: 0x%x  SECTIONSIZE:%d  VERSION:%d CW:%d TIER:%d CMDLEN:%d TYPE:0x%x  PTS-ADJUSTMENT:%ld\n",
+
+                               syslog(LOG_INFO,"decode_packets: scte35 table id: 0x%x sectionsize:%d version:%d cw:%d tier:%d cmdlen:%d type:0x%x pts-adjustment:%ld\n",
                                       table_id,
                                       section_size, protocol_version,
                                       cw_index,
@@ -596,7 +596,6 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                       splice_command_length,
                                       splice_command_type,
                                       pts_adjustment);
-                               */
 
                                if (splice_command_type == 0x05) {  // splice insert
                                    uint8_t *splice = (uint8_t*)pdata+15;
@@ -605,8 +604,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                        (int64_t)(splice[2] << 8) |
                                        (int64_t)splice[3];
                                    cancel_indicator = !!(splice[4] & 0x80);       // cancel_indicator- bottom 7-bits reserved
-                                   //syslog(LOG_INFO,"SCTE35: splice_event_id: %ld  0x%x   CANCEL:%d\n",
-                                   //       splice_event_id, splice_event_id, cancel_indicator);
+                                   syslog(LOG_INFO,"decode_packets: scte35 splice_event_id: %ld 0x%lx cancel:%d\n",
+                                          splice_event_id, splice_event_id, cancel_indicator);
                                    splice += 5;
                                    if (!cancel_indicator) {
                                        out_of_network_indicator = !!(splice[0] & 0x80);
@@ -614,17 +613,18 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                        int duration_flag = !!(splice[0] & 0x20);
                                        splice_immediate_flag = !!(splice[0] & 0x10);
                                        // next 4-bits are reserved
-                                       /*syslog(LOG_INFO,"SCTE35: out_of_network_indicator:%d program_splice_flag:%d duration_flag:%d splice_immediate_flag:%d\n",
+
+                                       syslog(LOG_INFO,"decode_packets: scte35 out_of_network_indicator:%d program_splice_flag:%d duration_flag:%d splice_immediate_flag:%d\n",
                                               out_of_network_indicator,
                                               program_splice_flag,
                                               duration_flag,
                                               splice_immediate_flag);
                                        if (out_of_network_indicator) {
-                                           syslog(LOG_INFO,"SCTE35: opportunity to exit from the network feed!\n");
+                                           syslog(LOG_INFO,"decode_packets: scte35 opportunity to exit from the network feed!\n");
                                        } else {
-                                           syslog(LOG_INFO,"SCTE35: let's get back to the program - pts_adjustment is the intended point to head back!\n");
+                                           syslog(LOG_INFO,"decode_packets: scte35 let's get back to the program - pts_adjustment is the intended point to head back!\n");
                                        }
-                                       */
+
                                        splice++;
                                        if (program_splice_flag == 1 && splice_immediate_flag == 0) {
                                            // splice time table
@@ -636,7 +636,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                                    (int64_t)(splice[3] << 8) +
                                                    (int64_t)splice[4];
                                                pts_time = pts_time & 0x1ffffffff;
-                                               //syslog(LOG_INFO,"SCTE35: PTS TIME (1/0): %ld\n", pts_time);
+                                               syslog(LOG_INFO,"decode_packets: scte35 pts_time %ld\n", pts_time);
                                                splice += 5;
                                            } else {
                                                // next 7-bits are reserved
@@ -646,7 +646,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                            // component_count
                                            int component_count = splice[0];
                                            int c;
-                                           syslog(LOG_INFO,"SCTE35: COMPONENT COUNT: %d\n", component_count);
+                                           //syslog(LOG_INFO,"SCTE35: COMPONENT COUNT: %d\n", component_count);
                                            splice++;
                                            for (c = 0; c < component_count; c++) {
                                                int component_tag = splice[0];
@@ -660,7 +660,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                                            (int64_t)(splice[2] << 16) |
                                                            (int64_t)(splice[3] << 8) |
                                                            (int64_t)splice[4];
-                                                       syslog(LOG_INFO,"SCTE35: PTS TIME (0/0): %ld\n", pts_time);
+                                                       //syslog(LOG_INFO,"SCTE35: PTS TIME (0/0): %ld\n", pts_time);
                                                        splice += 5;
                                                    } else {
                                                        // next 7-bits are reserved
@@ -939,7 +939,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                                                tsdata->master_pmt_table[each_pmt].audio_stream_index[pid_count], //sub-source
                                                                (char*)&tsdata->master_pmt_table[each_pmt].decoded_language_tag[pid_count].lang_tag[0],
                                                                send_frame_context);
-                                           } else if (stream_type == 0x04) {
+                                           } else if (stream_type == 0x01 || stream_type == 0x03 || stream_type == 0x04) {
                                                uint8_t *audio_frame = (unsigned char*)tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer;
                                                send_frame_func(audio_frame, video_frame_size, STREAM_TYPE_MPEG, 1,
                                                                tsdata->master_pmt_table[each_pmt].data_engine[pid_count].pts,
