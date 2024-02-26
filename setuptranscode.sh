@@ -90,6 +90,7 @@ fi
 echo "Installing FFMPEG from cannonbeach fork"
 git clone https://github.com/cannonbeach/FFmpeg.git ./cbffmpeg
 cd cbffmpeg
+git checkout -b release4.0 remotes/origin/release/4.0
 if [ -z "$nvidiacheck" ]; then
     echo "No NVIDIA Hardware Found"
     ./configure --prefix=/usr --disable-encoders --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-muxers --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-muxers --disable-avdevice --enable-encoder=mjpeg
@@ -109,7 +110,8 @@ else
         exit
     fi
 
-    ./configure --prefix=/usr --enable-cuda --enable-cuvid --enable-nvenc --enable-nonfree --enable-libnpp --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-avdevice --enable-encoder=mjpeg --extra-cflags=-I$cudainclude --extra-ldflags=-L$cudalib
+    ./configure --prefix=/usr --enable-cuda --enable-nvenc --enable-nonfree --enable-libnpp --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-avdevice --enable-encoder=mjpeg --extra-cflags=-I$cudainclude --extra-ldflags=-L$cudalib
+#    ./configure --prefix=/usr --enable-cuda --enable-cuvid --enable-nvenc --enable-nonfree --enable-libnpp --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-avdevice --enable-encoder=mjpeg --extra-cflags=-I$cudainclude --extra-ldflags=-L$cudalib
 fi
 make -j8
 echo "Installing ffprobe for source scanning"
