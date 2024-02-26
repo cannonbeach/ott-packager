@@ -1763,14 +1763,21 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                    scte35_data->out_of_network_indicator);
 
             if (scte35_data->splice_command_type == 0x05) {
-                if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
+                if (scte35_data->splice_immediate) {
                     core->scte35_ready = 1;
-                    core->scte35_pts = scte35_data->pts_time;
+                    core->scte35_pts = 0;
                     core->scte35_duration = scte35_data->pts_duration;
                     core->scte35_duration_remaining = scte35_data->pts_duration;
                     core->scte35_triggered = 0;
                     send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                    // pts_adjustment- non-zero
+                } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
+                    core->scte35_ready = 1;
+                    core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
+                    core->scte35_duration = scte35_data->pts_duration;
+                    core->scte35_duration_remaining = scte35_data->pts_duration;
+                    core->scte35_triggered = 0;
+                    send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
+                    // pts_adjustment is non-zero
                 } else {
                     // additional modes needs to be included
                     // non pts_duration mode
@@ -1887,7 +1894,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (core->scte35_ready) {
             int64_t scte35_time_diff;
             int64_t anchor_time = new_frame->full_time % 8589934592;
-            scte35_time_diff = core->scte35_pts - anchor_time;
+            if (core->scte35_pts == 0) {
+                scte35_time_diff = 0;
+                core->scte35_pts = anchor_time;
+            } else {
+                scte35_time_diff = core->scte35_pts - anchor_time;
+            }
             fprintf(stderr,"SCTE35 TIME DIFF:%ld\n", scte35_time_diff);
             syslog(LOG_INFO,"SCTE35 TIME DIFF:%ld    PTS:%ld    SCTE35PTS:%ld   DURATION:%ld   REMAINING:%ld  TRIGGERED:%d\n",
                    scte35_time_diff,
@@ -2376,6 +2388,7 @@ int main(int argc, char **argv)
      core->cd->enable_scte35 = !!enable_scte35;
      core->cd->enable_stereo = !!enable_stereo;
      core->cd->enable_webvtt = !!enable_webvtt;
+     core->reinitialize_decoder = 0;
 
      if (core->cd->source_type == SOURCE_TYPE_FILE) {
 

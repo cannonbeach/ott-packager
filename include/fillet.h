@@ -394,6 +394,7 @@ typedef struct _fillet_app_struct_
     int                           timeset;
 
     int                           transcode_enabled;
+    int                           reinitialize_decoder;
 
     // these are some basic runtime stats- should move to different data structure
     int64_t                       uptime;

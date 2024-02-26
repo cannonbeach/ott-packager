@@ -395,7 +395,6 @@ void *video_encode_thread_nvenc(void *context)
             fprintf(stderr,"\n\n\nDone initializing NVENC Hardware\n\n\n");
         } // !initialized
 
-
         if (!video_encode_thread_running) {
             while (msg) {
                 if (msg) {
@@ -464,6 +463,24 @@ void *video_encode_thread_nvenc(void *context)
             }
         }
 
+        if (msg->caption_buffer) {
+            free(msg->caption_buffer);
+            msg->caption_buffer = NULL;
+            /*
+            int caption_size = msg->caption_size;
+            AVFrameSideData *caption_data = av_frame_new_side_data(gpu_data[current_encoder].encode_av_frame,
+                                                                   AV_FRAME_DATA_A53_CC,
+                                                                   caption_size-7);
+            if (caption_data) {
+                caption_data->size = caption_size;
+                memcpy(caption_data->data, msg->caption_buffer+7, caption_size-7);
+            } else {
+                fprintf(stderr,"unable to save caption buffer\n");
+            }
+            free(msg->caption_buffer);
+            msg->caption_buffer = NULL;*/
+        }
+
         gpu_data[current_encoder].encode_surface->pts = gpu_data[current_encoder].frame_count_pts;
         gpu_data[current_encoder].encode_av_frame->pts = gpu_data[current_encoder].frame_count_pts;
         gpu_data[current_encoder].encode_av_frame->pkt_pts = gpu_data[current_encoder].frame_count_pts;
@@ -518,14 +535,14 @@ void *video_encode_thread_nvenc(void *context)
             int64_t pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
             int64_t dts = (int64_t)((double)gpu_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
-            /*fprintf(stderr,"Receiving Compressed Video Frame from NVENC Hardware: %d  sourcepts:%f  pts:%ld  dts:%ld  ticks_per_frame:%f   output_fps:%.2f\n\n\n",
+            fprintf(stderr,"Receiving Compressed Video Frame from NVENC Hardware(%d): %d  sourcepts:%f  pts:%ld  dts:%ld  ticks_per_frame:%f   output_fps:%.2f\n\n\n",
+                    current_encoder,
                     gpu_data[current_encoder].encode_pkt->size,
                     opaque_double,
                     pts,
                     dts,
                     ticks_per_frame_double,
                     output_fps);
-            */
 
             av_packet_unref(gpu_data[current_encoder].encode_pkt);
 
@@ -1499,6 +1516,7 @@ void *video_scale_thread(void *context)
 
                 if (encode_msg) {
                     dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);
+                    encode_msg = NULL;
                 }
             }//current_output loop
             memory_return(core->raw_video_pool, msg->buffer);
@@ -1552,7 +1570,10 @@ void *video_monitor_thread(void *context)
     int dead_frame_adjustment = 0;
     double dead_frames_actual;
     int64_t last_monitor_anchor_pts = 0;
+    int64_t last_monitor_anchor_dts = 0;
+    int dead_frames_triggered = 0;
 
+    core->reinitialize_decoder = 0;
     while (video_monitor_thread_running) {
         clock_gettime(CLOCK_MONOTONIC, &monitor_start);
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->monitorvideo->input_queue);
@@ -1561,7 +1582,7 @@ void *video_monitor_thread(void *context)
             if (monitor_ready) {
                 clock_gettime(CLOCK_MONOTONIC, &monitor_end);
                 video_monitor_time = (double)time_difference(&monitor_end, &monitor_start);
-#define VIDEO_MONITOR_DEAD_TIME 500000
+#define VIDEO_MONITOR_DEAD_TIME 1000000
                 if (video_monitor_time >= VIDEO_MONITOR_DEAD_TIME) {
                     clock_gettime(CLOCK_MONOTONIC, &monitor_start);
 
@@ -1580,6 +1601,9 @@ void *video_monitor_thread(void *context)
                     dead_frames_actual = (double)((double)video_monitor_time / ((double)1000000.0 / ((double)monitor_num / (double)monitor_den)));
                     expected_dead_frames += dead_frames_actual;
                     dead_frames = (int64_t)dead_frames_actual + dead_frame_adjustment;
+
+                    dead_frames_triggered = 1;
+                    core->reinitialize_decoder = 1;
 
                     fprintf(stderr,"VIDEO MONITOR TIMED OUT - INSERTING DEAD FRAMES: %ld  VIDEO MONITOR TIME: %f  FRAME DELTA: %f\n",
                             dead_frames, video_monitor_time, frame_delta);
@@ -1604,6 +1628,7 @@ void *video_monitor_thread(void *context)
                             prepare_msg->pts = (int64_t)((double)monitor_anchor_pts+((double)total_dead_frames*(double)frame_delta));
                             prepare_msg->dts = (int64_t)((double)monitor_anchor_dts+((double)total_dead_frames*(double)frame_delta));
                             last_monitor_anchor_pts = prepare_msg->pts;
+                            last_monitor_anchor_dts = prepare_msg->dts;
                             prepare_msg->tff = monitor_tff;
 
                             prepare_msg->interlaced = monitor_interlaced;
@@ -1617,6 +1642,7 @@ void *video_monitor_thread(void *context)
                             prepare_msg->aspect_den = monitor_aspect_den;
                             prepare_msg->width = monitor_width;
                             prepare_msg->height = monitor_height;
+                            prepare_msg->source_discontinuity = 0;
 
                             // fix this grrr....
                             prepare_msg->splice_point = 0;//splice_point;
@@ -1687,11 +1713,31 @@ void *video_monitor_thread(void *context)
             monitor_aspect_num = msg->aspect_num;
             monitor_aspect_den = msg->aspect_den;
 
-            if (monitor_anchor_pts < last_monitor_anchor_pts) {
-                fprintf(stderr,"Monitored video frame is late, not passing through: %dx%d PTS:%ld DTS:%ld\n",
+            fprintf(stderr,"Passing through monitored video frame: %dx%d PTS:%ld DTS:%ld\n",
+                    monitor_width,
+                    monitor_height,
+                    monitor_anchor_pts,
+                    monitor_anchor_dts);
+
+            if (dead_frames_triggered) {
+                // this will trigger the deinterlacer to flush and reinitialize
+                msg->source_discontinuity = 1;
+                dead_frames_triggered = 0;
+            } else {
+                msg->source_discontinuity = 0;
+            }
+
+            dataqueue_put_front(core->preparevideo->input_queue, msg);
+            last_monitor_anchor_pts = monitor_anchor_pts;
+            last_monitor_anchor_dts = monitor_anchor_dts;
+
+            /*
+            if (monitor_anchor_dts < last_monitor_anchor_dts) {
+                fprintf(stderr,"Monitored video frame is late, not passing through: %dx%d currentpts:%ld previouspts:%ld DTS:%ld\n",
                         monitor_width,
                         monitor_height,
                         monitor_anchor_pts,
+                        last_monitor_anchor_pts,
                         monitor_anchor_dts);
                 if (msg->caption_buffer) {
                     free(msg->caption_buffer);
@@ -1709,7 +1755,9 @@ void *video_monitor_thread(void *context)
                         monitor_anchor_dts);
                 dataqueue_put_front(core->preparevideo->input_queue, msg);
                 last_monitor_anchor_pts = monitor_anchor_pts;
+                last_monitor_anchor_dts = monitor_anchor_dts;
             }
+            */
         }
     }
 cleanup_video_monitor_thread:
@@ -1732,9 +1780,9 @@ void *video_prepare_thread(void *context)
 
     AVFilter *filter_source = (AVFilter*)avfilter_get_by_name("buffer");
     AVFilter *filter_output = (AVFilter*)avfilter_get_by_name("buffersink");
-    AVFilterInOut *filter_inputs = avfilter_inout_alloc();
-    AVFilterInOut *filter_outputs = avfilter_inout_alloc();
-    AVBufferSinkParams *params = av_buffersink_params_alloc();
+    AVFilterInOut *filter_inputs = NULL;
+    AVFilterInOut *filter_outputs = NULL;
+    AVBufferSinkParams *params = NULL;
     enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_YUV420P };
     AVFrame *source_frame = NULL;
     AVFrame *deinterlaced_frame = NULL;
@@ -1752,8 +1800,6 @@ void *video_prepare_thread(void *context)
     opaque_struct *opaque_data = NULL;
     int thumbnail_count = 0;
     int av_sync_compromised = 0;
-
-    params->pixel_fmts = pix_fmts;
 
     source_frame = av_frame_alloc();
     deinterlaced_frame = av_frame_alloc();
@@ -1786,6 +1832,20 @@ void *video_prepare_thread(void *context)
             int height = msg->height;
             int ready = 0;
 
+            if (msg->source_discontinuity) {
+                if (deinterlacer_ready) {
+                    av_free(deinterlacer->scale_sws_opts);
+                    deinterlacer->scale_sws_opts = NULL;
+                    avfilter_graph_free(&deinterlacer);
+                    deinterlacer_ready = 0;
+                    av_freep(&output_data[0]);
+                    av_frame_free(&deinterlaced_frame);
+                    av_frame_free(&source_frame);
+                    sws_freeContext(thumbnail_scaler);
+                }
+                msg->source_discontinuity = 0;
+            }
+
             // deinterlace the frame and scale it to the number of outputs
             // required and then feed the encoder input queues
             // for now I'm doing a blanket deinterlace
@@ -1794,6 +1854,11 @@ void *video_prepare_thread(void *context)
             if (!deinterlacer_ready) {
                 char scaler_params[32];
                 char *scaler_flags;
+
+                filter_inputs = avfilter_inout_alloc();
+                filter_outputs = avfilter_inout_alloc();
+                params = av_buffersink_params_alloc();
+                params->pixel_fmts = pix_fmts;
 
                 //!! optimization can be done here to set to the max output height
 
@@ -1821,6 +1886,7 @@ void *video_prepare_thread(void *context)
                                              params,
                                              deinterlacer);
                 av_free(params);
+                params = NULL;
 
                 filter_inputs->name = av_strdup("out");
                 filter_inputs->filter_ctx = deinterlacer_output;
@@ -2041,28 +2107,29 @@ void *video_prepare_thread(void *context)
                         int64_t sync_diff;
 
                         deinterlaced_frame_count++;  // frames since the video start time
-                        sync_frame_count = (int64_t)(((((double)deinterlaced_frame->pkt_pts-(double)vstream->first_timestamp) / (double)90000.0))*(double)fps);
+                        sync_frame_count = (int64_t)(((((double)deinterlaced_frame->pkt_dts-(double)vstream->first_timestamp) / (double)90000.0))*(double)fps);
                         av_sync_offset = (((double)deinterlaced_frame_count - (double)sync_frame_count)/(double)fps)*(double)1000.0;
                         sync_diff = (int64_t)deinterlaced_frame_count - (int64_t)sync_frame_count;
 
-                        fprintf(stderr,"DEINTERLACED_FRAME_COUNT:%ld  SYNC_FRAME_COUNT:%ld   SYNC OFFSET:%ld (%.2fms)  PKT_DTS:%ld  FT:%ld  FPS:%.2f\n",
+                        fprintf(stderr,"video_prepare_thread: deinterlaced_frame_count:%ld  SYNC_FRAME_COUNT:%ld   SYNC OFFSET:%ld (%.2fms)  PKT_PTS:%ld PKT_DTS:%ld  FT:%ld  FPS:%.2f\n",
                                 deinterlaced_frame_count,
                                 sync_frame_count,
-                                deinterlaced_frame_count - sync_frame_count,
+                                sync_diff,
                                 av_sync_offset,
                                 deinterlaced_frame->pkt_pts,
+                                deinterlaced_frame->pkt_dts,
                                 vstream->first_timestamp,
                                 fps);
 
-                        if (sync_diff > fps ||
-                            sync_diff < -fps) {
+                        if (sync_diff > (2*fps) ||
+                            sync_diff < (-fps*2)) {
                             av_sync_compromised++;
                             if (av_sync_compromised == 1) {
                                 send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "Possible A/V Sync Drift, Check Input");
                             }
                             if (av_sync_compromised >= AV_SYNC_TRIGGER_LEVEL) {
                                 syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
-                                fprintf(stderr,"FATAL ERROR: a/v sync is compromised!!\n");
+                                fprintf(stderr,"FATAL ERROR: a/v sync is compromised  sync_diff=%ld fps=%.2f!!\n", sync_diff, fps);
                                 send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO) - Restarting Service");
                                 exit(0);
                             }
@@ -2235,6 +2302,7 @@ void *video_decode_thread(void *context)
     fillet_app_struct *core = (fillet_app_struct*)context;
     int video_decoder_ready = 0;
     dataqueue_message_struct *msg;
+    AVCodecParserContext *decode_parser = NULL;
     AVCodecContext *decode_avctx = NULL;
     AVCodec *decode_codec = NULL;
     AVPacket *decode_pkt = NULL;
@@ -2248,6 +2316,7 @@ void *video_decode_thread(void *context)
     int source_stride[4];
     int output_stride[4];
     int last_video_frame_size = -1;
+    uint8_t *wbuffer;
 
 #if defined(ENABLE_GPU_DECODE)
     AVHWFramesContext *nvidia_frames_ctx = NULL;
@@ -2265,6 +2334,7 @@ void *video_decode_thread(void *context)
 
     fprintf(stderr,"status: starting video decode thread: %d\n", video_decode_thread_running);
 
+    wbuffer = (uint8_t*)malloc(MAX_VIDEO_PES_BUFFER);
     while (video_decode_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->transvideo->input_queue);
         while (!msg && video_decode_thread_running) {
@@ -2293,6 +2363,22 @@ void *video_decode_thread(void *context)
                 int retcode;
                 char gpu_select_string[MAX_FILENAME_SIZE];
 
+                if (core->reinitialize_decoder) {
+                    av_frame_free(&decode_av_frame);
+                    av_packet_free(&decode_pkt);
+#if defined(ENABLE_GPU_DECODE)
+                    av_frame_free(&nvidia_surface);
+                    av_buffer_unref(&nvidia_device_ctx);
+#endif
+                    avcodec_close(decode_avctx);
+                    av_parser_close(decode_parser);
+                    avcodec_free_context(&decode_avctx);
+                    sws_freeContext(decode_converter);
+                    av_freep(&output_data[0]);
+                    core->reinitialize_decoder = 0;
+                    video_decoder_ready = 0;
+                }
+
                 if (!video_decoder_ready) {
                     if (frame->media_type == MEDIA_TYPE_MPEG2) {
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_MPEG2VIDEO);
@@ -2312,6 +2398,7 @@ void *video_decode_thread(void *context)
                         exit(0);
                     }
                     decode_avctx = avcodec_alloc_context3(decode_codec);
+                    decode_parser = av_parser_init(decode_codec->id);
 #if defined(ENABLE_GPU_DECODE)
                     decode_avctx->pix_fmt = AV_PIX_FMT_NV12;
                     decode_avctx->time_base = (AVRational){1001,30000};
@@ -2344,291 +2431,342 @@ void *video_decode_thread(void *context)
                 uint8_t *incoming_video_buffer = frame->buffer;
                 int incoming_video_buffer_size = frame->buffer_size;
 
-                decode_pkt->size = incoming_video_buffer_size;
-                decode_pkt->data = incoming_video_buffer;
-                decode_pkt->pts = frame->pts;
-                decode_pkt->dts = frame->full_time;  // this is the one that matters
+                memcpy(wbuffer, incoming_video_buffer, incoming_video_buffer_size);
+                uint8_t *working_incoming_video_buffer = wbuffer;
+                int working_incoming_video_buffer_size = incoming_video_buffer_size;
 
-                signal_data[signal_write_index].pts = frame->full_time;
-                signal_data[signal_write_index].scte35_ready = frame->splice_point;
-                signal_data[signal_write_index].scte35_duration = frame->splice_duration;
-                signal_data[signal_write_index].scte35_duration_remaining = frame->splice_duration_remaining;
-                signal_write_index = (signal_write_index + 1) % MAX_SIGNAL_WINDOW;
-
-                retcode = avcodec_send_packet(decode_avctx, decode_pkt);
-                if (retcode < 0) {
-                    //error decoding video frame-report!
-                    fprintf(stderr,"error: unable to decode video frame - sorry\n");
-                    send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");
+#if 0
+                int read_pos = 0;
+                while (read_pos < incoming_video_buffer_size) {
+                    if (wbuffer[read_pos+0] == 0x00 &&
+                        wbuffer[read_pos+1] == 0x00 &&
+                        wbuffer[read_pos+2] == 0x01) {
+                        int nal_type = wbuffer[read_pos+3] & 0x1f;
+                        fprintf(stderr,"video_decode_thread: incoming nal type is 0x%x (%d)   0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+                                nal_type, nal_type,
+                                wbuffer[read_pos+4], wbuffer[read_pos+5], wbuffer[read_pos+6], wbuffer[read_pos+7],
+                                wbuffer[read_pos+8], wbuffer[read_pos+9], wbuffer[read_pos+10], wbuffer[read_pos+11]);
+                        if (nal_type == 6 &&
+                            wbuffer[read_pos+4] == 0x01 && //0x04 &&
+                            wbuffer[read_pos+5] == 0x01 && //0x47 &&
+                            wbuffer[read_pos+7] == 0x80) {//0xb5)
+                            working_incoming_video_buffer += (read_pos+7);
+                            working_incoming_video_buffer_size -= (read_pos+7);
+                            break;
+                        }
+                    }
+                    read_pos++;
                 }
-
-                while (retcode >= 0) {
-                    AVFrameSideData *caption_data = NULL;
-                    uint8_t *caption_buffer = NULL;
-                    int caption_size = 0;
-                    int is_frame_interlaced;
-                    int is_frame_tff;
-                    dataqueue_message_struct *prepare_msg;
-                    uint8_t *output_video_frame;
-                    int video_frame_size;
-                    int frame_height;
-                    int frame_height2;
-                    int frame_width;
-                    int frame_width2;
-                    int row;
-                    uint8_t *y_output_video_frame;
-                    uint8_t *u_output_video_frame;
-                    uint8_t *v_output_video_frame;
-                    uint8_t *y_source_video_frame;
-                    uint8_t *u_source_video_frame;
-                    uint8_t *v_source_video_frame;
-                    int y_source_stride;
-                    int uv_source_stride;
-
-#if defined(ENABLE_GPU_DECODE)
-                    retcode = avcodec_receive_frame(decode_avctx, nvidia_surface);
-#else
-                    retcode = avcodec_receive_frame(decode_avctx, decode_av_frame);
 #endif
-                    if (retcode == AVERROR(EAGAIN) || retcode == AVERROR_EOF) {
+
+                while (working_incoming_video_buffer_size > 0) {
+                    int decode_happy;
+
+                    decode_pkt->size = 0;
+                    decode_happy = av_parser_parse2(decode_parser, decode_avctx,
+                                                    &decode_pkt->data,
+                                                    &decode_pkt->size,
+                                                    working_incoming_video_buffer,
+                                                    working_incoming_video_buffer_size,
+                                                    AV_NOPTS_VALUE,
+                                                    AV_NOPTS_VALUE, 0);
+                    if (decode_happy < 0) {
                         break;
                     }
+
+                    fprintf(stderr,"video_decode_thread: decode happy=%d, remaining=%d, size=%d, frame->pts=%ld, frame->full_time=%ld\n",
+                            decode_happy, working_incoming_video_buffer_size, decode_pkt->size,
+                            frame->pts, frame->full_time);
+
+                    working_incoming_video_buffer_size -= decode_happy;
+                    working_incoming_video_buffer += decode_happy;
+
+                    if (decode_pkt->size == 0) {
+                        continue;
+                    }
+                    decode_pkt->pts = frame->pts;
+                    decode_pkt->dts = frame->full_time;  // this is the one that matters
+
+                    signal_data[signal_write_index].pts = frame->full_time;
+                    signal_data[signal_write_index].scte35_ready = frame->splice_point;
+                    signal_data[signal_write_index].scte35_duration = frame->splice_duration;
+                    signal_data[signal_write_index].scte35_duration_remaining = frame->splice_duration_remaining;
+                    signal_write_index = (signal_write_index + 1) % MAX_SIGNAL_WINDOW;
+
+                    retcode = avcodec_send_packet(decode_avctx, decode_pkt);
                     if (retcode < 0) {
-                        break;
+                        //error decoding video frame-report!
+                        fprintf(stderr,"video_decode_thread: decode not happy, unable to decode video frame - very sorry\n");
+                        send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");
                     }
+
+                    while (retcode >= 0) {
+                        const AVFrameSideData *caption_data;
+                        uint8_t *caption_buffer = NULL;
+                        int caption_size = 0;
+                        int is_frame_interlaced;
+                        int is_frame_tff;
+                        dataqueue_message_struct *prepare_msg;
+                        uint8_t *output_video_frame;
+                        int video_frame_size;
+                        int frame_height;
+                        int frame_height2;
+                        int frame_width;
+                        int frame_width2;
+                        int row;
+                        uint8_t *y_output_video_frame;
+                        uint8_t *u_output_video_frame;
+                        uint8_t *v_output_video_frame;
+                        uint8_t *y_source_video_frame;
+                        uint8_t *u_source_video_frame;
+                        uint8_t *v_source_video_frame;
+                        int y_source_stride;
+                        int uv_source_stride;
 
 #if defined(ENABLE_GPU_DECODE)
-                    av_hwframe_transfer_data(decode_av_frame, nvidia_surface, 0);
+                        retcode = avcodec_receive_frame(decode_avctx, nvidia_surface);
+#else
+                        retcode = avcodec_receive_frame(decode_avctx, decode_av_frame);
 #endif
-                    decoder_frame_count++;
-
-                    if (core->video_decode_time_set == 0) {
-                        core->video_decode_time_set = 1;
-                        clock_gettime(CLOCK_MONOTONIC, &core->video_decode_time);
-                    }
-
-                    is_frame_interlaced = decode_av_frame->interlaced_frame;
-                    is_frame_tff = decode_av_frame->top_field_first;
-                    source_format = decode_av_frame->format;
-                    frame_height = decode_avctx->height;
-                    frame_width = decode_avctx->width;
-
-                    fprintf(stderr,"\n\nSTATUS: %ld:DECODED VIDEO FRAME: %dx%d (%d:%d) INTERLACED:%d (TFF:%d)\n\n\n",
-                            decoder_frame_count,
-                            frame_width, frame_height,
-                            decode_avctx->sample_aspect_ratio.num,
-                            decode_avctx->sample_aspect_ratio.den,
-                            is_frame_interlaced,
-                            is_frame_tff);
-
-                    if (frame_width > 3840 &&
-                        frame_height > 2160) {
-                        // error decoding video frame
-                        break;
-                    }
-
-                    frame_height2 = frame_height / 2;
-                    frame_width2 = frame_width / 2;
-
-                    video_frame_size = 3 * frame_height * frame_width / 2;
-                    if (last_video_frame_size != -1) {
-                        if (last_video_frame_size != video_frame_size) {
-                            // report video frame size change
-                            fprintf(stderr,"warning: video frame size changed - new size: %d x %d\n", frame_width, frame_height);
+                        if (retcode == AVERROR(EAGAIN) || retcode == AVERROR_EOF) {
+                            break;
                         }
-                    }
-                    last_video_frame_size = video_frame_size;
-
-                    output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
-                    if (!output_video_frame) {
-                        fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (DECODE) - Restarting Service");
-                        exit(0);
-                    }
-
-                    //422 to 420 conversion if needed
-                    //10 to 8 bit conversion if needed
-                    source_data[0] = decode_av_frame->data[0];
-                    source_data[1] = decode_av_frame->data[1];
-                    source_data[2] = decode_av_frame->data[2];
-                    source_data[3] = decode_av_frame->data[3];
-                    source_stride[0] = decode_av_frame->linesize[0];
-                    source_stride[1] = decode_av_frame->linesize[1];
-                    source_stride[2] = decode_av_frame->linesize[2];
-                    source_stride[3] = decode_av_frame->linesize[3];
-
-                    if (source_format != output_format) {
-                        if (!decode_converter) {
-                            decode_converter = sws_getContext(frame_width, frame_height, source_format,
-                                                              frame_width, frame_height, output_format,
-                                                              SWS_BICUBIC,
-                                                              NULL, NULL, NULL); // no dither specified
-                            av_image_alloc(output_data, output_stride, frame_width, frame_height, output_format, 1);
+                        if (retcode < 0) {
+                            break;
                         }
 
-                        sws_scale(decode_converter,
-                                  (const uint8_t * const*)source_data, source_stride, 0,
-                                  frame_height, output_data, output_stride);
+#if defined(ENABLE_GPU_DECODE)
+                        av_hwframe_transfer_data(decode_av_frame, nvidia_surface, 0);
+#endif
+                        decoder_frame_count++;
 
-                        y_source_video_frame = output_data[0];
-                        u_source_video_frame = output_data[1];
-                        v_source_video_frame = output_data[2];
-                        y_source_stride = output_stride[0];
-                        uv_source_stride = output_stride[1];
-                    } else {
-                        y_source_video_frame = source_data[0];
-                        u_source_video_frame = source_data[1];
-                        v_source_video_frame = source_data[2];
-                        y_source_stride = source_stride[0];
-                        uv_source_stride = source_stride[1];
-                    }
+                        if (core->video_decode_time_set == 0) {
+                            core->video_decode_time_set = 1;
+                            clock_gettime(CLOCK_MONOTONIC, &core->video_decode_time);
+                        }
 
-                    y_output_video_frame = output_video_frame;
-                    u_output_video_frame = y_output_video_frame + (frame_width * frame_height);
-                    v_output_video_frame = u_output_video_frame + (frame_width2 * frame_height2);
-                    for (row = 0; row < frame_height; row++) {
-                        memcpy(y_output_video_frame, y_source_video_frame, frame_width);
-                        y_output_video_frame += frame_width;
-                        y_source_video_frame += y_source_stride;
-                    }
-                    for (row = 0; row < frame_height2; row++) {
-                        memcpy(u_output_video_frame, u_source_video_frame, frame_width2);
-                        u_output_video_frame += frame_width2;
-                        u_source_video_frame += uv_source_stride;
-                    }
-                    for (row = 0; row < frame_height2; row++) {
-                        memcpy(v_output_video_frame, v_source_video_frame, frame_width2);
-                        v_output_video_frame += frame_width2;
-                        v_source_video_frame += uv_source_stride;
-                    }
+                        is_frame_interlaced = decode_av_frame->interlaced_frame;
+                        is_frame_tff = decode_av_frame->top_field_first;
+                        source_format = decode_av_frame->format;
+                        frame_height = decode_av_frame->height;
+                        frame_width = decode_av_frame->width;
 
-                    caption_data = (AVFrameSideData*)av_frame_get_side_data(decode_av_frame, AV_FRAME_DATA_A53_CC);
-                    if (caption_data) {
-                        // caption data is present
-                        uint8_t *buffer;
-                        int buffer_size;
-                        int caption_elements;
+                        fprintf(stderr,"video_decode_thread: decoded video frame successfully (%ld), resolution %dx%d (aspect %d:%d) interlaced:%d (tff:%d)\n",
+                                decoder_frame_count,
+                                frame_width, frame_height,
+                                decode_avctx->sample_aspect_ratio.num,
+                                decode_avctx->sample_aspect_ratio.den,
+                                is_frame_interlaced,
+                                is_frame_tff);
 
-                        buffer = (uint8_t*)caption_data->data;
-                        if (buffer) {
-                            buffer_size = caption_data->size;
-                            caption_elements = buffer_size / 3;
+                        if (frame_width > 3840 &&
+                            frame_height > 2160) {
+                            // error decoding video frame
+                            break;
+                        }
 
-                            // ffmpeg doesn't return the caption buffer with the header information
-#define CAPTION_HEADER_SIZE 7
-                            caption_buffer = (uint8_t*)malloc(buffer_size+CAPTION_HEADER_SIZE);
-                            caption_buffer[0] = 0x47;  // this is the GA94 tag
-                            caption_buffer[1] = 0x41;
-                            caption_buffer[2] = 0x39;
-                            caption_buffer[3] = 0x34;
-                            caption_buffer[4] = 0x03;
-                            caption_buffer[5] = caption_elements | 0xc0;
-                            caption_buffer[6] = 0xff;
-                            memcpy(caption_buffer+CAPTION_HEADER_SIZE,
-                                   buffer,
-                                   buffer_size);
+                        frame_height2 = frame_height / 2;
+                        frame_width2 = frame_width / 2;
 
-                            fprintf(stderr,"video_decode_thread: caption found - %d\n", caption_size);
-                            caption_size = buffer_size+CAPTION_HEADER_SIZE;
-                            caption_buffer[caption_size+1] = 0xff;
-                            caption_size++;
+                        video_frame_size = 3 * frame_height * frame_width / 2;
+                        if (last_video_frame_size != -1) {
+                            if (last_video_frame_size != video_frame_size) {
+                                // report video frame size change
+                                fprintf(stderr,"warning: video frame size changed - new size: %d x %d\n", frame_width, frame_height);
+                            }
+                        }
+                        last_video_frame_size = video_frame_size;
+
+                        output_video_frame = (uint8_t*)memory_take(core->raw_video_pool, video_frame_size);
+                        if (!output_video_frame) {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain output_video_frame!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (DECODE) - Restarting Service");
+                            exit(0);
+                        }
+
+                        //422 to 420 conversion if needed
+                        //10 to 8 bit conversion if needed
+                        source_data[0] = decode_av_frame->data[0];
+                        source_data[1] = decode_av_frame->data[1];
+                        source_data[2] = decode_av_frame->data[2];
+                        source_data[3] = decode_av_frame->data[3];
+                        source_stride[0] = decode_av_frame->linesize[0];
+                        source_stride[1] = decode_av_frame->linesize[1];
+                        source_stride[2] = decode_av_frame->linesize[2];
+                        source_stride[3] = decode_av_frame->linesize[3];
+
+                        if (source_format != output_format) {
+                            if (!decode_converter) {
+                                decode_converter = sws_getContext(frame_width, frame_height, source_format,
+                                                                  frame_width, frame_height, output_format,
+                                                                  SWS_BICUBIC,
+                                                                  NULL, NULL, NULL); // no dither specified
+                                av_image_alloc(output_data, output_stride, frame_width, frame_height, output_format, 1);
+                            }
+
+                            sws_scale(decode_converter,
+                                      (const uint8_t * const*)source_data, source_stride, 0,
+                                      frame_height, output_data, output_stride);
+
+                            y_source_video_frame = output_data[0];
+                            u_source_video_frame = output_data[1];
+                            v_source_video_frame = output_data[2];
+                            y_source_stride = output_stride[0];
+                            uv_source_stride = output_stride[1];
                         } else {
+                            y_source_video_frame = source_data[0];
+                            u_source_video_frame = source_data[1];
+                            v_source_video_frame = source_data[2];
+                            y_source_stride = source_stride[0];
+                            uv_source_stride = source_stride[1];
+                        }
+
+                        y_output_video_frame = output_video_frame;
+                        u_output_video_frame = y_output_video_frame + (frame_width * frame_height);
+                        v_output_video_frame = u_output_video_frame + (frame_width2 * frame_height2);
+                        for (row = 0; row < frame_height; row++) {
+                            memcpy(y_output_video_frame, y_source_video_frame, frame_width);
+                            y_output_video_frame += frame_width;
+                            y_source_video_frame += y_source_stride;
+                        }
+                        for (row = 0; row < frame_height2; row++) {
+                            memcpy(u_output_video_frame, u_source_video_frame, frame_width2);
+                            u_output_video_frame += frame_width2;
+                            u_source_video_frame += uv_source_stride;
+                        }
+                        for (row = 0; row < frame_height2; row++) {
+                            memcpy(v_output_video_frame, v_source_video_frame, frame_width2);
+                            v_output_video_frame += frame_width2;
+                            v_source_video_frame += uv_source_stride;
+                        }
+
+                        caption_data = (AVFrameSideData*)av_frame_get_side_data(decode_av_frame, AV_FRAME_DATA_A53_CC);
+                        if (caption_data) {
+                            // caption data is present
+                            uint8_t *buffer;
+                            int buffer_size;
+                            int caption_elements;
+
+                            buffer = (uint8_t*)caption_data->data;
+                            if (buffer) {
+                                buffer_size = caption_data->size;
+                                caption_elements = buffer_size / 3;
+
+                                // ffmpeg doesn't return the caption buffer with the header information
+#define CAPTION_HEADER_SIZE 7
+                                caption_buffer = (uint8_t*)malloc(buffer_size+CAPTION_HEADER_SIZE);
+                                caption_buffer[0] = 0x47;  // this is the GA94 tag
+                                caption_buffer[1] = 0x41;
+                                caption_buffer[2] = 0x39;
+                                caption_buffer[3] = 0x34;
+                                caption_buffer[4] = 0x03;
+                                caption_buffer[5] = caption_elements | 0xc0;
+                                caption_buffer[6] = 0xff;
+                                memcpy(caption_buffer+CAPTION_HEADER_SIZE,
+                                       buffer,
+                                       buffer_size);
+
+                                fprintf(stderr,"video_decode_thread: caption found - %d\n", caption_size);
+                                caption_size = buffer_size+CAPTION_HEADER_SIZE;
+                                caption_buffer[caption_size+1] = 0xff;
+                                caption_size++;
+                            } else {
+                                caption_buffer = NULL;
+                                caption_size = 0;
+                            }
+                        } else {
+                            fprintf(stderr,"video_decode_thread: no caption buffer\n");
                             caption_buffer = NULL;
                             caption_size = 0;
                         }
-                    } else {
-                        fprintf(stderr,"video_decode_thread: no caption buffer\n");
-                        caption_buffer = NULL;
-                        caption_size = 0;
-                    }
 
-                    prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
-                    if (prepare_msg) {
-                        prepare_msg->buffer = output_video_frame;
-                        prepare_msg->buffer_size = video_frame_size;
+                        prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                        if (prepare_msg) {
+                            prepare_msg->buffer = output_video_frame;
+                            prepare_msg->buffer_size = video_frame_size;
 #if defined(ENABLE_GPU_DECODE)
-                        prepare_msg->pts = nvidia_surface->pts;
-                        prepare_msg->dts = nvidia_surface->pkt_dts;
+                            prepare_msg->pts = nvidia_surface->pts;
+                            prepare_msg->dts = nvidia_surface->pkt_dts;
 #else
-                        prepare_msg->pts = decode_av_frame->pts;
-                        prepare_msg->dts = decode_av_frame->pkt_dts;
+                            prepare_msg->pts = decode_av_frame->pts;
+                            prepare_msg->dts = decode_av_frame->pkt_dts;
 #endif
 
-                        /*fprintf(stderr,"DECODED VIDEO FRAME: PTS:%ld PKT_DTS:%ld PKT_PTS:%ld  NPTS:%ld NPKT_DTS:%ld NPKT_PTS:%ld\n",
-                                decode_av_frame->pts,
-                                decode_av_frame->pkt_dts,
-                                decode_av_frame->pkt_pts,
-                                nvidia_surface->pts,
-                                nvidia_surface->pkt_dts,
-                                nvidia_surface->pkt_pts);*/
+                            /*fprintf(stderr,"DECODED VIDEO FRAME: PTS:%ld PKT_DTS:%ld PKT_PTS:%ld  NPTS:%ld NPKT_DTS:%ld NPKT_PTS:%ld\n",
+                              decode_av_frame->pts,
+                              decode_av_frame->pkt_dts,
+                              decode_av_frame->pkt_pts,
+                              nvidia_surface->pts,
+                              nvidia_surface->pkt_dts,
+                              nvidia_surface->pkt_pts);*/
 
-                        if (!is_frame_interlaced) {
-                            prepare_msg->tff = 1;
-                        } else {
-                            prepare_msg->tff = is_frame_tff;
-                        }
-                        prepare_msg->interlaced = is_frame_interlaced;
-                        prepare_msg->caption_buffer = caption_buffer;
-                        prepare_msg->caption_size = caption_size;
-                        caption_buffer = NULL;
-                        caption_size = 0;
-
-                        int lookup;
-                        int splice_point = 0;
-                        int64_t splice_duration = 0;
-                        int64_t splice_duration_remaining = 0;
-                        for (lookup = 0; lookup < MAX_SIGNAL_WINDOW; lookup++) {
-                            if (signal_data[lookup].pts == decode_av_frame->pkt_dts) {
-                                splice_point = signal_data[lookup].scte35_ready;
-                                splice_duration = signal_data[lookup].scte35_duration;
-                                splice_duration_remaining = signal_data[lookup].scte35_duration_remaining;
-                                break;
+                            if (!is_frame_interlaced) {
+                                prepare_msg->tff = 1;
+                            } else {
+                                prepare_msg->tff = is_frame_tff;
                             }
+                            prepare_msg->interlaced = is_frame_interlaced;
+                            prepare_msg->caption_buffer = caption_buffer;
+                            prepare_msg->caption_size = caption_size;
+                            caption_buffer = NULL;
+                            caption_size = 0;
+
+                            int lookup;
+                            int splice_point = 0;
+                            int64_t splice_duration = 0;
+                            int64_t splice_duration_remaining = 0;
+                            for (lookup = 0; lookup < MAX_SIGNAL_WINDOW; lookup++) {
+                                if (signal_data[lookup].pts == decode_av_frame->pkt_dts) {
+                                    splice_point = signal_data[lookup].scte35_ready;
+                                    splice_duration = signal_data[lookup].scte35_duration;
+                                    splice_duration_remaining = signal_data[lookup].scte35_duration_remaining;
+                                    break;
+                                }
+                            }
+
+                            //ffmpeg does this inverse because of the 1/X
+                            prepare_msg->fps_num = decode_avctx->time_base.den / decode_avctx->ticks_per_frame;  // for 29.97fps- should be 30000 and
+                            prepare_msg->fps_den = decode_avctx->time_base.num;                                  // this should be 1001
+                            //fprintf(stderr,"FPS: %d / %d\n", prepare_msg->fps_num, prepare_msg->fps_den);
+                            prepare_msg->aspect_num = decode_avctx->sample_aspect_ratio.num;
+                            prepare_msg->aspect_den = decode_avctx->sample_aspect_ratio.den;
+                            prepare_msg->width = frame_width;
+                            prepare_msg->height = frame_height;
+                            prepare_msg->splice_point = splice_point;
+                            prepare_msg->splice_duration = splice_duration;
+                            prepare_msg->splice_duration_remaining = splice_duration_remaining;
+
+                            core->decoded_source_info.decoded_width = frame_width;
+                            core->decoded_source_info.decoded_height = frame_height;
+                            core->decoded_source_info.decoded_fps_num = prepare_msg->fps_num;
+                            core->decoded_source_info.decoded_fps_den = prepare_msg->fps_den;
+                            core->decoded_source_info.decoded_aspect_num = prepare_msg->aspect_num;
+                            core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
+                            core->decoded_source_info.decoded_video_media_type = frame->media_type;
+
+                            dataqueue_put_front(core->monitorvideo->input_queue, prepare_msg);
+                        } else {
+                            fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
+                            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (DECODE) - Restarting Service");
+                            exit(0);
                         }
-
-                        //ffmpeg does this inverse because of the 1/X
-                        prepare_msg->fps_num = decode_avctx->time_base.den / decode_avctx->ticks_per_frame;  // for 29.97fps- should be 30000 and
-                        prepare_msg->fps_den = decode_avctx->time_base.num;                                  // this should be 1001
-                        //fprintf(stderr,"FPS: %d / %d\n", prepare_msg->fps_num, prepare_msg->fps_den);
-                        prepare_msg->aspect_num = decode_avctx->sample_aspect_ratio.num;
-                        prepare_msg->aspect_den = decode_avctx->sample_aspect_ratio.den;
-                        prepare_msg->width = frame_width;
-                        prepare_msg->height = frame_height;
-                        prepare_msg->splice_point = splice_point;
-                        prepare_msg->splice_duration = splice_duration;
-                        prepare_msg->splice_duration_remaining = splice_duration_remaining;
-
-                        core->decoded_source_info.decoded_width = frame_width;
-                        core->decoded_source_info.decoded_height = frame_height;
-                        core->decoded_source_info.decoded_fps_num = prepare_msg->fps_num;
-                        core->decoded_source_info.decoded_fps_den = prepare_msg->fps_den;
-                        core->decoded_source_info.decoded_aspect_num = prepare_msg->aspect_num;
-                        core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
-                        core->decoded_source_info.decoded_video_media_type = frame->media_type;
-
-                        dataqueue_put_front(core->monitorvideo->input_queue, prepare_msg);
-                    } else {
-                        fprintf(stderr,"FATAL ERROR: unable to obtain prepare_msg!!\n");
-                        send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (DECODE) - Restarting Service");
-                        exit(0);
                     }
+                    memory_return(core->compressed_video_pool, frame->buffer);
+                    frame->buffer = NULL;
                 }
-                memory_return(core->compressed_video_pool, frame->buffer);
-                frame->buffer = NULL;
-            } else {
-                //report error condition
-            }
 
-            memory_return(core->frame_msg_pool, frame);
-            frame = NULL;
-            memory_return(core->fillet_msg_pool, msg);
-            msg = NULL;
-        } else {
-            //report error condition
+                memory_return(core->frame_msg_pool, frame);
+                frame = NULL;
+                memory_return(core->fillet_msg_pool, msg);
+                msg = NULL;
+            }
         }
     }
 cleanup_video_decoder_thread:
 
+    free(wbuffer);
+    core->reinitialize_decoder = 0;
+    video_decoder_ready = 0;
     av_frame_free(&decode_av_frame);
     av_packet_free(&decode_pkt);
 #if defined(ENABLE_GPU_DECODE)
@@ -2636,6 +2774,7 @@ cleanup_video_decoder_thread:
     av_buffer_unref(&nvidia_device_ctx);
 #endif
     avcodec_close(decode_avctx);
+    av_parser_close(decode_parser);
     avcodec_free_context(&decode_avctx);
     sws_freeContext(decode_converter);
     av_freep(&output_data[0]);
