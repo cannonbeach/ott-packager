@@ -32,10 +32,10 @@ cannonbeach@insanitywave:$ cd ott-packager
 *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT* *IMPORTANT*
 (VERY IMPORTANT: Please advise - if you are planning to run on a NVIDIA GPU system, you need to make sure that prior to running setuptranscode.sh that the cudainclude and cudalib directories are set correctly in the script, otherwise it will fail to setup properly).  Please also make sure that MakefileTranscode also has the correct paths.
 
-The Dockerfile is currently setup to use nvidia image for CUDA 11.6.1.  You can get the combo CUDA+Driver from here:
-https://developer.nvidia.com/cuda-11-6-1-download-archive
-You will download th file: cuda_11.6.1_510.47.03_linux.run
-And it will install the CUDA 11.6.1 and the NVIDIA Driver
+The Dockerfile is currently setup to use nvidia image for CUDA 12.1.1.  You can get the combo CUDA+Driver from here:
+https://developer.nvidia.com/cuda-12-1-1-download-archive
+You will download th file: cuda_12.1.1_530.30.02_linux.run
+And it will install the CUDA 12.1.1 and the NVIDIA Driver
 
 You can get updated NVIDIA patch here to enable more encoding sessions on consumer hardware.  This works extremely well and you should install it for maximum performance!!
 https://github.com/keylase/nvidia-patch
