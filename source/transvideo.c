@@ -1,5 +1,5 @@
 /*****************************************************************************
-  Copyright (C) 2018-2023 John William
+  Copyright (C) 2018-2024 John William
 
   This program is free software; you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -59,6 +59,7 @@
 
 #if defined(ENABLE_GPU)
 //#define ENABLE_GPU_DECODE
+#define GPU_BUFFERS 1
 #endif
 
 static volatile int video_decode_thread_running = 0;
@@ -109,7 +110,7 @@ typedef struct _x265_encoder_struct_ {
 typedef struct _gpu_encoder_struct_ {
     int               initialized;
     AVCodecContext    *encode_avctx;
-    AVCodec           *encode_codec;
+    const AVCodec           *encode_codec;
     AVPacket          *encode_pkt;
     AVFrame           *encode_av_frame;
     AVFrame           *encode_surface;
@@ -127,6 +128,7 @@ typedef struct _scale_struct_ {
 typedef struct _opaque_struct_ {
     uint8_t          *caption_buffer;
     int              caption_size;
+    int64_t          caption_timestamp;
     int64_t          splice_duration;
     int              splice_point;
     int64_t          splice_duration_remaining;
@@ -153,37 +155,45 @@ typedef struct _thread_start_struct_ {
 
 #define THUMBNAIL_WIDTH   176
 #define THUMBNAIL_HEIGHT  144
+#define MAX_FILENAME_SIZE 256
 
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source, int splice_point, int64_t splice_duration, int64_t splice_duration_remaining);
 
 int save_frame_as_jpeg(fillet_app_struct *core, AVFrame *pFrame)
 {
-    AVCodec *jpegCodec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    const AVCodec *jpegCodec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
     AVCodecContext *jpegContext = avcodec_alloc_context3(jpegCodec);
     FILE *JPEG = NULL;
-#define MAX_FILENAME_SIZE 256
+
     char filename[MAX_FILENAME_SIZE];
-    AVPacket packet = {.data = NULL, .size = 0};
+    AVPacket *packet = NULL;
     int encodedFrame = 0;
 
     jpegContext->bit_rate = 250000;
     jpegContext->width = THUMBNAIL_WIDTH;
     jpegContext->height = THUMBNAIL_HEIGHT;
-    jpegContext->time_base = (AVRational){1,30};
+    jpegContext->time_base = (AVRational){1001,30000};
+    jpegContext->framerate = (AVRational){30000,1001};
     jpegContext->pix_fmt = AV_PIX_FMT_YUVJ420P;
 
     avcodec_open2(jpegContext, jpegCodec, NULL);
-    av_init_packet(&packet);
-    avcodec_encode_video2(jpegContext, &packet, pFrame, &encodedFrame);
+
+    packet = av_packet_alloc();
+
+    avcodec_send_frame(jpegContext, pFrame);
+    avcodec_receive_packet(jpegContext, packet);
 
     snprintf(filename, MAX_FILENAME_SIZE-1, "/var/www/html/thumbnail%d.jpg", core->cd->identity);
     JPEG = fopen(filename, "wb");
     if (JPEG) {
-        fwrite(packet.data, 1, packet.size, JPEG);
+        fwrite(packet->data, 1, packet->size, JPEG);
         fclose(JPEG);
     }
-    av_free_packet(&packet);
+    av_packet_unref(packet);
+
     avcodec_free_context(&jpegContext);
+    av_packet_free(&packet);
+
     return 0;
 }
 
@@ -191,8 +201,6 @@ void *video_thumbnail_thread(void *context)
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
     dataqueue_message_struct *msg;
-
-    av_register_all();
 
     while (video_thumbnail_thread_running) {
         msg = (dataqueue_message_struct*)dataqueue_take_back(core->encodevideo->thumbnail_queue);
@@ -218,7 +226,6 @@ void *video_thumbnail_thread(void *context)
             jpeg_frame->linesize[3] = thumbnail_output->output_stride[3];
             jpeg_frame->pts = AV_NOPTS_VALUE;
             jpeg_frame->pkt_dts = AV_NOPTS_VALUE;
-            jpeg_frame->pkt_pts = AV_NOPTS_VALUE;
             jpeg_frame->pkt_duration = 0;
             jpeg_frame->pkt_pos = -1;
             jpeg_frame->pkt_size = -1;
@@ -260,11 +267,20 @@ void *video_encode_thread_nvenc(void *context)
     int current_encoder = start->index;
     gpu_encoder_struct gpu_data[MAX_TRANS_OUTPUTS];
 
+#define MAX_ENCODE_SIGNAL_WINDOW 180
+    encoder_opaque_struct signal_data[MAX_ENCODE_SIGNAL_WINDOW];
+    int signal_write_index = 0;
+
     free(start);
 
     gpu_data[current_encoder].initialized = 0;
-    gpu_data[current_encoder].frame_count_pts = 1;
-    gpu_data[current_encoder].frame_count_dts = 0;
+
+    // so after updating ffmpeg libraries
+    // I've had to add in this hack
+    // otherwise it is crazy out of sync
+    // ugh
+    // previous ffmpeg libs didn't have this problem
+
     gpu_data[current_encoder].encode_avctx = NULL;
     gpu_data[current_encoder].encode_codec = NULL;
     gpu_data[current_encoder].encode_pkt = NULL;
@@ -292,8 +308,7 @@ void *video_encode_thread_nvenc(void *context)
             type = AV_HWDEVICE_TYPE_CUDA;
             hw_pix_fmt = AV_PIX_FMT_CUDA;
 
-            avcodec_register_all();
-            av_register_all();
+            memset(signal_data,0,sizeof(signal_data));
 
             fprintf(stderr,"\n\n\nInitializing NVENC Hardware\n\n\n");
 
@@ -329,6 +344,7 @@ void *video_encode_thread_nvenc(void *context)
             gpu_data[current_encoder].encode_avctx->rc_max_rate = gpu_data[current_encoder].encode_avctx->bit_rate;
             gpu_data[current_encoder].encode_avctx->width = output_width;
             gpu_data[current_encoder].encode_avctx->height = output_height;
+
             gpu_data[current_encoder].encode_avctx->time_base = (AVRational){msg->fps_den,msg->fps_num};
             gpu_data[current_encoder].encode_avctx->framerate = (AVRational){msg->fps_num,msg->fps_den};
 
@@ -337,6 +353,15 @@ void *video_encode_thread_nvenc(void *context)
             double fps = 30.0;
             if (msg->fps_den > 0) {
                 fps = (double)((double)msg->fps_num / (double)msg->fps_den);
+                int fpsup = (int)((double)fps + 0.5f);
+                /*if (fps > 30) {
+                    fpsup = -16;
+                } else {
+                    fpsup = 30;
+                }*/
+                fpsup = 30;
+                gpu_data[current_encoder].frame_count_pts = fpsup + 3;  // b-frame distance?
+                gpu_data[current_encoder].frame_count_dts = fpsup;
             }
             gpu_data[current_encoder].encode_avctx->gop_size = (int)((double)fps + 0.5);
             gpu_data[current_encoder].encode_avctx->max_b_frames = 3;
@@ -346,7 +371,7 @@ void *video_encode_thread_nvenc(void *context)
 
             // settings are from nvenc_h264.c
             av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"no-scenecut","1",0);
-            av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"forced-idr","1",0);
+            av_opt_set_int(gpu_data[current_encoder].encode_avctx->priv_data,"forced-idr",1,0);
             av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"preset","slow",0);
             if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {
                 av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","baseline",0);
@@ -362,7 +387,7 @@ void *video_encode_thread_nvenc(void *context)
             gpu_data[current_encoder].hw_frames_ctx->sw_format = AV_PIX_FMT_NV12;
             gpu_data[current_encoder].hw_frames_ctx->width = output_width;
             gpu_data[current_encoder].hw_frames_ctx->height = output_height;
-            gpu_data[current_encoder].hw_frames_ctx->initial_pool_size = 32;
+            gpu_data[current_encoder].hw_frames_ctx->initial_pool_size = GPU_BUFFERS*2;
 
             ret = av_hwframe_ctx_init(gpu_data[current_encoder].encode_avctx->hw_frames_ctx);
             fprintf(stderr,"NVENC: av_hwframe_ctx_init=%d\n", ret);
@@ -383,11 +408,11 @@ void *video_encode_thread_nvenc(void *context)
             gpu_data[current_encoder].encode_surface->width = output_width;
             gpu_data[current_encoder].encode_surface->height = output_height;
 
-            ret = av_frame_get_buffer(gpu_data[current_encoder].encode_av_frame, 32);
+            ret = av_frame_get_buffer(gpu_data[current_encoder].encode_av_frame, GPU_BUFFERS);
             fprintf(stderr,"NVENC: av_frame_get_buffer=%d\n", ret);
             ret = av_hwframe_get_buffer(gpu_data[current_encoder].encode_avctx->hw_frames_ctx,
                                         gpu_data[current_encoder].encode_surface,
-                                        32);
+                                        GPU_BUFFERS);
             fprintf(stderr,"NVENC: av_hwframe_get_buffer=%d\n", ret);
 
             gpu_data[current_encoder].initialized = 1;
@@ -400,6 +425,11 @@ void *video_encode_thread_nvenc(void *context)
                 if (msg) {
                     memory_return(core->raw_video_pool, msg->buffer);
                     msg->buffer = NULL;
+                    if (msg->caption_buffer) {
+                        free(msg->caption_buffer);
+                        msg->caption_buffer = NULL;
+                        msg->caption_size = 0;
+                    }
                     memory_return(core->fillet_msg_pool, msg);
                     msg = NULL;
                 }
@@ -412,9 +442,9 @@ void *video_encode_thread_nvenc(void *context)
         int output_size;
         int64_t pts;
         int64_t dts;
-        int splice_point = 0;
-        int64_t splice_duration = 0;
-        int64_t splice_duration_remaining = 0;
+        int source_splice_point = 0;
+        int64_t source_splice_duration = 0;
+        int64_t source_splice_duration_remaining = 0;
         int owhalf = output_width / 2;
         int ohhalf = output_height / 2;
         int frames;
@@ -422,19 +452,51 @@ void *video_encode_thread_nvenc(void *context)
         int ret;
 
         video = msg->buffer;
-        splice_point = msg->splice_point;
-        splice_duration = msg->splice_duration;
-        splice_duration_remaining = msg->splice_duration_remaining;
+        source_splice_point = msg->splice_point;
+        source_splice_duration = msg->splice_duration;
+        source_splice_duration_remaining = msg->splice_duration_remaining;
 
         // if splice point - force intra frame
         // when duration is done - also force intra frame
         // keep track of splice duration remaining
-        fprintf(stderr,"VIDEO ENCODER: SPLICE POINT:%d  SPLICE DURATION: %ld  SPLICE DURATION REMAINING: %ld\n",
-                splice_point,
-                splice_duration,
-                splice_duration_remaining);
+        if (source_splice_duration_remaining > 0) {
+            fprintf(stderr,"video_encode_thread_nvenc: incoming, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld\n",
+                    source_splice_point,
+                    source_splice_duration,
+                    source_splice_duration_remaining);
+
+            syslog(LOG_INFO,"video_encode_thread_nvenc: incoming, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld\n",
+                   source_splice_point,
+                   source_splice_duration,
+                   source_splice_duration_remaining);
+        }
 
         ret = av_frame_make_writable(gpu_data[current_encoder].encode_av_frame);
+
+        if (source_splice_point == 1 || source_splice_point == 2) {
+            syslog(LOG_INFO,"video_encode_thread_nvenc: scte35(%d), inserting IDR frame during splice point=%d\n",
+                   current_encoder, source_splice_point);
+            gpu_data[current_encoder].encode_surface->pict_type = AV_PICTURE_TYPE_I;
+            gpu_data[current_encoder].encode_av_frame->pict_type = AV_PICTURE_TYPE_I;
+        } else {
+            gpu_data[current_encoder].encode_surface->pict_type = AV_PICTURE_TYPE_NONE;
+            gpu_data[current_encoder].encode_av_frame->pict_type = AV_PICTURE_TYPE_NONE;
+        }
+
+
+        signal_data[signal_write_index].frame_count_pts = gpu_data[current_encoder].frame_count_pts;
+        signal_data[signal_write_index].splice_point = source_splice_point;
+        signal_data[signal_write_index].splice_duration = source_splice_duration;
+        signal_data[signal_write_index].splice_duration_remaining = source_splice_duration_remaining;
+        signal_write_index = (signal_write_index + 1) % MAX_ENCODE_SIGNAL_WINDOW;
+
+        /*encoder_opaque_struct *opaque_data = (encoder_opaque_struct*)malloc(sizeof(encoder_opaque_struct));
+        if (opaque_data) {
+            opaque_data->splice_point = source_splice_point;
+            opaque_data->splice_duration = source_splice_duration;
+            opaque_data->splice_duration_remaining = source_splice_duration_remaining;
+            opaque_data->frame_count_pts = gpu_data[current_encoder].frame_count_pts;
+            }*/
 
         uint8_t *ybuffersrc = video;
         uint8_t *ubuffersrc = ybuffersrc + (output_width*output_height);
@@ -464,42 +526,48 @@ void *video_encode_thread_nvenc(void *context)
         }
 
         if (msg->caption_buffer) {
-            free(msg->caption_buffer);
-            msg->caption_buffer = NULL;
-            /*
-            int caption_size = msg->caption_size;
-            AVFrameSideData *caption_data = av_frame_new_side_data(gpu_data[current_encoder].encode_av_frame,
+            //dataqueue_message_struct *caption_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+            fprintf(stderr,"video_encode_thread_nvenc: processing caption buffer, size=%d\n", msg->caption_size);
+
+            int caption_size = msg->caption_size - 8;
+            AVFrameSideData *caption_data = av_frame_new_side_data(gpu_data[current_encoder].encode_surface,//av_frame,
                                                                    AV_FRAME_DATA_A53_CC,
-                                                                   caption_size-7);
+                                                                   caption_size);
+
             if (caption_data) {
                 caption_data->size = caption_size;
-                memcpy(caption_data->data, msg->caption_buffer+7, caption_size-7);
+                memcpy(caption_data->data, msg->caption_buffer+7, caption_size);
             } else {
                 fprintf(stderr,"unable to save caption buffer\n");
             }
+
             free(msg->caption_buffer);
-            msg->caption_buffer = NULL;*/
+            msg->caption_buffer = NULL;
+            msg->caption_size = 0;
         }
 
         gpu_data[current_encoder].encode_surface->pts = gpu_data[current_encoder].frame_count_pts;
         gpu_data[current_encoder].encode_av_frame->pts = gpu_data[current_encoder].frame_count_pts;
-        gpu_data[current_encoder].encode_av_frame->pkt_pts = gpu_data[current_encoder].frame_count_pts;
+        gpu_data[current_encoder].encode_surface->pkt_dts = gpu_data[current_encoder].frame_count_pts;
+        //gpu_data[current_encoder].encode_av_frame->opaque = (void*)opaque_data;
+        //gpu_data[current_encoder].encode_surface->opaque = (void*)opaque_data;
 
         //fprintf(stderr,"\n\n\nSending Video Frame to NVENC Hardware\n\n\n");
-
         ret = av_hwframe_transfer_data(gpu_data[current_encoder].encode_surface,
                                        gpu_data[current_encoder].encode_av_frame,
                                        0);
 
         //fprintf(stderr,"\n\n\nav_hwframe_transfer_data=%d\n\n\n", ret);
-
         ret = avcodec_send_frame(gpu_data[current_encoder].encode_avctx,
                                  gpu_data[current_encoder].encode_surface);
+
+        av_frame_remove_side_data(gpu_data[current_encoder].encode_surface, AV_FRAME_DATA_A53_CC);
         //fprintf(stderr,"done sending avcodec_send_frame:%d\n", ret);
 
         gpu_data[current_encoder].frame_count_pts++;
 
         while (ret >= 0) {
+            int nalsize = 0;
             uint8_t *nal_buffer;
             double output_fps = (double)30000.0/(double)1001.0;
             double ticks_per_frame_double = (double)90000.0/(double)output_fps;
@@ -507,7 +575,7 @@ void *video_encode_thread_nvenc(void *context)
 
             output_fps = (double)((double)msg->fps_num / (double)msg->fps_den);
             if (output_fps > 0) {
-                ticks_per_frame_double = (double)90000.0/(double)output_fps;
+                ticks_per_frame_double = (double)90000.0/((double)msg->fps_num / (double)msg->fps_den);
             }
 
             ret = avcodec_receive_packet(gpu_data[current_encoder].encode_avctx,
@@ -519,23 +587,67 @@ void *video_encode_thread_nvenc(void *context)
                 break;
             }
 
-            int nalsize = gpu_data[current_encoder].encode_pkt->size;
-            fprintf(stderr,"NVENC: encoded frame size:%d\n", nalsize);
-
+            nalsize = gpu_data[current_encoder].encode_pkt->size;
             nal_buffer = (uint8_t*)memory_take(core->compressed_video_pool, nalsize);
             if (!nal_buffer) {
                 fprintf(stderr,"FATAL ERROR: unable to obtain nal_buffer!!\n");
-                send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H265) - Restarting Service");
+                send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of NAL Buffers (H264/H265) - Restarting Service");
                 exit(0);
             }
 
             memcpy(nal_buffer, gpu_data[current_encoder].encode_pkt->data, nalsize);
 
+
+            int lookup;
+            int output_splice_point = 0;
+            int64_t output_splice_duration = 0;
+            int64_t output_splice_duration_remaining = 0;
+            int found_splice = 0;
+            for (lookup = 0; lookup < MAX_ENCODE_SIGNAL_WINDOW; lookup++) {
+                if (signal_data[lookup].frame_count_pts == gpu_data[current_encoder].encode_pkt->pts) {
+                    output_splice_point = signal_data[lookup].splice_point;
+                    output_splice_duration = signal_data[lookup].splice_duration;
+                    output_splice_duration_remaining = signal_data[lookup].splice_duration_remaining;
+                    found_splice = 1;
+                    break;
+                }
+            }
+
+            if (!found_splice) {
+                // for debugging
+                exit(0);
+            }
+
+            /*
+            encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)gpu_data[current_encoder].encode_pkt->opaque;
+            if (opaque_output) {
+                output_splice_point = opaque_output->splice_point;
+                output_splice_duration = opaque_output->splice_duration;
+                output_splice_duration_remaining = opaque_output->splice_duration_remaining;
+                opaque_int64 = opaque_output->frame_count_pts;
+                free(opaque_output);
+                opaque_output = NULL;
+            }
+            */
             double opaque_double = gpu_data[current_encoder].encode_pkt->pts;
             int64_t pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
             int64_t dts = (int64_t)((double)gpu_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
 
-            fprintf(stderr,"Receiving Compressed Video Frame from NVENC Hardware(%d): %d  sourcepts:%f  pts:%ld  dts:%ld  ticks_per_frame:%f   output_fps:%.2f\n\n\n",
+            if (pts < dts) {
+                fprintf(stderr,"\n\n\n\nvideo_encoder_thread_nvenc: PTS before DTS!!!!\n\n\n\n");
+            }
+
+            fprintf(stderr,"video_encode_thread_nvenc: outgoing, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld\n",
+                    output_splice_point,
+                    output_splice_duration,
+                    output_splice_duration_remaining);
+
+            syslog(LOG_INFO,"video_encode_thread_nvenc: outgoing, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld\n",
+                   output_splice_point,
+                   output_splice_duration,
+                   output_splice_duration_remaining);
+
+            fprintf(stderr,"video_encode_thread_nvenc: receiving compressed Video Frame from NVENC Hardware(%d): %d  sourcepts:%f  pts:%ld  dts:%ld  ticks_per_frame:%f   output_fps:%.2f\n\n\n",
                     current_encoder,
                     gpu_data[current_encoder].encode_pkt->size,
                     opaque_double,
@@ -548,14 +660,28 @@ void *video_encode_thread_nvenc(void *context)
 
             gpu_data[current_encoder].frame_count_dts++;
 
-            splice_point = 0;
-            splice_duration = 0;
-            splice_duration_remaining = 0;
+#if 0
+            {
+                int read_pos = 0;
+                while (read_pos < nalsize) {
+                    if (nal_buffer[read_pos+0] == 0x00 &&
+                        nal_buffer[read_pos+1] == 0x00 &&
+                        nal_buffer[read_pos+2] == 0x01) {
+                        int nal_type = nal_buffer[read_pos+3] & 0x1f;
+                        fprintf(stderr,"video_encode_thread_nvenc: outgoing nal type is 0x%x (%d)   0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+                                nal_type, nal_type,
+                                nal_buffer[read_pos+4], nal_buffer[read_pos+5], nal_buffer[read_pos+6], nal_buffer[read_pos+7],
+                                nal_buffer[read_pos+8], nal_buffer[read_pos+9], nal_buffer[read_pos+10], nal_buffer[read_pos+11]);
+                    }
+                    read_pos++;
+                }
+            }
+#endif
 
             video_sink_frame_callback(core, nal_buffer,
                                       nalsize,
                                       pts, dts, current_encoder,
-                                      splice_point, splice_duration, splice_duration_remaining);
+                                      output_splice_point, output_splice_duration, output_splice_duration_remaining);
         }
 
         if (msg) {
@@ -571,6 +697,7 @@ cleanup_nvenc_video_encode_thread:
     av_frame_free(&gpu_data[current_encoder].encode_surface);
     av_buffer_unref(&gpu_data[current_encoder].hw_device_ctx);
     av_packet_free(&gpu_data[current_encoder].encode_pkt);
+
     return NULL;
 }
 #endif // ENABLE_GPU
@@ -1417,7 +1544,7 @@ void *video_scale_thread(void *context)
                                    output_width, output_height, AV_PIX_FMT_YUV420P, 1);
                 }
 
-                fprintf(stderr,"[OUTPUT=%d] SCALING OUTPUT FRAME TO: %d x %d\n",
+                fprintf(stderr,"video_scale_thread: output=%d, scaling output to %d x %d\n",
                         current_output,
                         output_width,
                         output_height);
@@ -1495,7 +1622,7 @@ void *video_scale_thread(void *context)
                 encode_msg->splice_duration = msg->splice_duration;
                 encode_msg->splice_duration_remaining = msg->splice_duration_remaining;
                 encode_msg->caption_size = msg->caption_size;
-
+                encode_msg->caption_timestamp = msg->caption_timestamp;
                 if (encode_msg->caption_size > 0) {
                     if (current_output == num_outputs-1) {
                         encode_msg->caption_buffer = msg->caption_buffer;
@@ -1506,13 +1633,6 @@ void *video_scale_thread(void *context)
                 } else {
                     encode_msg->caption_buffer = NULL;
                 }
-
-                fprintf(stderr,"[%d] SENDING VIDEO FRAME TO ENCODER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
-                        current_output,
-                        encode_msg->pts,
-                        encode_msg->dts,
-                        encode_msg->aspect_num,
-                        encode_msg->aspect_den);
 
                 if (encode_msg) {
                     dataqueue_put_front(core->encodevideo->input_queue[current_output], encode_msg);
@@ -1634,6 +1754,7 @@ void *video_monitor_thread(void *context)
                             prepare_msg->interlaced = monitor_interlaced;
                             prepare_msg->caption_buffer = NULL;
                             prepare_msg->caption_size = 0;
+                            prepare_msg->caption_timestamp = 0;
 
                             prepare_msg->fps_num = monitor_num;
                             prepare_msg->fps_den = monitor_den;
@@ -1672,6 +1793,7 @@ void *video_monitor_thread(void *context)
                     if (msg->caption_buffer) {
                         free(msg->caption_buffer);
                         msg->caption_buffer = NULL;
+                        msg->caption_size = 0;
                     }
                     memory_return(core->raw_video_pool, msg->buffer);
                     msg->buffer = NULL;
@@ -1730,34 +1852,6 @@ void *video_monitor_thread(void *context)
             dataqueue_put_front(core->preparevideo->input_queue, msg);
             last_monitor_anchor_pts = monitor_anchor_pts;
             last_monitor_anchor_dts = monitor_anchor_dts;
-
-            /*
-            if (monitor_anchor_dts < last_monitor_anchor_dts) {
-                fprintf(stderr,"Monitored video frame is late, not passing through: %dx%d currentpts:%ld previouspts:%ld DTS:%ld\n",
-                        monitor_width,
-                        monitor_height,
-                        monitor_anchor_pts,
-                        last_monitor_anchor_pts,
-                        monitor_anchor_dts);
-                if (msg->caption_buffer) {
-                    free(msg->caption_buffer);
-                    msg->caption_buffer = NULL;
-                }
-                memory_return(core->raw_video_pool, msg->buffer);
-                msg->buffer = NULL;
-                memory_return(core->fillet_msg_pool, msg);
-                msg = NULL;
-            } else {
-                fprintf(stderr,"Passing through monitored video frame: %dx%d PTS:%ld DTS:%ld\n",
-                        monitor_width,
-                        monitor_height,
-                        monitor_anchor_pts,
-                        monitor_anchor_dts);
-                dataqueue_put_front(core->preparevideo->input_queue, msg);
-                last_monitor_anchor_pts = monitor_anchor_pts;
-                last_monitor_anchor_dts = monitor_anchor_dts;
-            }
-            */
         }
     }
 cleanup_video_monitor_thread:
@@ -1782,7 +1876,6 @@ void *video_prepare_thread(void *context)
     AVFilter *filter_output = (AVFilter*)avfilter_get_by_name("buffersink");
     AVFilterInOut *filter_inputs = NULL;
     AVFilterInOut *filter_outputs = NULL;
-    AVBufferSinkParams *params = NULL;
     enum AVPixelFormat pix_fmts[] = { AV_PIX_FMT_YUV420P };
     AVFrame *source_frame = NULL;
     AVFrame *deinterlaced_frame = NULL;
@@ -1839,9 +1932,8 @@ void *video_prepare_thread(void *context)
                     avfilter_graph_free(&deinterlacer);
                     deinterlacer_ready = 0;
                     av_freep(&output_data[0]);
-                    av_frame_free(&deinterlaced_frame);
-                    av_frame_free(&source_frame);
                     sws_freeContext(thumbnail_scaler);
+                    thumbnail_scaler = NULL;
                 }
                 msg->source_discontinuity = 0;
             }
@@ -1857,21 +1949,25 @@ void *video_prepare_thread(void *context)
 
                 filter_inputs = avfilter_inout_alloc();
                 filter_outputs = avfilter_inout_alloc();
-                params = av_buffersink_params_alloc();
-                params->pixel_fmts = pix_fmts;
 
                 //!! optimization can be done here to set to the max output height
 
-                snprintf(settings, MAX_SETTINGS_SIZE-1,"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d",
+                snprintf(settings, MAX_SETTINGS_SIZE-1,"video_size=%dx%d:pix_fmt=%d:time_base=%d/%d:pixel_aspect=%d/%d:colorspace=%d:range=%d:frame_rate=%d/%d",
                          width,
                          height,
                          AV_PIX_FMT_YUV420P,
                          msg->fps_den,
                          msg->fps_num,
                          msg->aspect_num,
-                         msg->aspect_den);
+                         msg->aspect_den,
+                         AVCOL_SPC_BT709,
+                         AVCOL_RANGE_JPEG,
+                         msg->fps_num,
+                         msg->fps_den);
                 deinterlacer = avfilter_graph_alloc();
                 deinterlacer->nb_threads = 4;
+
+                fprintf(stderr,"settings=%s\n", settings);
 
                 avfilter_graph_create_filter(&deinterlacer_source,
                                              filter_source,
@@ -1883,10 +1979,10 @@ void *video_prepare_thread(void *context)
                                              filter_output,
                                              "out",
                                              NULL,
-                                             params,
+                                             pix_fmts,
                                              deinterlacer);
-                av_free(params);
-                params = NULL;
+                //av_free(params);
+                //params = NULL;
 
                 filter_inputs->name = av_strdup("out");
                 filter_inputs->filter_ctx = deinterlacer_output;
@@ -1899,7 +1995,7 @@ void *video_prepare_thread(void *context)
                 filter_outputs->next = NULL;
 
                 memset(scaler_params,0,sizeof(scaler_params));
-                sprintf(scaler_params,"flags=%d",SWS_BICUBIC); // good performance!
+                sprintf(scaler_params,"flags=%d",SWS_BICUBIC);
                 scaler_flags = av_strdup(scaler_params);
 
                 deinterlacer->scale_sws_opts = av_malloc(strlen(scaler_flags)+1);
@@ -1937,7 +2033,6 @@ void *video_prepare_thread(void *context)
 
                 source_frame->pts = AV_NOPTS_VALUE;
                 source_frame->pkt_dts = AV_NOPTS_VALUE;
-                source_frame->pkt_pts = AV_NOPTS_VALUE;
                 source_frame->pkt_duration = 0;
                 source_frame->pkt_pos = -1;
                 source_frame->pkt_size = -1;
@@ -1966,7 +2061,9 @@ void *video_prepare_thread(void *context)
             }
             source_frame->pts = msg->pts;
             source_frame->pkt_dts = msg->dts;
-            source_frame->pkt_pts = msg->pts;
+            fprintf(stderr,"video_prepare_thread: source_frame->pts=%ld source_frame->pkt_dts=%ld\n",
+                    source_frame->pts, source_frame->pkt_dts);
+            //source_frame->pkt_pts = msg->pts;
             source_frame->width = width;
             source_frame->height = height;
             source_frame->interlaced_frame = msg->interlaced;
@@ -1977,9 +2074,11 @@ void *video_prepare_thread(void *context)
                 if (msg->caption_buffer) {
                     opaque_data->caption_buffer = msg->caption_buffer;
                     opaque_data->caption_size = msg->caption_size;
+                    opaque_data->caption_timestamp = msg->caption_timestamp;
                 } else {
                     opaque_data->caption_buffer = NULL;
                     opaque_data->caption_size = 0;
+                    opaque_data->caption_timestamp = 0;
                 }
                 if (msg->splice_point) {
                     opaque_data->splice_point = msg->splice_point;
@@ -2028,13 +2127,14 @@ void *video_prepare_thread(void *context)
                     }
 
                     thumbnail_count++;
-                    if (thumbnail_count == 150) {  // maybe use a timer instead?
+                    if (thumbnail_count == 150) {
                         dataqueue_message_struct *thumbnail_msg;
 
                         thumbnail_output = (scale_struct*)malloc(sizeof(scale_struct));
                         av_image_alloc(thumbnail_output->output_data,
                                        thumbnail_output->output_stride,
                                        THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, AV_PIX_FMT_YUV420P, 1);
+
                         sws_scale(thumbnail_scaler,
                                   (const uint8_t * const*)deinterlaced_frame->data,
                                   deinterlaced_frame->linesize,
@@ -2111,12 +2211,12 @@ void *video_prepare_thread(void *context)
                         av_sync_offset = (((double)deinterlaced_frame_count - (double)sync_frame_count)/(double)fps)*(double)1000.0;
                         sync_diff = (int64_t)deinterlaced_frame_count - (int64_t)sync_frame_count;
 
-                        fprintf(stderr,"video_prepare_thread: deinterlaced_frame_count:%ld  SYNC_FRAME_COUNT:%ld   SYNC OFFSET:%ld (%.2fms)  PKT_PTS:%ld PKT_DTS:%ld  FT:%ld  FPS:%.2f\n",
+                        fprintf(stderr,"video_prepare_thread: deinterlaced_frame_count=%ld sync_frame_count=%ld sync_offset=%ld (%.2fms) pkt_pts=%ld pkt_dts=%ld ft=%ld fps=%.2f\n",
                                 deinterlaced_frame_count,
                                 sync_frame_count,
                                 sync_diff,
                                 av_sync_offset,
-                                deinterlaced_frame->pkt_pts,
+                                deinterlaced_frame->pts/2,
                                 deinterlaced_frame->pkt_dts,
                                 vstream->first_timestamp,
                                 fps);
@@ -2128,8 +2228,8 @@ void *video_prepare_thread(void *context)
                                 send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "Possible A/V Sync Drift, Check Input");
                             }
                             if (av_sync_compromised >= AV_SYNC_TRIGGER_LEVEL) {
-                                syslog(LOG_ERR,"FATAL ERROR: a/v sync is compromised!!\n");
-                                fprintf(stderr,"FATAL ERROR: a/v sync is compromised  sync_diff=%ld fps=%.2f!!\n", sync_diff, fps);
+                                syslog(LOG_ERR,"video_prepare_thread: fatal error, a/v sync is compromised!!\n");
+                                fprintf(stderr,"video_prepeare_thread: fatal error, a/v sync is compromised  sync_diff=%ld fps=%.2f!!\n", sync_diff, fps);
                                 send_direct_error(core, SIGNAL_DIRECT_ERROR_AVSYNC, "A/V Sync Is Compromised (VIDEO) - Restarting Service");
                                 exit(0);
                             }
@@ -2146,7 +2246,6 @@ void *video_prepare_thread(void *context)
 
                                 scale_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                                 if (!scale_msg) {
-                                    fprintf(stderr,"FATAL ERROR: unable to obtain scale_msg!!\n");
                                     send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (VIDEO) - Restarting Service");
                                     exit(0);
                                 }
@@ -2165,25 +2264,21 @@ void *video_prepare_thread(void *context)
                                 scale_msg->stream_index = -1;
                                 scale_msg->caption_buffer = NULL;
                                 scale_msg->caption_size = 0;
+                                scale_msg->caption_timestamp = 0;
 
-                                /*
-                                  bug here- needs to be set if during commercial break
-                                scale_msg->splice_point = opaque_data->splice_point;
-                                scale_msg->splice_duration = opaque_data->splice_duration;
-                                scale_msg->splice_duration_remaining = opaque_data->splice_duration_remaining;
-                                */
-
-                                /*fprintf(stderr,"[%d] SENDING VIDEO FRAME TO ENCODER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
-                                        current_output,
-                                        encode_msg->pts,
-                                        encode_msg->dts,
-                                        encode_msg->aspect_num,
-                                        encode_msg->aspect_den);*/
+                                if (opaque_data) {
+                                    scale_msg->splice_point = opaque_data->splice_point;
+                                    scale_msg->splice_duration = opaque_data->splice_duration;
+                                    scale_msg->splice_duration_remaining = opaque_data->splice_duration_remaining;
+                                } else {
+                                    scale_msg->splice_point = 0;
+                                    scale_msg->splice_duration = 0;
+                                    scale_msg->splice_duration_remaining = 0;
+                                }
 
                                 deinterlaced_frame_count++;  // frames since the video start time
                                 dataqueue_put_front(core->scalevideo->input_queue, scale_msg);
                             } else {
-                                fprintf(stderr,"FATAL ERROR: unable to obtain repeated_buffer!!\n");
                                 send_direct_error(core, SIGNAL_DIRECT_ERROR_RAWPOOL, "Out of Uncompressed Video Buffers (SYNC) - Restarting Service");
                                 exit(0);
                             }
@@ -2191,13 +2286,12 @@ void *video_prepare_thread(void *context)
 
                         scale_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
                         if (!scale_msg) {
-                            fprintf(stderr,"FATAL ERROR: unable to obtain scale_msg!!\n");
                             send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Message Buffers (SYNC) - Restarting Service");
                             exit(0);
                         }
                         scale_msg->buffer = deinterlaced_buffer;
                         scale_msg->buffer_size = video_frame_size;
-                        scale_msg->pts = deinterlaced_frame->pkt_pts;  // or pkt_pts?
+                        scale_msg->pts = deinterlaced_frame->pts/2;  // or pkt_pts?
                         scale_msg->dts = deinterlaced_frame->pkt_dts;
                         scale_msg->interlaced = 0;
                         scale_msg->tff = 1;
@@ -2212,16 +2306,20 @@ void *video_prepare_thread(void *context)
                         if (opaque_data) {
                             uint8_t *caption_buffer;
                             int caption_size;
+                            int64_t caption_timestamp;
 
                             caption_size = opaque_data->caption_size;
+                            caption_timestamp = opaque_data->caption_timestamp;
                             if (caption_size > 0) {
                                 caption_buffer = (uint8_t*)malloc(caption_size+1);
                                 memcpy(caption_buffer, opaque_data->caption_buffer, caption_size);
                                 scale_msg->caption_buffer = caption_buffer;
                                 scale_msg->caption_size = caption_size;
+                                scale_msg->caption_timestamp = caption_timestamp;
                             } else {
                                 scale_msg->caption_buffer = NULL;
                                 scale_msg->caption_size = 0;
+                                scale_msg->caption_timestamp = 0;
                             }
                             scale_msg->splice_point = opaque_data->splice_point;
                             scale_msg->splice_duration = opaque_data->splice_duration;
@@ -2229,6 +2327,7 @@ void *video_prepare_thread(void *context)
                         } else {
                             scale_msg->caption_buffer = NULL;
                             scale_msg->caption_size = 0;
+                            scale_msg->caption_timestamp = 0;
                             scale_msg->splice_point = 0;
                             scale_msg->splice_duration = 0;
                         }
@@ -2240,6 +2339,7 @@ void *video_prepare_thread(void *context)
                                     // this needs to be saved and tacked onto another frame - for now we will just drop it
                                     free(scale_msg->caption_buffer);
                                     scale_msg->caption_buffer = NULL;
+                                    scale_msg->caption_size = 0;
                                 }
                                 memory_return(core->raw_video_pool, deinterlaced_buffer);
                                 deinterlaced_buffer = NULL;
@@ -2251,7 +2351,7 @@ void *video_prepare_thread(void *context)
                         }
 
                         if (scale_msg) {
-                            fprintf(stderr,"SENDING VIDEO FRAME TO SCALER PTS:%ld DTS:%ld  ASPECT:%d:%d\n",
+                            fprintf(stderr,"video_prepare_thread: sending video frame to scaler, pts=%ld, dts=%ld, aspect=%d:%d\n",
                                     scale_msg->pts,
                                     scale_msg->dts,
                                     scale_msg->aspect_num,
@@ -2304,7 +2404,7 @@ void *video_decode_thread(void *context)
     dataqueue_message_struct *msg;
     AVCodecParserContext *decode_parser = NULL;
     AVCodecContext *decode_avctx = NULL;
-    AVCodec *decode_codec = NULL;
+    const AVCodec *decode_codec = NULL;
     AVPacket *decode_pkt = NULL;
     AVFrame *decode_av_frame = NULL;
     int64_t decoder_frame_count = 0;
@@ -2317,6 +2417,7 @@ void *video_decode_thread(void *context)
     int output_stride[4];
     int last_video_frame_size = -1;
     uint8_t *wbuffer;
+    int saved_splice_point = 0;
 
 #if defined(ENABLE_GPU_DECODE)
     AVHWFramesContext *nvidia_frames_ctx = NULL;
@@ -2326,9 +2427,10 @@ void *video_decode_thread(void *context)
     nvidia_type = AV_HWDEVICE_TYPE_CUDA;
 #endif
 
-#define MAX_SIGNAL_WINDOW 30
-    signal_struct signal_data[MAX_SIGNAL_WINDOW];
+#define MAX_DECODE_SIGNAL_WINDOW 180
+    signal_struct signal_data[MAX_DECODE_SIGNAL_WINDOW];
     int signal_write_index = 0;
+    video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;
 
     memset(signal_data,0,sizeof(signal_data));
 
@@ -2393,7 +2495,7 @@ void *video_decode_thread(void *context)
                     } else if (frame->media_type == MEDIA_TYPE_HEVC) {
                         decode_codec = avcodec_find_decoder(AV_CODEC_ID_HEVC);
                     } else {
-                        fprintf(stderr,"error: unknown source video codec type- failing!\n");
+                        fprintf(stderr,"error: unknown source video codec type - failing!\n");
                         send_direct_error(core, SIGNAL_DIRECT_ERROR_UNKNOWN, "Unknown Video Format - Restarting Service");
                         exit(0);
                     }
@@ -2436,26 +2538,30 @@ void *video_decode_thread(void *context)
                 int working_incoming_video_buffer_size = incoming_video_buffer_size;
 
 #if 0
-                int read_pos = 0;
-                while (read_pos < incoming_video_buffer_size) {
-                    if (wbuffer[read_pos+0] == 0x00 &&
-                        wbuffer[read_pos+1] == 0x00 &&
-                        wbuffer[read_pos+2] == 0x01) {
-                        int nal_type = wbuffer[read_pos+3] & 0x1f;
-                        fprintf(stderr,"video_decode_thread: incoming nal type is 0x%x (%d)   0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
-                                nal_type, nal_type,
-                                wbuffer[read_pos+4], wbuffer[read_pos+5], wbuffer[read_pos+6], wbuffer[read_pos+7],
-                                wbuffer[read_pos+8], wbuffer[read_pos+9], wbuffer[read_pos+10], wbuffer[read_pos+11]);
-                        if (nal_type == 6 &&
-                            wbuffer[read_pos+4] == 0x01 && //0x04 &&
-                            wbuffer[read_pos+5] == 0x01 && //0x47 &&
-                            wbuffer[read_pos+7] == 0x80) {//0xb5)
-                            working_incoming_video_buffer += (read_pos+7);
-                            working_incoming_video_buffer_size -= (read_pos+7);
-                            break;
+                {
+                    int read_pos = 0;
+                    while (read_pos < incoming_video_buffer_size) {
+                        if (wbuffer[read_pos+0] == 0x00 &&
+                            wbuffer[read_pos+1] == 0x00 &&
+                            wbuffer[read_pos+2] == 0x01) {
+                            int nal_type = wbuffer[read_pos+3] & 0x1f;
+                            fprintf(stderr,"video_decode_thread: incoming nal type is 0x%x (%d)   0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+                                    nal_type, nal_type,
+                                    wbuffer[read_pos+4], wbuffer[read_pos+5], wbuffer[read_pos+6], wbuffer[read_pos+7],
+                                    wbuffer[read_pos+8], wbuffer[read_pos+9], wbuffer[read_pos+10], wbuffer[read_pos+11]);
+                            /*
+                              if (nal_type == 6 &&
+                              wbuffer[read_pos+4] == 0x01 && //0x04 &&
+                              wbuffer[read_pos+5] == 0x01 && //0x47 &&
+                              wbuffer[read_pos+7] == 0x80) {//0xb5)
+                              working_incoming_video_buffer += (read_pos+7);
+                              working_incoming_video_buffer_size -= (read_pos+7);
+                              break;
+                              }
+                            */
                         }
+                        read_pos++;
                     }
-                    read_pos++;
                 }
 #endif
 
@@ -2482,16 +2588,39 @@ void *video_decode_thread(void *context)
                     working_incoming_video_buffer += decode_happy;
 
                     if (decode_pkt->size == 0) {
+                        saved_splice_point = frame->splice_point;
                         continue;
                     }
                     decode_pkt->pts = frame->pts;
                     decode_pkt->dts = frame->full_time;  // this is the one that matters
 
+                    syslog(LOG_INFO,"video_decode_thread: incoming, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld, timestamp=%ld\n",
+                           frame->splice_point,
+                           frame->splice_duration,
+                           frame->splice_duration_remaining,
+                           frame->full_time);
+
+                    /*
+                    int c;
+                    for (c = 0; c < MAX_SIGNAL_WINDOW; c++) {
+                        if (signal_data[c].pts == frame->full_time) {
+                            fprintf(stderr,"video_decode_thread: timestamp already in signal_data! timestamp=%ld wtf?\n", frame->full_time);
+                            exit(0);
+                        }
+                    }
+                    */
+
+                    if (saved_splice_point > 0) {
+                        frame->splice_point = saved_splice_point;
+                        saved_splice_point = 0;
+                    }
                     signal_data[signal_write_index].pts = frame->full_time;
                     signal_data[signal_write_index].scte35_ready = frame->splice_point;
                     signal_data[signal_write_index].scte35_duration = frame->splice_duration;
                     signal_data[signal_write_index].scte35_duration_remaining = frame->splice_duration_remaining;
-                    signal_write_index = (signal_write_index + 1) % MAX_SIGNAL_WINDOW;
+                    signal_write_index = (signal_write_index + 1) % MAX_DECODE_SIGNAL_WINDOW;
+
+                    frame->splice_point = 0;  // clear it once we used it
 
                     retcode = avcodec_send_packet(decode_avctx, decode_pkt);
                     if (retcode < 0) {
@@ -2503,6 +2632,7 @@ void *video_decode_thread(void *context)
                     while (retcode >= 0) {
                         const AVFrameSideData *caption_data;
                         uint8_t *caption_buffer = NULL;
+                        int64_t caption_timestamp = 0;
                         int caption_size = 0;
                         int is_frame_interlaced;
                         int is_frame_tff;
@@ -2534,6 +2664,10 @@ void *video_decode_thread(void *context)
                         if (retcode < 0) {
                             break;
                         }
+
+                        /*if (decode_avctx->framerate.den == 0 || decode_avctx->framerate.num == 0) {
+                            break;
+                        }*/
 
 #if defined(ENABLE_GPU_DECODE)
                         av_hwframe_transfer_data(decode_av_frame, nvidia_surface, 0);
@@ -2666,18 +2800,21 @@ void *video_decode_thread(void *context)
                                        buffer,
                                        buffer_size);
 
-                                fprintf(stderr,"video_decode_thread: caption found - %d\n", caption_size);
                                 caption_size = buffer_size+CAPTION_HEADER_SIZE;
+                                fprintf(stderr,"video_decode_thread: caption found - %d\n", buffer_size);
                                 caption_buffer[caption_size+1] = 0xff;
                                 caption_size++;
+                                caption_timestamp = decode_av_frame->pkt_dts;
                             } else {
                                 caption_buffer = NULL;
                                 caption_size = 0;
+                                caption_timestamp = 0;
                             }
                         } else {
                             fprintf(stderr,"video_decode_thread: no caption buffer\n");
                             caption_buffer = NULL;
                             caption_size = 0;
+                            caption_timestamp = 0;
                         }
 
                         prepare_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
@@ -2692,13 +2829,9 @@ void *video_decode_thread(void *context)
                             prepare_msg->dts = decode_av_frame->pkt_dts;
 #endif
 
-                            /*fprintf(stderr,"DECODED VIDEO FRAME: PTS:%ld PKT_DTS:%ld PKT_PTS:%ld  NPTS:%ld NPKT_DTS:%ld NPKT_PTS:%ld\n",
-                              decode_av_frame->pts,
-                              decode_av_frame->pkt_dts,
-                              decode_av_frame->pkt_pts,
-                              nvidia_surface->pts,
-                              nvidia_surface->pkt_dts,
-                              nvidia_surface->pkt_pts);*/
+                            fprintf(stderr,"video_decode_thread: pts=%ld pkt_dts=%ld\n",
+                                    decode_av_frame->pts,
+                                    decode_av_frame->pkt_dts);
 
                             if (!is_frame_interlaced) {
                                 prepare_msg->tff = 1;
@@ -2708,6 +2841,7 @@ void *video_decode_thread(void *context)
                             prepare_msg->interlaced = is_frame_interlaced;
                             prepare_msg->caption_buffer = caption_buffer;
                             prepare_msg->caption_size = caption_size;
+                            prepare_msg->caption_timestamp = caption_timestamp;
                             caption_buffer = NULL;
                             caption_size = 0;
 
@@ -2715,18 +2849,60 @@ void *video_decode_thread(void *context)
                             int splice_point = 0;
                             int64_t splice_duration = 0;
                             int64_t splice_duration_remaining = 0;
-                            for (lookup = 0; lookup < MAX_SIGNAL_WINDOW; lookup++) {
+                            int found_splice = 0;
+                            for (lookup = 0; lookup < MAX_DECODE_SIGNAL_WINDOW; lookup++) {
                                 if (signal_data[lookup].pts == decode_av_frame->pkt_dts) {
                                     splice_point = signal_data[lookup].scte35_ready;
                                     splice_duration = signal_data[lookup].scte35_duration;
                                     splice_duration_remaining = signal_data[lookup].scte35_duration_remaining;
+                                    found_splice = 1;
                                     break;
                                 }
                             }
 
+                            if (!found_splice) {
+                                for (lookup = 0; lookup < MAX_DECODE_SIGNAL_WINDOW; lookup++) {
+                                    fprintf(stderr,"unable to find output timestamp, looking for %ld but found %ld\n",
+                                            decode_av_frame->pkt_dts, signal_data[lookup].pts);
+                                }
+                                exit(0);
+                            } else {
+                                for (lookup = 0; lookup < MAX_DECODE_SIGNAL_WINDOW; lookup++) {
+                                    if (signal_data[lookup].pts != 0) {
+                                        if (signal_data[lookup].pts == decode_av_frame->pkt_dts) {
+                                            signal_data[lookup].pts = 0;
+                                            signal_data[lookup].scte35_ready = 0;
+                                            signal_data[lookup].scte35_duration = 0;
+                                            signal_data[lookup].scte35_duration_remaining = 0;
+                                        } else {
+                                            //fprintf(stderr,"(%d) unable to find output timestamp, looking for %ld but found %ld\n",
+                                            //        lookup, decode_av_frame->pkt_dts, signal_data[lookup].pts);
+                                        }
+                                    }
+                                }
+                                syslog(LOG_INFO,"video_decode_thread: outgoing, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld, timestamp=%ld\n",
+                                       splice_point,
+                                       splice_duration,
+                                       splice_duration_remaining,
+                                       decode_av_frame->pkt_dts);
+                            }
+
+                            if (!vstream->found_key_frame) {
+                                vstream->found_key_frame = 1;
+                                vstream->first_timestamp = decode_av_frame->pts; //prepare_msg->dts;  // full time
+                                fprintf(stderr,"video_decode_thread: setting first timestamp to %ld\n", vstream->first_timestamp);
+                            }
+
                             //ffmpeg does this inverse because of the 1/X
-                            prepare_msg->fps_num = decode_avctx->time_base.den / decode_avctx->ticks_per_frame;  // for 29.97fps- should be 30000 and
-                            prepare_msg->fps_den = decode_avctx->time_base.num;                                  // this should be 1001
+                            prepare_msg->fps_num = decode_avctx->framerate.num;
+                            prepare_msg->fps_den = decode_avctx->framerate.den;
+
+                            fprintf(stderr,"video_decode_thread: fps=%d/%d, framerate.den=%d framerate.num=%d ticks_per_frame=%d\n",
+                                    prepare_msg->fps_num, prepare_msg->fps_den,
+                                    decode_avctx->framerate.den,
+                                    decode_avctx->framerate.num,
+                                    decode_avctx->ticks_per_frame);
+
                             //fprintf(stderr,"FPS: %d / %d\n", prepare_msg->fps_num, prepare_msg->fps_den);
                             prepare_msg->aspect_num = decode_avctx->sample_aspect_ratio.num;
                             prepare_msg->aspect_den = decode_avctx->sample_aspect_ratio.den;

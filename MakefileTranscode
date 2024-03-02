@@ -23,7 +23,6 @@ BASELIBS += ./cbffmpeg/libavfilter/libavfilter.a \
             ./cbffmpeg/libswscale/libswscale.a \
             ./cbffmpeg/libavcodec/libavcodec.a \
             ./cbffmpeg/libavutil/libavutil.a \
-            ./cbffmpeg/libavresample/libavresample.a \
             ./cbffmpeg/libswresample/libswresample.a \
             ./cbfdkaac/.libs/libfdk-aac.a \
             ./cblibcurl/./lib/.libs/libcurl.a
@@ -35,7 +34,7 @@ BASELIBS += -lz -lcrypto -lssl
 
 ifdef ENABLE_GPU
         CFLAGS += -DENABLE_GPU
-        BASELIBS += /usr/local/cuda-11.6/targets/x86_64-linux/lib/libnppig.so /usr/local/cuda-11.6/targets/x86_64-linux/lib/libnppicc.so /usr/local/cuda-11.6/targets/x86_64-linux/lib/libnppc.so
+        BASELIBS += -L/usr/local/cuda-12.1/targets/x86_64-linux/lib -lnppig -lnppicc -lnppc -lnppidei -lnppif
 else
         ifdef ENABLE_TRANSCODE
                 BASELIBS += ./cbx264/libx264.a \

@@ -83,6 +83,8 @@ typedef struct _source_context_struct_ {
     double        segment_lengths_audio[MAX_ROLLOVER_SIZE][MAX_AUDIO_STREAMS];
     int           discontinuity[MAX_ROLLOVER_SIZE];
     int64_t       splice_duration[MAX_ROLLOVER_SIZE];
+    double        splice_elapsed_time[MAX_ROLLOVER_SIZE];
+    double        splice_duration_remaining[MAX_ROLLOVER_SIZE];
     int64_t       full_time_video[MAX_ROLLOVER_SIZE];
     int64_t       full_duration_video[MAX_ROLLOVER_SIZE];
     int64_t       full_time_audio[MAX_ROLLOVER_SIZE][MAX_AUDIO_STREAMS];
@@ -91,6 +93,8 @@ typedef struct _source_context_struct_ {
     int64_t       pto_audio;
     int           source_discontinuity;
     int64_t       source_splice_duration;
+    double        source_splice_duration_remaining;
+    double        source_splice_elapsed_time;
 
     int           h264_sps_decoded;
     int           h264_profile;
@@ -1283,10 +1287,14 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
         if (sdata->discontinuity[next_sequence_number] == 1) {
             fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
         } else if (sdata->discontinuity[next_sequence_number] == 2) {
-            fprintf(video_manifest,"#EXT-X-CUE-OUT:%ld\n", sdata->splice_duration[next_sequence_number]);
-            fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
+            fprintf(video_manifest,"#EXT-X-CUE-OUT:DURATION=%ld\n", sdata->splice_duration[next_sequence_number]);
+            //fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
+        } else if (sdata->splice_duration_remaining[next_sequence_number] > 0) {
+            fprintf(video_manifest,"#EXT-X-CUE-OUT-CONT:ElapsedTime=%.3f,Duration=%ld\n",
+                    sdata->splice_elapsed_time[next_sequence_number],
+                    sdata->splice_duration[next_sequence_number]);
         } else if (sdata->discontinuity[next_sequence_number] == 3) {
-            fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
+            //fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
             fprintf(video_manifest,"#EXT-X-CUE-IN\n");
         }
 
@@ -1340,15 +1348,19 @@ static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stre
 
     for (i = 0; i < core->cd->window_size; i++) {
         int64_t next_sequence_number;
-        next_sequence_number = (starting_file_sequence_number + i) % core->cd->rollover_size;
 
+        next_sequence_number = (starting_file_sequence_number + i) % core->cd->rollover_size;
         if (sdata->discontinuity[next_sequence_number] == 1) {
             fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
         } else if (sdata->discontinuity[next_sequence_number] == 2) {
-            fprintf(audio_manifest,"#EXT-X-CUE-OUT:%ld\n", sdata->splice_duration[next_sequence_number]);
-            fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
+            fprintf(audio_manifest,"#EXT-X-CUE-OUT:DURATION=%ld\n", sdata->splice_duration[next_sequence_number]);
+            //fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
+        } else if (sdata->splice_duration_remaining[next_sequence_number] > 0) {
+            fprintf(audio_manifest,"#EXT-X-CUE-OUT-CONT:ElapsedTime=%.3f,Duration=%ld\n",
+                    sdata->splice_elapsed_time[next_sequence_number],
+                    sdata->splice_duration[next_sequence_number]);
         } else if (sdata->discontinuity[next_sequence_number] == 3) {
-            fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
+            //fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
             fprintf(audio_manifest,"#EXT-X-CUE-IN\n");
         }
 
@@ -2291,6 +2303,8 @@ void *mux_pump_thread(void *context)
         source_data[i].source_discontinuity = 0;
         source_data[i].source_splice_duration = 0;
         memset(source_data[i].splice_duration, 0, sizeof(source_data[i].splice_duration));
+        memset(source_data[i].splice_duration_remaining, 0, sizeof(source_data[i].splice_duration_remaining));
+        memset(source_data[i].splice_elapsed_time, 0, sizeof(source_data[i].splice_elapsed_time));
         memset(source_data[i].discontinuity, 0, sizeof(source_data[i].discontinuity));
         source_data[i].h264_sps_decoded = 0;
         source_data[i].h264_sps_size = 0;
@@ -2384,7 +2398,7 @@ void *mux_pump_thread(void *context)
         if (frame->splice_point > 0 && frame->frame_type == FRAME_TYPE_VIDEO) {
             syslog(LOG_INFO,"HLSMUX: SCTE35 SPLICE POINT FOUND: %d\n", frame->splice_point);
             source_discontinuity = frame->splice_point+1;  // 2 for out and 3 for in
-            splice_duration = frame->splice_duration;
+            splice_duration = (int64_t)((double)frame->splice_duration / (double)90000.0);
         } else {
             source_discontinuity = 0;
             splice_duration = 0;
@@ -2423,6 +2437,8 @@ void *mux_pump_thread(void *context)
                 if (available) {
                     source_data[i].source_discontinuity = source_discontinuity;
                     source_data[i].source_splice_duration = splice_duration;
+                    source_data[i].source_splice_duration_remaining = splice_duration;
+                    source_data[i].source_splice_elapsed_time = 0;
                 }
             }
 
@@ -3018,6 +3034,11 @@ void *mux_pump_thread(void *context)
                     source_data[source].segment_lengths_video[hlsmux->video[source].file_sequence_number] = frag_delta;
                     source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;
                     source_data[source].splice_duration[hlsmux->video[source].file_sequence_number] = source_data[source].source_splice_duration;
+                    source_data[source].splice_duration_remaining[hlsmux->video[source].file_sequence_number] = source_data[source].source_splice_duration_remaining;
+                    source_data[source].splice_elapsed_time[hlsmux->video[source].file_sequence_number] = source_data[source].source_splice_elapsed_time;
+                    source_data[source].source_splice_elapsed_time += frag_delta;
+                    source_data[source].source_splice_duration_remaining -= frag_delta;
+
                     source_data[source].full_time_video[hlsmux->video[source].file_sequence_number] = segment_time;
                     source_data[source].full_duration_video[hlsmux->video[source].file_sequence_number] = duration_time;
                     //source_data[source].full_time[hlsmux->video[source].file_sequence_number] = frame->full_time;
@@ -3039,7 +3060,9 @@ void *mux_pump_thread(void *context)
                             */
                         }
                         source_data[source].source_discontinuity = 0;
-                        source_data[source].source_splice_duration = 0;
+                        if (source_data[source].source_splice_duration_remaining <= 0) {
+                            source_data[source].source_splice_duration = 0;
+                        }
                         sub_manifest_ready = 1;
                     }
 
@@ -3495,6 +3518,10 @@ void *mux_pump_thread(void *context)
 
                 source_data[source].discontinuity[hlsmux->video[source].file_sequence_number] = source_data[source].source_discontinuity;
                 source_data[source].splice_duration[hlsmux->video[source].file_sequence_number] = source_data[source].source_splice_duration;
+                source_data[source].splice_duration_remaining[hlsmux->video[source].file_sequence_number] = source_data[source].source_splice_duration_remaining;
+                source_data[source].splice_elapsed_time[hlsmux->video[source].file_sequence_number] = source_data[source].source_splice_elapsed_time;
+                //source_data[source].source_splice_elapsed_time += frag_delta;
+                //source_data[source].source_splice_duration_remaining -= frag_delta;
 
                 source_data[source].segment_lengths_audio[hlsmux->audio[source][sub_stream].file_sequence_number][sub_stream] = frag_delta;
                 source_data[source].full_time_audio[hlsmux->audio[source][sub_stream].file_sequence_number][sub_stream] = segment_time;
@@ -3515,7 +3542,7 @@ void *mux_pump_thread(void *context)
                         }
                     }
                     source_data[source].source_discontinuity = 0;
-                    source_data[source].source_splice_duration = 0;
+                    //source_data[source].source_splice_duration = 0;
                     sub_manifest_ready = 1;
                 }
 

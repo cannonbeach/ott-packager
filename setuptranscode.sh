@@ -13,8 +13,8 @@ yasmcheck=`yasm --version`
 # IMPORTANT!!!
 # Please make sure your CUDA directories are setup corrrectly
 # This is how they are setup on my system.  Yours may be different.
-cudainclude="/usr/local/cuda-11.6/include"
-cudalib="/usr/local/cuda-11.6/lib64"
+cudainclude="/usr/local/cuda-12.1/include"
+cudalib="/usr/local/cuda-12.1/lib64"
 
 sudo apt-get update
 sudo apt-get upgrade
@@ -88,12 +88,18 @@ fi
 #----------------------------------------------------------------------------------------------------------------------------------------------
 
 echo "Installing FFMPEG from cannonbeach fork"
+git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git
+pushd nv-codec-headers
+make
+sudo make install
+popd
+
 git clone https://github.com/cannonbeach/FFmpeg.git ./cbffmpeg
 cd cbffmpeg
-git checkout -b release4.0 remotes/origin/release/4.0
+#git checkout -b release4.0 remotes/origin/release/4.0
 if [ -z "$nvidiacheck" ]; then
     echo "No NVIDIA Hardware Found"
-    ./configure --prefix=/usr --disable-encoders --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-muxers --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-muxers --disable-avdevice --enable-encoder=mjpeg
+    ./configure --prefix=/usr --disable-encoders --enable-swresample --disable-iconv --disable-v4l2-m2m --disable-muxers --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-muxers --disable-avdevice --enable-encoder=mjpeg
 else
     echo "NVIDIA Hardware Found"
     echo $nvidiacheck
@@ -110,7 +116,7 @@ else
         exit
     fi
 
-    ./configure --prefix=/usr --enable-cuda --enable-nvenc --enable-nonfree --enable-libnpp --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-avdevice --enable-encoder=mjpeg --extra-cflags=-I$cudainclude --extra-ldflags=-L$cudalib
+    ./configure --prefix=/usr --enable-cuda --enable-nvenc --enable-swresample --enable-nonfree --enable-libnpp --disable-iconv --disable-v4l2-m2m --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-avdevice --enable-encoder=mjpeg --extra-cflags=-I$cudainclude --extra-ldflags=-L$cudalib
 #    ./configure --prefix=/usr --enable-cuda --enable-cuvid --enable-nvenc --enable-nonfree --enable-libnpp --enable-avresample --disable-iconv --disable-v4l2-m2m --disable-vaapi --disable-vdpau --disable-videotoolbox --disable-avdevice --enable-encoder=mjpeg --extra-cflags=-I$cudainclude --extra-ldflags=-L$cudalib
 fi
 make -j8

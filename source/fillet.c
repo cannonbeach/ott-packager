@@ -293,10 +293,15 @@ static int destroy_fillet_core(fillet_app_struct *core)
         dataqueue_destroy(core->signal_queue);
         core->signal_queue = NULL;
     }
+    if (core->scte35_queue) {
+        dataqueue_destroy(core->scte35_queue);
+        core->scte35_queue = NULL;
+    }
     memory_destroy(core->fillet_msg_pool);
     memory_destroy(core->frame_msg_pool);
     memory_destroy(core->compressed_video_pool);
     memory_destroy(core->compressed_audio_pool);
+    memory_destroy(core->scte35_pool);
     memory_destroy(core->raw_video_pool);
     memory_destroy(core->raw_audio_pool);
 
@@ -323,6 +328,7 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     core->event_queue = (void*)dataqueue_create();
     core->webdav_queue = (void*)dataqueue_create();
     core->signal_queue = (void*)dataqueue_create();
+    core->scte35_queue = (void*)dataqueue_create();
 
     memset(core->source_video_stream, 0, sizeof(source_stream_struct)*num_video_sources);
     memset(core->source_audio_stream, 0, sizeof(source_stream_struct)*num_audio_sources);
@@ -344,6 +350,7 @@ static fillet_app_struct *create_fillet_core(config_options_struct *cd, int num_
     // since we are aware of the tradeoffs regarding this choice
     core->compressed_video_pool = memory_create(MAX_VIDEO_COMPRESSED_BUFFERS, 0);
     core->compressed_audio_pool = memory_create(MAX_AUDIO_COMPRESSED_BUFFERS, 0);
+    core->scte35_pool = memory_create(MAX_VIDEO_COMPRESSED_BUFFERS, 0);
     core->raw_video_pool = memory_create(MAX_VIDEO_RAW_BUFFERS, 0);
     core->raw_audio_pool = memory_create(MAX_AUDIO_RAW_BUFFERS, 0);
 
@@ -1383,7 +1390,8 @@ static void *frame_sync_thread(void *context)
     int print_current_time = 0;
     int active_video_sources;
 
-    fprintf(stderr,"SESSION:%d (MAIN) STATUS: STARTING NEW SYNC THREAD\n", core->session_id);
+    fprintf(stderr,"frame_sync_thread: session=%d, starting new frame sync thread\n", core->session_id);
+
     while (1) {
         audio_sync = 0;
         video_sync = 0;
@@ -1395,11 +1403,11 @@ static void *frame_sync_thread(void *context)
             pthread_mutex_unlock(&sync_lock);
             video_synchronizer_entries = 0;
             audio_synchronizer_entries = 0;
-            fprintf(stderr,"SESSION:%d (MAIN) STATUS: LEAVING SYNC THREAD - DISCONTINUITY\n", core->session_id);
+            fprintf(stderr,"frame_sync_thread: session=%d, leaving sync thread due to discontinuity\n", core->session_id);
             sync_thread_running = 0;
 
             if (enable_transcode) {
-                fprintf(stderr,"SESSION:%d (MAIN) STATUS: RESTARTING APPLICATION\n", core->session_id);
+                fprintf(stderr,"frame_sync_thread: session=%d, restarting\n", core->session_id);
                 // setup Docker container do a restart
                 send_direct_error(core, SIGNAL_SERVICE_RESTART, "Unrecoverable Discontinuity Detected - Restarting Service");
                 exit(0);
@@ -1430,6 +1438,11 @@ static void *frame_sync_thread(void *context)
         active_video_sources = config_data.active_video_sources;
 #endif
 
+        /*fprintf(stderr,"frame_sync_thread: audio_sync=%d active_video=%d video_sync=%d\n",
+                audio_synchronizer_entries,
+                active_video_sources,
+                video_synchronizer_entries);*/
+
         if (audio_synchronizer_entries > active_video_sources && video_synchronizer_entries > active_video_sources) {
             output_frame = NULL;
 
@@ -1440,7 +1453,7 @@ static void *frame_sync_thread(void *context)
 
             if (enable_verbose) {
                 if (print_current_time > 200) {
-                    fprintf(stderr,"SESSION:%d (MAIN) STATUS: current_audio_time:%ld current_video_time:%ld\n",
+                    fprintf(stderr,"frame_sync_thread: session=%d, current_audio_time:%ld, current_video_time:%ld\n",
                             core->session_id,
                             current_audio_time,
                             current_video_time);
@@ -1449,9 +1462,12 @@ static void *frame_sync_thread(void *context)
                 print_current_time++;
             }
 
+            fprintf(stderr,"frame_sync_thread: current_audio_time=%ld, current_video_time=%ld\n",
+                    current_audio_time, current_video_time);
+
             if (current_audio_time <= current_video_time) {
                 no_grab = 0;
-                while (current_audio_time < current_video_time && audio_synchronizer_entries > active_video_sources && !quit_sync_thread) {
+                while (current_audio_time <= current_video_time && audio_synchronizer_entries > active_video_sources && !quit_sync_thread) {
                     pthread_mutex_lock(&sync_lock);
                     audio_synchronizer_entries = use_frame(core, core->audio_frame_data, audio_synchronizer_entries, 0, &current_audio_time, first_grab, &output_frame);
                     pthread_mutex_unlock(&sync_lock);
@@ -1478,20 +1494,18 @@ static void *frame_sync_thread(void *context)
                     }
                 }
             } else {
-                /*
-                fprintf(stderr,"NOT GRABBING AUDIO: DELTA:%ld (CVT:%ld CAT:%ld) AS:%d ASE:%d VSE:%d\n",
+                fprintf(stderr,"frame_sync_thread: not grabbing audio, delta=%ld (cvt=%ld cat=%ld), active_sources=%d, audio_sync_entries=:%d, video_sync_entries=%d\n",
                         current_video_time - current_audio_time,
                         current_video_time,
                         current_audio_time,
                         active_video_sources,
                         audio_synchronizer_entries,
                         video_synchronizer_entries);
-                */
                 first_grab = 0;
 
                 no_grab++;
-                if (no_grab >= 300) {  // was 15
-                    fprintf(stderr,"WAITING TOO LONG FOR LIVE CONTENT - SIGNALING SYNC THREAD RESTART\n");
+                if (no_grab >= 300) {
+                    fprintf(stderr,"\n\n\n\nWAITING TOO LONG FOR LIVE CONTENT - SIGNALING SYNC THREAD RESTART\n\n\n");
                     quit_sync_thread = 1;
                     continue;
                 }
@@ -1568,11 +1582,6 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     new_frame->media_type = MEDIA_TYPE_AAC;
     new_frame->time_received = 0;
     memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
-
-    /*fprintf(stderr,"SESSION:%d (MAIN) STATUS: adding audio frame to sync thread sub_stream:%d pts:%ld\n",
-            core->session_id,
-            sub_stream,
-            new_frame->full_time);*/
 
     pthread_mutex_lock(&sync_lock);
     audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
@@ -1706,6 +1715,8 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
     pthread_mutex_lock(&sync_lock);
     video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
     if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
+        fprintf(stderr,"video_sink_frame_callback: session=%d, excessive video_synchronizer_entries=%d\n",
+                core->session_id, video_synchronizer_entries);
         restart_sync_thread = 1;
     }
     pthread_mutex_unlock(&sync_lock);
@@ -1740,8 +1751,12 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     if (sample_type == STREAM_TYPE_SCTE35) {
         if (core->cd->enable_scte35) {
             scte35_data_struct *scte35_data = (scte35_data_struct*)sample;
+            uint8_t *scte35_buffer = NULL;
+            int scte35_buffer_size = sample_size;
+            dataqueue_message_struct *scte35_msg = NULL;
 
-            fprintf(stderr,"STATUS: RECEIVE_FRAME: (SCTE35): SPLICE-TYPE:%x PTS:%ld DURATION:%ld PTSADJ:%ld IMMEDIATE:%d PROGRAMID:%d CANCEL:%d OUTOFNETWORK:%d\n",
+            fprintf(stderr,"receive_frame (scte35): session=%d, splice-type=%x, pts=%ld, duration=%ld, ptsadj=%ld, immediate=%d, programid=%d, cancel=%d, outofnetwork=%d\n",
+                    core->session_id,
                     scte35_data->splice_command_type,
                     scte35_data->pts_time,
                     scte35_data->pts_duration,
@@ -1751,9 +1766,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     scte35_data->cancel,
                     scte35_data->out_of_network_indicator);
 
-            syslog(LOG_INFO,"STATUS: RECEIVE_FRAME: (SCTE35): SPLICE-TYPE:0x%x EVENT:%ld PTS:%ld DURATION:%ld PTSADJ:%ld IMMEDIATE:%d PROGRAMID:%d CANCEL:%d OUTOFNETWORK:%d\n",
+            syslog(LOG_INFO,"receive_frame (scte35): splice-type=%x, pts=%ld, duration=%ld, ptsadj=%ld, immediate=%d, programid=%d, cancel=%d, outofnetwork=%d\n",
                    scte35_data->splice_command_type,
-                   scte35_data->splice_event_id,
                    scte35_data->pts_time,
                    scte35_data->pts_duration,
                    scte35_data->pts_adjustment,
@@ -1762,30 +1776,27 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                    scte35_data->cancel,
                    scte35_data->out_of_network_indicator);
 
-            if (scte35_data->splice_command_type == 0x05) {
-                if (scte35_data->splice_immediate) {
-                    core->scte35_ready = 1;
-                    core->scte35_pts = 0;
-                    core->scte35_duration = scte35_data->pts_duration;
-                    core->scte35_duration_remaining = scte35_data->pts_duration;
-                    core->scte35_triggered = 0;
-                    send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
-                    core->scte35_ready = 1;
-                    core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
-                    core->scte35_duration = scte35_data->pts_duration;
-                    core->scte35_duration_remaining = scte35_data->pts_duration;
-                    core->scte35_triggered = 0;
-                    send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                    // pts_adjustment is non-zero
-                } else {
-                    // additional modes needs to be included
-                    // non pts_duration mode
-                    // also need to look for signal back to network feed
-                    core->scte35_ready = 0;
-                }
+            scte35_buffer = (uint8_t*)memory_take(core->scte35_pool, scte35_buffer_size);
+            if (!scte35_buffer) {
+                fprintf(stderr,"receive_frame (scte35): session=%d, Unable to obtain scte35 buffer!\n",
+                        core->session_id);
+                send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "out of scte35 buffers");
+                exit(0);
+            }
+            memcpy(scte35_buffer, sample, sample_size);
+
+            scte35_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+            if (scte35_msg) {
+                scte35_msg->buffer = scte35_buffer;
+                scte35_msg->buffer_size = scte35_buffer_size;
+                dataqueue_put_front(core->scte35_queue, scte35_msg);
+                scte35_msg = NULL;
+                scte35_buffer = NULL;
             } else {
-                core->scte35_ready = 0;
+                fprintf(stderr,"receive_frame (scte35): session=%d, unable to obtain message\n",
+                        core->session_id);
+                send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "out of scte35 message buffers - Check CPU LOAD!");
+                exit(0);
             }
         } else {
             core->scte35_ready = 0;
@@ -1799,7 +1810,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         int64_t diff;
 
         if (enable_verbose || sample_flags) {
-            fprintf(stderr,"STATUS: RECEIVE_FRAME (H264/HEVC :%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d\n",
+            fprintf(stderr,"receive_frame: (video=%2d), type=%2d, pts=%15ld, dts=%15ld, key=%d\n",
                     source,
                     sample_type,
                     pts,
@@ -1823,12 +1834,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 
         core->uptime = diff / 1000;
 
-        if (!vstream->found_key_frame && sample_flags) {
-            vstream->found_key_frame = 1;
-            if (dts > 0) {
-                vstream->first_timestamp = dts;
-            } else {
-                vstream->first_timestamp = pts;
+        if (!enable_transcode) {
+            if (!vstream->found_key_frame && sample_flags) {
+                vstream->found_key_frame = 1;
+                if (dts > 0) {
+                    vstream->first_timestamp = dts;
+                } else {
+                    vstream->first_timestamp = pts;
+                }
             }
         }
 
@@ -1838,8 +1851,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 int64_t mod_overflow = vstream->last_timestamp_dts % 8589934592;
                 if (delta_dts < -OVERFLOW_DTS && mod_overflow > OVERFLOW_DTS) {
                     vstream->overflow_dts += 8589934592;
-                    fprintf(stderr,"FILLET: DELTA_DTS:%ld OVERFLOW DTS:%ld\n", delta_dts, vstream->overflow_dts);
-                    syslog(LOG_INFO,"(%d) VIDEO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW DTS:%ld  LAST:%ld  DTS:%ld\n",
+                    syslog(LOG_INFO,"receive_frame: source=%d video stream timestamp overflow, delta=%ld, overflow=%ld, last=%ld, dts=%ld\n",
                            source,
                            delta_dts,
                            vstream->overflow_dts,
@@ -1856,8 +1868,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             vstream->last_intra_count = vstream->current_receive_count;
         }
 
-        if (!vstream->found_key_frame) {
-            return 0;
+        if (!enable_transcode) {
+            if (!vstream->found_key_frame) {
+                return 0;
+            }
         }
 
         new_buffer = (uint8_t*)memory_take(core->compressed_video_pool, sample_size);
@@ -1891,6 +1905,47 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         new_frame->splice_duration = 0;
         new_frame->splice_duration_remaining = 0;
 
+        if (core->scte35_ready == 0) {
+            dataqueue_message_struct *scte35_msg = NULL;
+
+            scte35_msg = dataqueue_take_back(core->scte35_queue);
+            if (scte35_msg) {
+                scte35_data_struct *scte35_data = (scte35_data_struct*)scte35_msg->buffer;
+                int scte35_data_size = scte35_msg->buffer_size;
+
+                if (scte35_data->splice_command_type == 0x05) {
+                    if (scte35_data->splice_immediate) {
+                        core->scte35_ready = 1;
+                        core->scte35_pts = 0;
+                        core->scte35_duration = scte35_data->pts_duration;
+                        core->scte35_duration_remaining = scte35_data->pts_duration;
+                        core->scte35_triggered = 0;
+                        send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
+                    } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
+                        core->scte35_ready = 1;
+                        core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
+                        core->scte35_duration = scte35_data->pts_duration;
+                        core->scte35_duration_remaining = scte35_data->pts_duration;
+                        core->scte35_triggered = 0;
+                        send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
+                        // pts_adjustment is non-zero
+                    } else {
+                        // additional modes needs to be included
+                        // non pts_duration mode
+                        // also need to look for signal back to network feed
+                        core->scte35_ready = 0;
+                    }
+                } else {
+                    core->scte35_ready = 0;
+                }
+                memory_return(core->scte35_pool, scte35_msg->buffer);
+                scte35_msg->buffer = NULL;
+                scte35_msg->buffer_size = 0;
+                memory_return(core->fillet_msg_pool, scte35_msg);
+                scte35_msg = NULL;
+            }
+        }
+
         if (core->scte35_ready) {
             int64_t scte35_time_diff;
             int64_t anchor_time = new_frame->full_time % 8589934592;
@@ -1900,8 +1955,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             } else {
                 scte35_time_diff = core->scte35_pts - anchor_time;
             }
-            fprintf(stderr,"SCTE35 TIME DIFF:%ld\n", scte35_time_diff);
-            syslog(LOG_INFO,"SCTE35 TIME DIFF:%ld    PTS:%ld    SCTE35PTS:%ld   DURATION:%ld   REMAINING:%ld  TRIGGERED:%d\n",
+            syslog(LOG_INFO,"receive_frame: scte35_time_diff=%ld, pts=%ld, scte35pts=%ld, duration=%ld, remaining=%ld, triggered(acvtive)=%d\n",
                    scte35_time_diff,
                    anchor_time,
                    core->scte35_pts,
@@ -1925,16 +1979,38 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     new_frame->splice_point = 0;
                     core->scte35_last_pts_diff = scte35_time_diff;
                 }
-                fprintf(stderr,"SCTE35 TIME REMAINING:%ld\n", new_frame->splice_duration_remaining);
-                syslog(LOG_INFO,"SCTE35 TIME REMAINING:%ld\n", new_frame->splice_duration_remaining);
+                fprintf(stderr,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
+                syslog(LOG_INFO,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
                 new_frame->splice_duration = core->scte35_duration;
-            } else if (scte35_time_diff < 0 && core->scte35_last_pts_diff >= 0) {
+            } else if (scte35_time_diff < (-5400000*5)) {
+                syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
+                core->scte35_triggered = 0;
+                core->scte35_ready = 0;
+                core->scte35_last_pts_diff = 0;
+                core->scte35_duration = 0;
+                core->scte35_duration_remaining = 0;
+                core->scte35_last_pts_diff = 0;
+                new_frame->splice_point = 0;
+                new_frame->splice_duration = 0;
+                new_frame->splice_duration_remaining = 0;
+            } else if (scte35_time_diff > (5400000*10)) {
+                syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
+                core->scte35_triggered = 0;
+                core->scte35_ready = 0;
+                core->scte35_last_pts_diff = 0;
+                core->scte35_duration = 0;
+                core->scte35_duration_remaining = 0;
+                core->scte35_last_pts_diff = 0;
+                new_frame->splice_point = 0;
+                new_frame->splice_duration = 0;
+                new_frame->splice_duration_remaining = 0;
+            } else if (scte35_time_diff < 0 && core->scte35_last_pts_diff >= 0) {  // <= 0??
                 core->scte35_last_pts_diff = 0;
                 new_frame->splice_point = 1;
                 new_frame->splice_duration = core->scte35_duration;
                 new_frame->splice_duration_remaining = core->scte35_duration;
                 core->scte35_triggered = 1;
-                syslog(LOG_INFO,"SCTE35 - SETTING IT TO TRIGGERED\n");
+                syslog(LOG_INFO,"receive_frame: activating scte35, setting scte35_triggered to core->scte35_triggered to 1 and new_frame->splice_point to 1\n");
                 // trigger point
             } else if (scte35_time_diff < 0) {
                 // it's already too late- not sure what happened
@@ -1958,7 +2034,11 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (!enable_transcode) {
             vstream->last_full_time = new_frame->full_time;
         }
-        new_frame->first_timestamp = vstream->first_timestamp;
+        if (!enable_transcode) {
+            new_frame->first_timestamp = vstream->first_timestamp;
+        } else {
+            new_frame->first_timestamp = -1;
+        }
         new_frame->source = source;
         new_frame->sub_stream = 0;
         new_frame->sync_frame = sample_flags;
@@ -2031,14 +2111,13 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         core->info.source_audio_codec = sample_type;
 
         if (enable_verbose) {
-            fprintf(stderr,"STATUS: RECEIVE_FRAME (AUDIO:%2d): TYPE:%2d PTS:%15ld DTS:%15ld KEY:%d (AUDIO STREAM:%d)  ASTREAM:%p  TOTAL AUDIO STREAMS:%d\n",
+            fprintf(stderr,"receive_frame: (audio:%2d), type=%2d, pts=%15ld, dts=%15ld, key=%d, stream=%d, audiostreams=%d\n",
                     source,
                     sample_type,
                     pts,
                     dts,
                     vstream->found_key_frame,
                     sub_source,
-                    astream,
                     audio_streams);
         }
 
@@ -2063,6 +2142,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 #endif
 
         if (!vstream->found_key_frame) {
+            fprintf(stderr,"DROPPING AUDIO FRAME!!!!!! NOT VIDEO\n");
             return 0;
         }
 
@@ -2196,12 +2276,10 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
     }
 
     if (restart_sync_thread) {
-        fprintf(stderr,"GETTING SYNC LOCK\n");
         pthread_mutex_lock(&sync_lock);
         dump_frames(core, core->video_frame_data, MAX_FRAME_DATA_SYNC_VIDEO);
         dump_frames(core, core->audio_frame_data, MAX_FRAME_DATA_SYNC_AUDIO);
         pthread_mutex_unlock(&sync_lock);
-        fprintf(stderr,"DONE WITH SYNC LOCK\n");
         video_synchronizer_entries = 0;
         audio_synchronizer_entries = 0;
         quit_sync_thread = 1;
@@ -2209,9 +2287,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         stop_video_transcode_threads(core);
         stop_audio_transcode_threads(core);
 #endif // ENABLE_TRANSCODE
-        fprintf(stderr,"WAITING FOR SYNC THREAD TO STOP: %d\n", sync_thread_running);
         pthread_join(frame_sync_thread_id, NULL);
-        fprintf(stderr,"DONE WAITING FOR SYNC THREAD TO STOP\n");
     }
     return 0;
 }
@@ -2527,20 +2603,23 @@ int main(int argc, char **argv)
                      int video_decode_frames_waiting;
                      int video_deinterlace_frames_waiting;
 
-                     syslog(LOG_INFO,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
+                     syslog(LOG_INFO,"main: session=%d, flm=%d, frm=%d, cv=%d, ca=%d, scte35=%d, rv=%d, ra=%d\n",
                             core->session_id,
                             memory_unused(core->fillet_msg_pool),
                             memory_unused(core->frame_msg_pool),
                             memory_unused(core->compressed_video_pool),
                             memory_unused(core->compressed_audio_pool),
+                            memory_unused(core->scte35_pool),
                             memory_unused(core->raw_video_pool),
                             memory_unused(core->raw_audio_pool));
-                     fprintf(stderr,"SESSION:%d (MAIN): FLM:%d FRM:%d CV:%d CA:%d RV:%d RA:%d\n",
+
+                     fprintf(stderr,"main: session=%d, flm=%d, frm=%d, cv=%d, ca=%d, scte35=%d, rv=%d, ra=%d\n",
                              core->session_id,
                              memory_unused(core->fillet_msg_pool),
                              memory_unused(core->frame_msg_pool),
                              memory_unused(core->compressed_video_pool),
                              memory_unused(core->compressed_audio_pool),
+                             memory_unused(core->scte35_pool),
                              memory_unused(core->raw_video_pool),
                              memory_unused(core->raw_audio_pool));
 

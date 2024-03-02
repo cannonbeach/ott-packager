@@ -30,31 +30,32 @@
 #define MAX_SMALLBUF_SIZE 256
 
 typedef struct _dataqueue_message_struct_ {
-        int             buffer_type;
-        unsigned long   buffer_size;
-        int64_t         pts;
-        int64_t         dts;
-        uint32_t        flags;
-        int             source_discontinuity;
-        uint8_t         tff;
-        uint8_t         interlaced;
-        int             fps_num;
-        int             fps_den;
-        int             aspect_num;
-        int             aspect_den;
-        int             width;
-        int             height;
-        uint8_t         stream_index;
-        int             channels;
-        int             sample_rate;
-        int64_t         first_pts;
-        int             caption_size;
-        int             splice_point;
-        int64_t         splice_duration;
-        int64_t         splice_duration_remaining;
-        char            smallbuf[MAX_SMALLBUF_SIZE];
-        uint8_t         *caption_buffer;
-        void            *buffer;
+    int             buffer_type;
+    unsigned long   buffer_size;
+    int64_t         pts;
+    int64_t         dts;
+    uint32_t        flags;
+    int             source_discontinuity;
+    uint8_t         tff;
+    uint8_t         interlaced;
+    int             fps_num;
+    int             fps_den;
+    int             aspect_num;
+    int             aspect_den;
+    int             width;
+    int             height;
+    uint8_t         stream_index;
+    int             channels;
+    int             sample_rate;
+    int64_t         first_pts;
+    int             caption_size;
+    int64_t         caption_timestamp;
+    int             splice_point;
+    int64_t         splice_duration;
+    int64_t         splice_duration_remaining;
+    char            smallbuf[MAX_SMALLBUF_SIZE];
+    uint8_t         *caption_buffer;
+    void            *buffer;
 } dataqueue_message_struct;
 
 #if defined(__cplusplus)

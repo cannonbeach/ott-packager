@@ -1470,7 +1470,7 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
             }
 
             if (nal_type == 32 || nal_type == 33 || nal_type == 34) {  // nal_type == 20
-                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+                fprintf(stderr,"replace_startcode_with_size_hevc: nal_type=0x%x  pos=%d\n", nal_type, write_pos);
             }
 
             saved_position = write_pos;
@@ -1502,7 +1502,7 @@ static int replace_startcode_with_size_hevc(uint8_t *input_buffer, int input_buf
             }
 
             if (nal_type == 32 || nal_type == 33 || nal_type == 34) {
-                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+                fprintf(stderr,"replace_startcode_with_size_hevc: nal_type=0x%x  pos=%d\n", nal_type, write_pos);
             }
             saved_position = write_pos;
             *(sample_buffer+write_pos+0) = 0xf0;
@@ -1559,7 +1559,7 @@ static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buf
                 continue;
             }
 
-            // enable this code to skip including sps/pps inline with the content- it doesn't hurt to have it there
+            // enable this code to skip including sps/pps inline with the content, it doesn't hurt to have it there
             /*if (nal_type == 7 || nal_type == 8) {  // skip out on the sps/pps
                 parsing_sample = 0;
                 read_pos += 4;
@@ -1567,7 +1567,7 @@ static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buf
             }*/
 
             if (nal_type == 7 || nal_type == 8 || nal_type == 5) {
-                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+                fprintf(stderr,"replace_startcode_with_size_h264: nal_type=0x%x  pos=%d\n", nal_type, write_pos);
             }
             saved_position = write_pos;
             *(sample_buffer+write_pos+0) = 0x00;
@@ -1604,7 +1604,7 @@ static int replace_startcode_with_size_h264(uint8_t *input_buffer, int input_buf
             }*/
 
             if (nal_type == 7 || nal_type == 8 || nal_type == 5) {
-                fprintf(stderr,"STARTING NAL TYPE: 0x%x  SAVING POS:%d\n", nal_type, write_pos);
+                fprintf(stderr,"replace_startcode_with_size_h264: nal_type=0x%x  pos=%d\n", nal_type, write_pos);
             }
             saved_position = write_pos;
             *(sample_buffer+write_pos+0) = 0x00;

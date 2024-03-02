@@ -422,11 +422,13 @@ typedef struct _fillet_app_struct_
     int64_t                       scte35_duration;
     int64_t                       scte35_duration_remaining;
     int64_t                       scte35_last_pts_diff;
+    void                          *scte35_queue;
 
     void                          *fillet_msg_pool;
     void                          *frame_msg_pool;
     void                          *compressed_video_pool;
     void                          *compressed_audio_pool;
+    void                          *scte35_pool;
     void                          *raw_video_pool;
     void                          *raw_audio_pool;
 
