@@ -110,6 +110,9 @@
 #define SOURCE_TYPE_STREAM         0
 #define SOURCE_TYPE_FILE           1
 
+#define SPLICE_CUE_OUT             1
+#define SPLICE_CUE_IN              2
+
 typedef struct _basic_info_struct_ {
     int                    video_synchronizer_entries;
     int                    audio_synchronizer_entries;

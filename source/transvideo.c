@@ -473,11 +473,13 @@ void *video_encode_thread_nvenc(void *context)
 
         ret = av_frame_make_writable(gpu_data[current_encoder].encode_av_frame);
 
-        if (source_splice_point == 1 || source_splice_point == 2) {
+        if (source_splice_point == SPLICE_CUE_IN || source_splice_point == SPLICE_CUE_OUT) {
             syslog(LOG_INFO,"video_encode_thread_nvenc: scte35(%d), inserting IDR frame during splice point=%d\n",
                    current_encoder, source_splice_point);
             gpu_data[current_encoder].encode_surface->pict_type = AV_PICTURE_TYPE_I;
             gpu_data[current_encoder].encode_av_frame->pict_type = AV_PICTURE_TYPE_I;
+            gpu_data[current_encoder].encode_surface->key_frame = 1;
+            gpu_data[current_encoder].encode_av_frame->key_frame = 1;
         } else {
             gpu_data[current_encoder].encode_surface->pict_type = AV_PICTURE_TYPE_NONE;
             gpu_data[current_encoder].encode_av_frame->pict_type = AV_PICTURE_TYPE_NONE;
@@ -1357,7 +1359,7 @@ void *video_encode_thread_x264(void *context)
                 x264_data[current_encoder].pic.extra_sei.payloads = NULL;
             }
 
-            if (splice_point == 1 || splice_point == 2) {
+            if (splice_point == SPLICE_CUE_OUT || splice_point == SPLICE_CUE_IN) {
                 syslog(LOG_INFO,"SCTE35(%d)- INSERTING IDR FRAME DURING SPLICE POINT: %d\n",
                        current_encoder, splice_point);
                 x264_data[current_encoder].pic.i_type = X264_TYPE_IDR;

@@ -1971,7 +1971,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     core->scte35_duration_remaining = 0;
                     core->scte35_triggered = 0;
                     core->scte35_duration = 0;
-                    new_frame->splice_point = 2; // splice back point
+                    new_frame->splice_point = SPLICE_CUE_IN; // splice back point
                     core->scte35_ready = 0;
                     send_signal(core, SIGNAL_SCTE35_END, "SCTE35 Out Of Network Detected (IN)");
                     core->scte35_last_pts_diff = 0;
@@ -2006,7 +2006,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 new_frame->splice_duration_remaining = 0;
             } else if (scte35_time_diff < 0 && core->scte35_last_pts_diff >= 0) {  // <= 0??
                 core->scte35_last_pts_diff = 0;
-                new_frame->splice_point = 1;
+                new_frame->splice_point = SPLICE_CUE_OUT;
                 new_frame->splice_duration = core->scte35_duration;
                 new_frame->splice_duration_remaining = core->scte35_duration;
                 core->scte35_triggered = 1;

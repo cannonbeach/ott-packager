@@ -2406,7 +2406,20 @@ void *mux_pump_thread(void *context)
         if (!source_discontinuity) {
             source_discontinuity = msg->source_discontinuity;
         }
-        if (source_discontinuity) {
+        if (source_discontinuity == 2 || source_discontinuity == 3) {
+            for (i = 0; i < MAX_SOURCE_STREAMS; i++) {
+                int j;
+                source_data[i].source_discontinuity = source_discontinuity;
+                if (source_discontinuity == 2) {
+                    source_data[i].source_splice_elapsed_time = 0;
+                    source_data[i].source_splice_duration_remaining = splice_duration;
+                    source_data[i].source_splice_duration = splice_duration;
+                } else {
+                    // do nothing, let them resolve on their own
+                }
+            }
+        }
+        if (source_discontinuity == 1) {
             int64_t first_video_file_sequence_number;
             int64_t first_video_media_sequence_number;
             int available = 0;
