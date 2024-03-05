@@ -1278,6 +1278,7 @@ static int update_ts_video_manifest(fillet_app_struct *core, stream_struct *stre
     fprintf(video_manifest,"#EXTM3U\n");
     fprintf(video_manifest,"#EXT-X-VERSION:3\n");
     fprintf(video_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
+    fprintf(video_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");
     fprintf(video_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
 
     for (i = 0; i < core->cd->window_size; i++) {
@@ -1344,6 +1345,7 @@ static int update_ts_audio_manifest(fillet_app_struct *core, stream_struct *stre
     fprintf(audio_manifest,"#EXTM3U\n");
     fprintf(audio_manifest,"#EXT-X-VERSION:3\n");
     fprintf(audio_manifest,"#EXT-X-MEDIA-SEQUENCE:%ld\n", starting_media_sequence_number);
+    fprintf(audio_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");
     fprintf(audio_manifest,"#EXT-X-TARGETDURATION:%d\n", core->cd->segment_length);
 
     for (i = 0; i < core->cd->window_size; i++) {
@@ -1432,6 +1434,8 @@ static int write_ts_master_manifest(fillet_app_struct *core, source_context_stru
     }
 
     fprintf(master_manifest,"#EXTM3U\n");
+    fprintf(master_manifest,"#EXT-X-VERSION:3\n");
+    fprintf(master_manifest,"#EXT-X-INDEPENDENT-SEGMENTS\n");
 
     for (j = 0; j < MAX_AUDIO_STREAMS; j++) {
         lsdata = sdata;

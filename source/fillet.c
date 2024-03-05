@@ -1929,6 +1929,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                         core->scte35_triggered = 0;
                         send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
                         // pts_adjustment is non-zero
+                    } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 1) {
+                        // this is an out of network indicator without a duration
+                        // which really sucks and we don't support it
+                        core->scte35_ready = 0;
+                        fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is true (cue-out)\n");
+                    } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 0) {
+                        core->scte35_ready = 0;
+                        fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is false (cue-in)\n");
                     } else {
                         // additional modes needs to be included
                         // non pts_duration mode

@@ -599,7 +599,6 @@ void *video_encode_thread_nvenc(void *context)
 
             memcpy(nal_buffer, gpu_data[current_encoder].encode_pkt->data, nalsize);
 
-
             int lookup;
             int output_splice_point = 0;
             int64_t output_splice_duration = 0;
@@ -620,17 +619,6 @@ void *video_encode_thread_nvenc(void *context)
                 exit(0);
             }
 
-            /*
-            encoder_opaque_struct *opaque_output = (encoder_opaque_struct*)gpu_data[current_encoder].encode_pkt->opaque;
-            if (opaque_output) {
-                output_splice_point = opaque_output->splice_point;
-                output_splice_duration = opaque_output->splice_duration;
-                output_splice_duration_remaining = opaque_output->splice_duration_remaining;
-                opaque_int64 = opaque_output->frame_count_pts;
-                free(opaque_output);
-                opaque_output = NULL;
-            }
-            */
             double opaque_double = gpu_data[current_encoder].encode_pkt->pts;
             int64_t pts = (int64_t)((double)opaque_double * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
             int64_t dts = (int64_t)((double)gpu_data[current_encoder].frame_count_dts * (double)ticks_per_frame_double) + (int64_t)vstream->first_timestamp;
@@ -2419,7 +2407,8 @@ void *video_decode_thread(void *context)
     int output_stride[4];
     int last_video_frame_size = -1;
     uint8_t *wbuffer;
-    int saved_splice_point = 0;
+    int64_t last_splice_duration = 0;
+    //int saved_splice_point = 0;
 
 #if defined(ENABLE_GPU_DECODE)
     AVHWFramesContext *nvidia_frames_ctx = NULL;
@@ -2590,9 +2579,15 @@ void *video_decode_thread(void *context)
                     working_incoming_video_buffer += decode_happy;
 
                     if (decode_pkt->size == 0) {
-                        saved_splice_point = frame->splice_point;
+                        //if (saved_splice_point > 0) {
+                        //    frame->splice_point = saved_splice_point;
+                        //    saved_splice_point = 0;
+                        //}
                         continue;
+                    } else {
+                        //saved_splice_point = frame->splice_point;
                     }
+
                     decode_pkt->pts = frame->pts;
                     decode_pkt->dts = frame->full_time;  // this is the one that matters
 
@@ -2612,10 +2607,6 @@ void *video_decode_thread(void *context)
                     }
                     */
 
-                    if (saved_splice_point > 0) {
-                        frame->splice_point = saved_splice_point;
-                        saved_splice_point = 0;
-                    }
                     signal_data[signal_write_index].pts = frame->full_time;
                     signal_data[signal_write_index].scte35_ready = frame->splice_point;
                     signal_data[signal_write_index].scte35_duration = frame->splice_duration;
@@ -2882,12 +2873,24 @@ void *video_decode_thread(void *context)
                                         }
                                     }
                                 }
+                                // this a fix for field frame issues so it doesn't get skipped.
+                                if (last_splice_duration == 0 && splice_duration > 0) {
+                                    if (splice_point != SPLICE_CUE_OUT) {
+                                        splice_point = SPLICE_CUE_OUT;
+                                    }
+                                }
+                                if (last_splice_duration > 0 && splice_duration == 0) {
+                                    if (splice_point != SPLICE_CUE_IN) {
+                                        splice_point = SPLICE_CUE_IN;
+                                    }
+                                }
                                 syslog(LOG_INFO,"video_decode_thread: outgoing, splice_point=%d, splice_duration=%ld, splice_duration_remaining=%ld, timestamp=%ld\n",
                                        splice_point,
                                        splice_duration,
                                        splice_duration_remaining,
                                        decode_av_frame->pkt_dts);
                             }
+                            last_splice_duration = splice_duration;
 
                             if (!vstream->found_key_frame) {
                                 vstream->found_key_frame = 1;
