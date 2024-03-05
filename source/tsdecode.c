@@ -154,8 +154,6 @@ static int decode_pmt_table(pat_table_struct *master_pat_table, pmt_table_struct
          program_info_length < 0 ||
          program_info_length > MAX_TABLE_SIZE) {
 
-         syslog(LOG_ERR,"PMT TABLE ERROR: TABLE SIZE INVALID: %d\n", pmt_remaining);
-
          //backup_caller(2000, 503, 0, 0, 0, 0, backup_context);
 
          pthread_mutex_unlock(&pmt_lock);
@@ -1221,6 +1219,11 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                               }
 
                               look_for_pmt_table = 0;
+
+                              if (tsdata->pat_transport_stream_id != transport_stream_id) {
+                                  tsdata->pat_version_number = -1;
+                              }
+
                               if (tsdata->pat_version_number == -1) {
                                    tsdata->pat_position = total_input_packets;
                                    tsdata->pat_version_number = version_number;
@@ -1278,8 +1281,8 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                          for (pid_count = 0; pid_count < tsdata->pmt_pid_count; pid_count++) {
                               if (tsdata->pmt_pid_index[pid_count] == current_pid) {
                                    if (tsdata->pmt_table_acquired > 0 &&
-                                             tsdata->pmt_table_acquired < MAX_TABLE_SIZE &&
-                                             tsdata->pmt_table_expected > 0) {
+                                       tsdata->pmt_table_acquired < MAX_TABLE_SIZE &&
+                                       tsdata->pmt_table_expected > 0) {
                                         int pmt_bytes_remaining = tsdata->pmt_table_expected - tsdata->pmt_table_acquired;
 
                                         if (tsdata->pmt_table_acquired + acquired_data_so_far > MAX_TABLE_SIZE) {
@@ -1323,7 +1326,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                              tsdata->pmt_table_acquired = 0;
                                              tsdata->pmt_table_expected = 0;
                                         }
-                                        goto continue_packet_processing;
+                                        continue;
                                    }
                               }
                          }
@@ -1353,7 +1356,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                          if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index > 0) {
                                              int remaining_samples = 184 - adaptation_size;
                                              if (remaining_samples < 0) {
-                                                 goto continue_packet_processing;
+                                                 continue;
                                              }
                                              if (tsdata->master_pmt_table[each_pmt].data_engine[pid_count].data_index + remaining_samples <= MAX_BUFFER_SIZE) {
                                                  memcpy(tsdata->master_pmt_table[each_pmt].data_engine[pid_count].buffer +
