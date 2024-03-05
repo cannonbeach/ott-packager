@@ -1581,9 +1581,18 @@ static int update_mp4_video_manifest(fillet_app_struct *core, stream_struct *str
         int64_t next_sequence_number;
 
         next_sequence_number = (starting_file_sequence_number + i) % core->cd->rollover_size;
-        if (sdata->discontinuity[next_sequence_number]) {
+        if (sdata->discontinuity[next_sequence_number] == 1) {
             fprintf(video_manifest,"#EXT-X-DISCONTINUITY\n");
+        } else if (sdata->discontinuity[next_sequence_number] == 2) {
+            fprintf(video_manifest,"#EXT-X-CUE-OUT:DURATION=%ld\n", sdata->splice_duration[next_sequence_number]);
+        } else if (sdata->splice_duration_remaining[next_sequence_number] > 0) {
+            fprintf(video_manifest,"#EXT-X-CUE-OUT-CONT:ElapsedTime=%.3f,Duration=%ld\n",
+                    sdata->splice_elapsed_time[next_sequence_number],
+                    sdata->splice_duration[next_sequence_number]);
+        } else if (sdata->discontinuity[next_sequence_number] == 3) {
+            fprintf(video_manifest,"#EXT-X-CUE-IN\n");
         }
+
         fprintf(video_manifest,"#EXTINF:%.3f,\n", (float)sdata->segment_lengths_video[next_sequence_number]);
         fprintf(video_manifest,"video%d/segment%ld.mp4\n", source, next_sequence_number);
     }
@@ -1621,10 +1630,20 @@ static int update_mp4_audio_manifest(fillet_app_struct *core, stream_struct *str
 
     for (i = 0; i < core->cd->window_size; i++) {
         int64_t next_sequence_number;
+
         next_sequence_number = (starting_file_sequence_number + i) % core->cd->rollover_size;
-        if (sdata->discontinuity[next_sequence_number]) {
+        if (sdata->discontinuity[next_sequence_number] == 1) {
             fprintf(audio_manifest,"#EXT-X-DISCONTINUITY\n");
+        } else if (sdata->discontinuity[next_sequence_number] == 2) {
+            fprintf(audio_manifest,"#EXT-X-CUE-OUT:DURATION=%ld\n", sdata->splice_duration[next_sequence_number]);
+        } else if (sdata->splice_duration_remaining[next_sequence_number] > 0) {
+            fprintf(audio_manifest,"#EXT-X-CUE-OUT-CONT:ElapsedTime=%.3f,Duration=%ld\n",
+                    sdata->splice_elapsed_time[next_sequence_number],
+                    sdata->splice_duration[next_sequence_number]);
+        } else if (sdata->discontinuity[next_sequence_number] == 3) {
+            fprintf(audio_manifest,"#EXT-X-CUE-IN\n");
         }
+
         fprintf(audio_manifest,"#EXTINF:%.3f,\n", (float)sdata->segment_lengths_audio[next_sequence_number][sub_stream]);
         fprintf(audio_manifest,"audio%d_substream%d/segment%ld.mp4\n", source, sub_stream, next_sequence_number);
     }
