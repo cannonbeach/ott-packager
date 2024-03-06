@@ -59,7 +59,8 @@
 
 #if defined(ENABLE_GPU)
 //#define ENABLE_GPU_DECODE
-#define GPU_BUFFERS 1
+#define GPU_BUFFERS  1
+#define MAX_B_FRAMES 3
 #endif
 
 static volatile int video_decode_thread_running = 0;
@@ -359,12 +360,19 @@ void *video_encode_thread_nvenc(void *context)
                 } else {
                     fpsup = 30;
                 }*/
-                fpsup = 30;
-                gpu_data[current_encoder].frame_count_pts = fpsup + 3;  // b-frame distance?
-                gpu_data[current_encoder].frame_count_dts = fpsup;
+                if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_H264) {
+                    fpsup = 30;
+                    gpu_data[current_encoder].frame_count_pts = fpsup + MAX_B_FRAMES;  // b-frame distance?
+                    gpu_data[current_encoder].frame_count_dts = fpsup;
+                } else if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
+                    fpsup = 0;
+                    gpu_data[current_encoder].frame_count_pts = fpsup + MAX_B_FRAMES;  // b-frame distance?
+                    gpu_data[current_encoder].frame_count_dts = fpsup;
+                } else { // AV1
+                }
             }
             gpu_data[current_encoder].encode_avctx->gop_size = (int)((double)fps + 0.5);
-            gpu_data[current_encoder].encode_avctx->max_b_frames = 3;
+            gpu_data[current_encoder].encode_avctx->max_b_frames = MAX_B_FRAMES;
             gpu_data[current_encoder].encode_avctx->compression_level = 7;
             gpu_data[current_encoder].encode_avctx->pix_fmt = AV_PIX_FMT_CUDA;
             gpu_data[current_encoder].encode_avctx->sw_pix_fmt = AV_PIX_FMT_NV12;
@@ -372,14 +380,21 @@ void *video_encode_thread_nvenc(void *context)
             // settings are from nvenc_h264.c
             av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"no-scenecut","1",0);
             av_opt_set_int(gpu_data[current_encoder].encode_avctx->priv_data,"forced-idr",1,0);
+            if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
+                av_opt_set_int(gpu_data[current_encoder].encode_avctx->priv_data,"b_ref_mode",1,0);
+            }
             av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"preset","slow",0);
-            if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {
-                av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","baseline",0);
-                gpu_data[current_encoder].encode_avctx->max_b_frames = 0;
-            } else if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_MAIN) {
+            if (core->cd->transvideo_info[0].video_codec == STREAM_TYPE_HEVC) {
                 av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","main",0);
             } else {
-                av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","high",0);
+                if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_BASE) {
+                    av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","baseline",0);
+                    gpu_data[current_encoder].encode_avctx->max_b_frames = 0;
+                } else if (core->cd->transvideo_info[current_encoder].encoder_profile == ENCODER_PROFILE_MAIN) {
+                    av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","main",0);
+                } else {
+                    av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"profile","high",0);
+                }
             }
             av_opt_set(gpu_data[current_encoder].encode_avctx->priv_data,"aud","1",0);
 

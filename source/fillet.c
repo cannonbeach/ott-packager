@@ -1410,7 +1410,7 @@ static void *frame_sync_thread(void *context)
                 fprintf(stderr,"frame_sync_thread: session=%d, restarting\n", core->session_id);
                 // setup Docker container do a restart
                 send_direct_error(core, SIGNAL_SERVICE_RESTART, "Unrecoverable Discontinuity Detected - Restarting Service");
-                exit(0);
+                _Exit(0);
             }
 
             return NULL;
@@ -1487,7 +1487,7 @@ static void *frame_sync_thread(void *context)
                             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                                     core->session_id);
                             send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
-                            exit(0);
+                            _Exit(0);
                         }
                     } else {
                         usleep(1000);
@@ -1536,7 +1536,7 @@ static void *frame_sync_thread(void *context)
                         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                                 core->session_id);
                         send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
-                        exit(0);
+                        _Exit(0);
                     }
                 } else {
                     usleep(1000);
@@ -1562,7 +1562,7 @@ int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                 core->session_id);
         send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
-        exit(0);
+        _Exit(0);
     }
 
     new_frame->buffer = new_buffer;
@@ -1630,7 +1630,7 @@ int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int 
         fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                 core->session_id);
         send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
-        exit(0);
+        _Exit(0);
     }
     new_frame->buffer = new_buffer;
     new_frame->buffer_size = sample_size;
@@ -1781,7 +1781,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 fprintf(stderr,"receive_frame (scte35): session=%d, Unable to obtain scte35 buffer!\n",
                         core->session_id);
                 send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "out of scte35 buffers");
-                exit(0);
+                _Exit(0);
             }
             memcpy(scte35_buffer, sample, sample_size);
 
@@ -1796,7 +1796,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 fprintf(stderr,"receive_frame (scte35): session=%d, unable to obtain message\n",
                         core->session_id);
                 send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "out of scte35 message buffers - Check CPU LOAD!");
-                exit(0);
+                _Exit(0);
             }
         } else {
             core->scte35_ready = 0;
@@ -1879,7 +1879,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             fprintf(stderr,"SESSION:%d (MAIN) STATUS: unable to obtain compressed video buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
             send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Video NAL Buffers - Check CPU LOAD!");
-            exit(0);
+            _Exit(0);
         }
         memcpy(new_buffer, sample, sample_size);
 
@@ -1888,7 +1888,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
             send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
-            exit(0);
+            _Exit(0);
         }
         new_frame->buffer = new_buffer;
         new_frame->buffer_size = sample_size;
@@ -2082,7 +2082,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                         core->session_id);
                 send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
-                exit(0);
+                _Exit(0);
             }
 #endif // ENABLE_TRANSCODE
         } else {
@@ -2171,7 +2171,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain compressed audio buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
             send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Compressed Audio Buffers - Check CPU LOAD!");
-            exit(0);
+            _Exit(0);
         }
         memcpy(new_buffer, sample, sample_size);
 
@@ -2211,7 +2211,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                     core->session_id);
             send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
-            exit(0);
+            _Exit(0);
         }
         new_frame->buffer = new_buffer;
         new_frame->buffer_size = sample_size;
@@ -2261,7 +2261,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                 fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                         core->session_id);
                 send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
-                exit(0);
+                _Exit(0);
             }
 #endif // ENABLE_TRANSCODE
         } else {
@@ -2498,7 +2498,7 @@ int main(int argc, char **argv)
                  send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");
                  stop_signal_thread(core);
                  destroy_fillet_core(core);
-                 exit(0);
+                 _Exit(0);
              }
              core->fillet_video_input[i].udp_source_port = config_data.active_video_source[i].active_port;
          }
@@ -2520,7 +2520,7 @@ int main(int argc, char **argv)
                  send_direct_error(core, SIGNAL_DIRECT_ERROR_IP, "Invalid IP Address Specified");
                  stop_signal_thread(core);
                  destroy_fillet_core(core);
-                 exit(0);
+                 _Exit(0);
              }
              core->fillet_audio_input[i].udp_source_port = config_data.active_audio_source[i].active_port;
          }
@@ -2686,7 +2686,7 @@ int main(int argc, char **argv)
                                      video_encode_frames_waiting);
 
                              send_direct_error(core, SIGNAL_DIRECT_ERROR_CPU, "Video Encoder Fell Too Far Behind - Check CPU Resources!");
-                             exit(0);
+                             _Exit(0);
                          } else if (video_encode_frames_waiting > WAIT_THRESHOLD_ERROR) {
                              syslog(LOG_INFO,"SESSION:%d (MAIN): STATUS: ERROR: ENCODE(%d): %d (ENCODE QUEUE FALLING BEHIND!!! CHECK CPU RESOURCES!!!)\n",
                                     core->session_id,
@@ -2731,7 +2731,7 @@ int main(int argc, char **argv)
                  fprintf(stderr,"SESSION: %d (MAIN) STATUS: RECEIVED RESTART MESSAGE\n", core->session_id);
                  // this is not hooked up right now
              } else if (msgid == MSG_RESPAWN) {
-                 exit(0);  // force respawn - if your docker container is set to restart
+                 _Exit(0);  // force respawn - if your docker container is set to restart
              } else {
                  //fprintf(stderr,"SESSION: %d (MAIN) STATUS: NO MESSAGE TO PROCESS\n", core->session_id);
              }
