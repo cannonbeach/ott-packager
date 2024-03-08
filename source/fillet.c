@@ -1745,6 +1745,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
 {
     fillet_app_struct *core = (fillet_app_struct*)context;
     int restart_sync_thread = 0;
+    int skip_audio_sample = 0;
+    int skip_video_sample = 0;
 
     core->error_count = error_count;
 
@@ -1848,256 +1850,279 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         if (dts > 0) {
             if (vstream->last_timestamp_dts != -1) {
                 int64_t delta_dts = dts + vstream->overflow_dts - vstream->last_timestamp_dts;
-                int64_t mod_overflow = vstream->last_timestamp_dts % 8589934592;
-                if (delta_dts < -OVERFLOW_DTS && mod_overflow > OVERFLOW_DTS) {
+                int64_t immediate_delta_dts = dts - vstream->last_timestamp_dts;
+
+                if (immediate_delta_dts < 0) {
+                    if (vstream->last_timestamp_dts <= 8589900000 && dts > 50000) {
+                        skip_video_sample = 1;
+                        fprintf(stderr,"receive_frame: (video=%d), last_timestamp_pts=%ld, pts=%ld, dropping sample\n",
+                                source,
+                                vstream->last_timestamp_dts,
+                                dts);
+                        vstream->suspicious_video++;
+                        if (vstream->suspicious_video >= 10) {
+                            restart_sync_thread = 1;
+                        }
+                    }
+                } else if (vstream->last_timestamp_pts >= 8589900000 && pts < 50000) {
                     vstream->overflow_dts += 8589934592;
-                    syslog(LOG_INFO,"receive_frame: source=%d video stream timestamp overflow, delta=%ld, overflow=%ld, last=%ld, dts=%ld\n",
+                    syslog(LOG_INFO,"receive_frame: (video=%d), delta=%ld, overflow pts=%ld, pts=%ld (hit the 2^33 pts rollover)\n",
                            source,
                            delta_dts,
                            vstream->overflow_dts,
-                           vstream->last_timestamp_dts,
                            dts);
+                    fprintf(stderr,"receive_frame: (video=%d), delta=%ld, overflow pts=%ld, pts=%ld (hit the 2^33 pts rollover)\n",
+                            source,
+                            delta_dts,
+                            vstream->overflow_dts,
+                            dts);
                 }
             }
 
-            vstream->last_timestamp_dts = dts + vstream->overflow_dts;
-        }
-        vstream->last_timestamp_pts = pts + vstream->overflow_dts;
-        vstream->current_receive_count++;
-        if (sample_flags) {
-            vstream->last_intra_count = vstream->current_receive_count;
-        }
-
-        if (!enable_transcode) {
-            if (!vstream->found_key_frame) {
-                return 0;
+            if (!skip_video_sample) {
+                vstream->last_timestamp_dts = dts + vstream->overflow_dts;
             }
         }
 
-        new_buffer = (uint8_t*)memory_take(core->compressed_video_pool, sample_size);
-        if (!new_buffer) {
-            fprintf(stderr,"SESSION:%d (MAIN) STATUS: unable to obtain compressed video buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
-                    core->session_id);
-            send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Video NAL Buffers - Check CPU LOAD!");
-            _Exit(0);
-        }
-        memcpy(new_buffer, sample, sample_size);
+        if (!skip_video_sample) {
+            vstream->suspicious_video = 0;
+            vstream->last_timestamp_pts = pts + vstream->overflow_dts;
+            vstream->current_receive_count++;
+            if (sample_flags) {
+                vstream->last_intra_count = vstream->current_receive_count;
+            }
 
-        new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
-        if (!new_frame) {
-            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
-                    core->session_id);
-            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
-            _Exit(0);
-        }
-        new_frame->buffer = new_buffer;
-        new_frame->buffer_size = sample_size;
-
-        new_frame->pts = pts;
-        new_frame->dts = dts;
-        if (dts > 0) {
-            new_frame->full_time = dts + vstream->overflow_dts;
-        } else {
-            new_frame->full_time = pts + vstream->overflow_dts;
-        }
-
-        new_frame->splice_point = 0;
-        new_frame->splice_duration = 0;
-        new_frame->splice_duration_remaining = 0;
-
-        if (core->scte35_ready == 0) {
-            dataqueue_message_struct *scte35_msg = NULL;
-
-            scte35_msg = dataqueue_take_back(core->scte35_queue);
-            if (scte35_msg) {
-                scte35_data_struct *scte35_data = (scte35_data_struct*)scte35_msg->buffer;
-                int scte35_data_size = scte35_msg->buffer_size;
-
-                if (scte35_data->splice_command_type == 0x05) {
-                    if (scte35_data->splice_immediate) {
-                        core->scte35_ready = 1;
-                        core->scte35_pts = 0;
-                        core->scte35_duration = scte35_data->pts_duration;
-                        core->scte35_duration_remaining = scte35_data->pts_duration;
-                        core->scte35_triggered = 0;
-                        send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                    } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
-                        core->scte35_ready = 1;
-                        core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
-                        core->scte35_duration = scte35_data->pts_duration;
-                        core->scte35_duration_remaining = scte35_data->pts_duration;
-                        core->scte35_triggered = 0;
-                        send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                        // pts_adjustment is non-zero
-                    } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 1) {
-                        // this is an out of network indicator without a duration
-                        // which really sucks and we don't support it
-                        core->scte35_ready = 0;
-                        fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is true (cue-out)\n");
-                    } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 0) {
-                        core->scte35_ready = 0;
-                        fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is false (cue-in)\n");
-                    } else {
-                        // additional modes needs to be included
-                        // non pts_duration mode
-                        // also need to look for signal back to network feed
-                        core->scte35_ready = 0;
-                    }
-                } else {
-                    core->scte35_ready = 0;
+            if (!enable_transcode) {
+                if (!vstream->found_key_frame) {
+                    return 0;
                 }
-                memory_return(core->scte35_pool, scte35_msg->buffer);
-                scte35_msg->buffer = NULL;
-                scte35_msg->buffer_size = 0;
-                memory_return(core->fillet_msg_pool, scte35_msg);
-                scte35_msg = NULL;
             }
-        }
 
-        if (core->scte35_ready) {
-            int64_t scte35_time_diff;
-            int64_t anchor_time = new_frame->full_time % 8589934592;
-            if (core->scte35_pts == 0) {
-                scte35_time_diff = 0;
-                core->scte35_pts = anchor_time;
-            } else {
-                scte35_time_diff = core->scte35_pts - anchor_time;
+            new_buffer = (uint8_t*)memory_take(core->compressed_video_pool, sample_size);
+            if (!new_buffer) {
+                fprintf(stderr,"SESSION:%d (MAIN) STATUS: unable to obtain compressed video buffer! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                        core->session_id);
+                send_direct_error(core, SIGNAL_DIRECT_ERROR_NALPOOL, "Out of Video NAL Buffers - Check CPU LOAD!");
+                _Exit(0);
             }
-            syslog(LOG_INFO,"receive_frame: scte35_time_diff=%ld, pts=%ld, scte35pts=%ld, duration=%ld, remaining=%ld, triggered(acvtive)=%d\n",
-                   scte35_time_diff,
-                   anchor_time,
-                   core->scte35_pts,
-                   core->scte35_duration,
-                   core->scte35_duration_remaining,
-                   core->scte35_triggered);
+            memcpy(new_buffer, sample, sample_size);
 
-            if (core->scte35_triggered) {
-                core->scte35_duration_remaining = core->scte35_duration - abs(scte35_time_diff);
-                new_frame->splice_duration_remaining = core->scte35_duration_remaining;
-                if (new_frame->splice_duration_remaining < 0) {
-                    new_frame->splice_duration_remaining = 0;
-                    core->scte35_duration_remaining = 0;
-                    core->scte35_triggered = 0;
-                    core->scte35_duration = 0;
-                    new_frame->splice_point = SPLICE_CUE_IN; // splice back point
-                    core->scte35_ready = 0;
-                    send_signal(core, SIGNAL_SCTE35_END, "SCTE35 Out Of Network Detected (IN)");
-                    core->scte35_last_pts_diff = 0;
-                } else {
-                    new_frame->splice_point = 0;
-                    core->scte35_last_pts_diff = scte35_time_diff;
-                }
-                fprintf(stderr,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
-                syslog(LOG_INFO,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
-                new_frame->splice_duration = core->scte35_duration;
-            } else if (scte35_time_diff < (-5400000*5)) {
-                syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
-                core->scte35_triggered = 0;
-                core->scte35_ready = 0;
-                core->scte35_last_pts_diff = 0;
-                core->scte35_duration = 0;
-                core->scte35_duration_remaining = 0;
-                core->scte35_last_pts_diff = 0;
-                new_frame->splice_point = 0;
-                new_frame->splice_duration = 0;
-                new_frame->splice_duration_remaining = 0;
-            } else if (scte35_time_diff > (5400000*10)) {
-                syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
-                core->scte35_triggered = 0;
-                core->scte35_ready = 0;
-                core->scte35_last_pts_diff = 0;
-                core->scte35_duration = 0;
-                core->scte35_duration_remaining = 0;
-                core->scte35_last_pts_diff = 0;
-                new_frame->splice_point = 0;
-                new_frame->splice_duration = 0;
-                new_frame->splice_duration_remaining = 0;
-            } else if (scte35_time_diff < 0 && core->scte35_last_pts_diff >= 0) {  // <= 0??
-                core->scte35_last_pts_diff = 0;
-                new_frame->splice_point = SPLICE_CUE_OUT;
-                new_frame->splice_duration = core->scte35_duration;
-                new_frame->splice_duration_remaining = core->scte35_duration;
-                core->scte35_triggered = 1;
-                syslog(LOG_INFO,"receive_frame: activating scte35, setting scte35_triggered to core->scte35_triggered to 1 and new_frame->splice_point to 1\n");
-                // trigger point
-            } else if (scte35_time_diff < 0) {
-                // it's already too late- not sure what happened
-                core->scte35_ready = 0;
-                core->scte35_last_pts_diff = 0;
-                core->scte35_duration = 0;
-                core->scte35_duration_remaining = 0;
-                core->scte35_last_pts_diff = 0;
-                new_frame->splice_point = 0;
-                new_frame->splice_duration = 0;
-                new_frame->splice_duration_remaining = 0;
-            } else {
-                core->scte35_last_pts_diff = scte35_time_diff;
-                new_frame->splice_point = 0;
-                new_frame->splice_duration = 0;
-                new_frame->splice_duration_remaining = 0;
-            }
-        }
-
-        new_frame->duration = new_frame->full_time - vstream->last_full_time;
-        if (!enable_transcode) {
-            vstream->last_full_time = new_frame->full_time;
-        }
-        if (!enable_transcode) {
-            new_frame->first_timestamp = vstream->first_timestamp;
-        } else {
-            new_frame->first_timestamp = -1;
-        }
-        new_frame->source = source;
-        new_frame->sub_stream = 0;
-        new_frame->sync_frame = sample_flags;
-        new_frame->frame_type = FRAME_TYPE_VIDEO;
-        if (sample_type == STREAM_TYPE_H264) {
-            new_frame->media_type = MEDIA_TYPE_H264;
-        } else if (sample_type == STREAM_TYPE_MPEG2) {
-            new_frame->media_type = MEDIA_TYPE_MPEG2;
-        } else if (sample_type == STREAM_TYPE_HEVC) {
-            new_frame->media_type = MEDIA_TYPE_HEVC;
-        }
-        new_frame->time_received = 0;
-        if (lang_tag) {
-            new_frame->lang_tag[0] = lang_tag[0];
-            new_frame->lang_tag[1] = lang_tag[1];
-            new_frame->lang_tag[2] = lang_tag[2];
-            new_frame->lang_tag[3] = lang_tag[3];
-        } else {
-            memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
-        }
-
-        if (enable_transcode) {
-#if defined(ENABLE_TRANSCODE)
-            dataqueue_message_struct *decode_msg;
-
-            decode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
-            if (decode_msg) {
-                decode_msg->buffer = new_frame;
-                decode_msg->buffer_size = sizeof(sorted_frame_struct);
-                dataqueue_put_front(core->transvideo->input_queue, decode_msg);
-                decode_msg = NULL;
-            } else {
-                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+            new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
+            if (!new_frame) {
+                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                         core->session_id);
                 send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
                 _Exit(0);
             }
-#endif // ENABLE_TRANSCODE
-        } else {
-            if (sync_thread_running && !quit_sync_thread) {
-                pthread_mutex_lock(&sync_lock);
-                video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
-                if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
-                    restart_sync_thread = 1;
-                }
-                pthread_mutex_unlock(&sync_lock);
+            new_frame->buffer = new_buffer;
+            new_frame->buffer_size = sample_size;
+
+            new_frame->pts = pts;
+            new_frame->dts = dts;
+            if (dts > 0) {
+                new_frame->full_time = dts + vstream->overflow_dts;
             } else {
-                memory_return(core->compressed_video_pool, new_frame->buffer);
-                new_frame->buffer = NULL;
-                memory_return(core->frame_msg_pool, new_frame);
-                new_frame = NULL;
+                new_frame->full_time = pts + vstream->overflow_dts;
+            }
+
+            new_frame->splice_point = 0;
+            new_frame->splice_duration = 0;
+            new_frame->splice_duration_remaining = 0;
+
+            if (core->scte35_ready == 0) {
+                dataqueue_message_struct *scte35_msg = NULL;
+
+                scte35_msg = dataqueue_take_back(core->scte35_queue);
+                if (scte35_msg) {
+                    scte35_data_struct *scte35_data = (scte35_data_struct*)scte35_msg->buffer;
+                    int scte35_data_size = scte35_msg->buffer_size;
+
+                    if (scte35_data->splice_command_type == 0x05) {
+                        if (scte35_data->splice_immediate) {
+                            core->scte35_ready = 1;
+                            core->scte35_pts = 0;
+                            core->scte35_duration = scte35_data->pts_duration;
+                            core->scte35_duration_remaining = scte35_data->pts_duration;
+                            core->scte35_triggered = 0;
+                            send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
+                        } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
+                            core->scte35_ready = 1;
+                            core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
+                            core->scte35_duration = scte35_data->pts_duration;
+                            core->scte35_duration_remaining = scte35_data->pts_duration;
+                            core->scte35_triggered = 0;
+                            send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
+                            // pts_adjustment is non-zero
+                        } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 1) {
+                            // this is an out of network indicator without a duration
+                            // which really sucks and we don't support it
+                            core->scte35_ready = 0;
+                            fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is true (cue-out)\n");
+                        } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 0) {
+                            core->scte35_ready = 0;
+                            fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is false (cue-in)\n");
+                        } else {
+                            // additional modes needs to be included
+                            // non pts_duration mode
+                            // also need to look for signal back to network feed
+                            core->scte35_ready = 0;
+                        }
+                    } else {
+                        core->scte35_ready = 0;
+                    }
+                    memory_return(core->scte35_pool, scte35_msg->buffer);
+                    scte35_msg->buffer = NULL;
+                    scte35_msg->buffer_size = 0;
+                    memory_return(core->fillet_msg_pool, scte35_msg);
+                    scte35_msg = NULL;
+                }
+            }
+
+            if (core->scte35_ready) {
+                int64_t scte35_time_diff;
+                int64_t anchor_time = new_frame->full_time % 8589934592;
+                if (core->scte35_pts == 0) {
+                    scte35_time_diff = 0;
+                    core->scte35_pts = anchor_time;
+                } else {
+                    scte35_time_diff = core->scte35_pts - anchor_time;
+                }
+                syslog(LOG_INFO,"receive_frame: scte35_time_diff=%ld, pts=%ld, scte35pts=%ld, duration=%ld, remaining=%ld, triggered(acvtive)=%d\n",
+                       scte35_time_diff,
+                       anchor_time,
+                       core->scte35_pts,
+                       core->scte35_duration,
+                       core->scte35_duration_remaining,
+                       core->scte35_triggered);
+
+                if (core->scte35_triggered) {
+                    core->scte35_duration_remaining = core->scte35_duration - abs(scte35_time_diff);
+                    new_frame->splice_duration_remaining = core->scte35_duration_remaining;
+                    if (new_frame->splice_duration_remaining < 0) {
+                        new_frame->splice_duration_remaining = 0;
+                        core->scte35_duration_remaining = 0;
+                        core->scte35_triggered = 0;
+                        core->scte35_duration = 0;
+                        new_frame->splice_point = SPLICE_CUE_IN; // splice back point
+                        core->scte35_ready = 0;
+                        send_signal(core, SIGNAL_SCTE35_END, "SCTE35 Out Of Network Detected (IN)");
+                        core->scte35_last_pts_diff = 0;
+                    } else {
+                        new_frame->splice_point = 0;
+                        core->scte35_last_pts_diff = scte35_time_diff;
+                    }
+                    fprintf(stderr,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
+                    syslog(LOG_INFO,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
+                    new_frame->splice_duration = core->scte35_duration;
+                } else if (scte35_time_diff < (-5400000*5)) {
+                    syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
+                    core->scte35_triggered = 0;
+                    core->scte35_ready = 0;
+                    core->scte35_last_pts_diff = 0;
+                    core->scte35_duration = 0;
+                    core->scte35_duration_remaining = 0;
+                    core->scte35_last_pts_diff = 0;
+                    new_frame->splice_point = 0;
+                    new_frame->splice_duration = 0;
+                    new_frame->splice_duration_remaining = 0;
+                } else if (scte35_time_diff > (5400000*10)) {
+                    syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
+                    core->scte35_triggered = 0;
+                    core->scte35_ready = 0;
+                    core->scte35_last_pts_diff = 0;
+                    core->scte35_duration = 0;
+                    core->scte35_duration_remaining = 0;
+                    core->scte35_last_pts_diff = 0;
+                    new_frame->splice_point = 0;
+                    new_frame->splice_duration = 0;
+                    new_frame->splice_duration_remaining = 0;
+                } else if (scte35_time_diff < 0 && core->scte35_last_pts_diff >= 0) {  // <= 0??
+                    core->scte35_last_pts_diff = 0;
+                    new_frame->splice_point = SPLICE_CUE_OUT;
+                    new_frame->splice_duration = core->scte35_duration;
+                    new_frame->splice_duration_remaining = core->scte35_duration;
+                    core->scte35_triggered = 1;
+                    syslog(LOG_INFO,"receive_frame: activating scte35, setting scte35_triggered to core->scte35_triggered to 1 and new_frame->splice_point to 1\n");
+                    // trigger point
+                } else if (scte35_time_diff < 0) {
+                    // it's already too late- not sure what happened
+                    core->scte35_ready = 0;
+                    core->scte35_last_pts_diff = 0;
+                    core->scte35_duration = 0;
+                    core->scte35_duration_remaining = 0;
+                    core->scte35_last_pts_diff = 0;
+                    new_frame->splice_point = 0;
+                    new_frame->splice_duration = 0;
+                    new_frame->splice_duration_remaining = 0;
+                } else {
+                    core->scte35_last_pts_diff = scte35_time_diff;
+                    new_frame->splice_point = 0;
+                    new_frame->splice_duration = 0;
+                    new_frame->splice_duration_remaining = 0;
+                }
+            }
+
+            new_frame->duration = new_frame->full_time - vstream->last_full_time;
+            if (!enable_transcode) {
+                vstream->last_full_time = new_frame->full_time;
+            }
+            if (!enable_transcode) {
+                new_frame->first_timestamp = vstream->first_timestamp;
+            } else {
+                new_frame->first_timestamp = -1;
+            }
+            new_frame->source = source;
+            new_frame->sub_stream = 0;
+            new_frame->sync_frame = sample_flags;
+            new_frame->frame_type = FRAME_TYPE_VIDEO;
+            if (sample_type == STREAM_TYPE_H264) {
+                new_frame->media_type = MEDIA_TYPE_H264;
+            } else if (sample_type == STREAM_TYPE_MPEG2) {
+                new_frame->media_type = MEDIA_TYPE_MPEG2;
+            } else if (sample_type == STREAM_TYPE_HEVC) {
+                new_frame->media_type = MEDIA_TYPE_HEVC;
+            }
+            new_frame->time_received = 0;
+            if (lang_tag) {
+                new_frame->lang_tag[0] = lang_tag[0];
+                new_frame->lang_tag[1] = lang_tag[1];
+                new_frame->lang_tag[2] = lang_tag[2];
+                new_frame->lang_tag[3] = lang_tag[3];
+            } else {
+                memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
+            }
+
+            if (enable_transcode) {
+#if defined(ENABLE_TRANSCODE)
+                dataqueue_message_struct *decode_msg;
+
+                decode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                if (decode_msg) {
+                    decode_msg->buffer = new_frame;
+                    decode_msg->buffer_size = sizeof(sorted_frame_struct);
+                    dataqueue_put_front(core->transvideo->input_queue, decode_msg);
+                    decode_msg = NULL;
+                } else {
+                    fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                            core->session_id);
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Video Message Buffers - Check CPU LOAD!");
+                    _Exit(0);
+                }
+#endif // ENABLE_TRANSCODE
+            } else {
+                if (sync_thread_running && !quit_sync_thread) {
+                    pthread_mutex_lock(&sync_lock);
+                    video_synchronizer_entries = add_frame(core->video_frame_data, video_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_VIDEO);
+                    if (video_synchronizer_entries >= MAX_FRAME_DATA_SYNC_VIDEO) {
+                        restart_sync_thread = 1;
+                    }
+                    pthread_mutex_unlock(&sync_lock);
+                } else {
+                    memory_return(core->compressed_video_pool, new_frame->buffer);
+                    new_frame->buffer = NULL;
+                    memory_return(core->frame_msg_pool, new_frame);
+                    new_frame = NULL;
+                }
             }
         }
     } else if (sample_type == STREAM_TYPE_AAC || sample_type == STREAM_TYPE_AC3 || sample_type == STREAM_TYPE_MPEG) {
@@ -2175,108 +2200,119 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         }
         memcpy(new_buffer, sample, sample_size);
 
+        skip_audio_sample = 0;
         if (astream->last_timestamp_pts != -1) {
             int64_t delta_pts = pts + astream->overflow_pts - astream->last_timestamp_pts;
-            int64_t mod_overflow = astream->last_timestamp_pts % 8589934592;
-            if (delta_pts < -OVERFLOW_DTS && mod_overflow > OVERFLOW_DTS) {
+            int64_t immediate_delta_pts = pts - astream->last_timestamp_pts;
+
+            if (immediate_delta_pts < 0) {
+                if (astream->last_timestamp_pts <= 8589900000 && pts > 50000) {
+                    memory_return(core->compressed_audio_pool, new_buffer);
+                    new_buffer = NULL;
+                    skip_audio_sample = 1;
+                    fprintf(stderr,"receive_frame: (audio=%2d, stream=%d), last_timestamp_pts=%ld, pts=%ld, dropping sample\n",
+                            source,
+                            sub_source,
+                            astream->last_timestamp_pts,
+                            pts);
+                    astream->suspicious_audio++;
+                    if (astream->suspicious_audio >= 10) {
+                        restart_sync_thread = 1;
+                    }
+                }
+            } else if (astream->last_timestamp_pts >= 8589900000 && pts < 50000) {
                 astream->overflow_pts += 8589934592;
-                fprintf(stderr,"FILLET: DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
-                syslog(LOG_INFO,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld\n",
+                syslog(LOG_INFO,"receive_frame: (audio=%2d stream=%d), delta=%ld, overflow pts=%ld, pts=%ld (hit the 2^33 pts rollover)\n",
                        source,
+                       sub_source,
                        delta_pts,
                        astream->overflow_pts,
                        pts);
-            } else if (delta_pts < 0 || delta_pts > 60000) {
-                fprintf(stderr,"FILLET: DELTA_PTS:%ld OVERFLOW PTS:%ld\n", delta_pts, astream->overflow_pts);
-                syslog(LOG_INFO,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld  LAST PTS:%ld\n",
-                       source,
-                       delta_pts,
-                       astream->overflow_pts,
-                       pts,
-                       astream->last_timestamp_pts);
-                fprintf(stderr,"(%d) AUDIO STREAM TIMESTAMP OVERFLOW - DELTA:%ld  OVERFLOW PTS:%ld  PTS:%ld  LAST PTS:%ld\n",
+                fprintf(stderr,"receive_frame: (audio=%2d stream=%d), delta=%ld, overflow pts=%ld, pts=%ld (hit the 2^33 pts rollover)\n",
                         source,
+                        sub_source,
                         delta_pts,
                         astream->overflow_pts,
-                        pts,
-                        astream->last_timestamp_pts);
-                // signal ?
+                        pts);
             }
         }
 
-        astream->last_timestamp_pts = pts + astream->overflow_pts;
+        if (!skip_audio_sample) {
+            astream->last_timestamp_pts = pts + astream->overflow_pts;
+            astream->suspicious_audio = 0;
 
-        new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
-        if (!new_frame) {
-            fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
-                    core->session_id);
-            send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
-            _Exit(0);
-        }
-        new_frame->buffer = new_buffer;
-        new_frame->buffer_size = sample_size;
-        new_frame->pts = pts;
-        new_frame->dts = dts;
-        new_frame->full_time = pts + astream->overflow_pts;
-        new_frame->duration = new_frame->full_time - astream->last_full_time;
-#if defined(ENABLE_TRANSCODE)
-        if (!enable_transcode) {            // gets set in audio_sink_frame_callback
-            astream->last_full_time = new_frame->full_time;
-        }
-#else // ENABLE_TRANSCODE
-        astream->last_full_time = new_frame->full_time;
-#endif
-        new_frame->first_timestamp = 0;
-        new_frame->source = source;
-        new_frame->sub_stream = sub_source;
-        new_frame->sync_frame = sample_flags;
-        new_frame->frame_type = FRAME_TYPE_AUDIO;
-        if (sample_type == STREAM_TYPE_AAC) {
-            new_frame->media_type = MEDIA_TYPE_AAC;
-        } else if (sample_type == STREAM_TYPE_AC3) {
-            new_frame->media_type = MEDIA_TYPE_AC3;
-        } else if (sample_type == STREAM_TYPE_MPEG) {
-            new_frame->media_type = MEDIA_TYPE_MPEG;
-        }
-        new_frame->time_received = 0;
-        if (lang_tag) {
-            new_frame->lang_tag[0] = lang_tag[0];
-            new_frame->lang_tag[1] = lang_tag[1];
-            new_frame->lang_tag[2] = lang_tag[2];
-            new_frame->lang_tag[3] = lang_tag[3];
-        } else {
-            memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
-        }
-        if (enable_transcode) {
-#if defined(ENABLE_TRANSCODE)
-            dataqueue_message_struct *decode_msg;
-
-            decode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
-            if (decode_msg) {
-                decode_msg->buffer = new_frame;
-                decode_msg->buffer_size = sizeof(sorted_frame_struct);
-                dataqueue_put_front(core->transaudio[sub_source]->input_queue, decode_msg);
-                decode_msg = NULL;
-            } else {
-                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+            new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
+            if (!new_frame) {
+                fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain frame message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
                         core->session_id);
                 send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
                 _Exit(0);
             }
-#endif // ENABLE_TRANSCODE
-        } else {
-            if (sync_thread_running && !quit_sync_thread) {
-                pthread_mutex_lock(&sync_lock);
-                audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
-                if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
-                    restart_sync_thread = 1;
-                }
-                pthread_mutex_unlock(&sync_lock);
+            new_frame->buffer = new_buffer;
+            new_frame->buffer_size = sample_size;
+            new_frame->pts = pts;
+            new_frame->dts = dts;
+            new_frame->full_time = pts + astream->overflow_pts;
+            new_frame->duration = new_frame->full_time - astream->last_full_time;
+#if defined(ENABLE_TRANSCODE)
+            if (!enable_transcode) {            // gets set in audio_sink_frame_callback
+                astream->last_full_time = new_frame->full_time;
+            }
+#else // ENABLE_TRANSCODE
+            astream->last_full_time = new_frame->full_time;
+#endif
+            new_frame->first_timestamp = 0;
+            new_frame->source = source;
+            new_frame->sub_stream = sub_source;
+            new_frame->sync_frame = sample_flags;
+            new_frame->frame_type = FRAME_TYPE_AUDIO;
+            if (sample_type == STREAM_TYPE_AAC) {
+                new_frame->media_type = MEDIA_TYPE_AAC;
+            } else if (sample_type == STREAM_TYPE_AC3) {
+                new_frame->media_type = MEDIA_TYPE_AC3;
+            } else if (sample_type == STREAM_TYPE_MPEG) {
+                new_frame->media_type = MEDIA_TYPE_MPEG;
+            }
+            new_frame->time_received = 0;
+            if (lang_tag) {
+                new_frame->lang_tag[0] = lang_tag[0];
+                new_frame->lang_tag[1] = lang_tag[1];
+                new_frame->lang_tag[2] = lang_tag[2];
+                new_frame->lang_tag[3] = lang_tag[3];
             } else {
-                memory_return(core->compressed_audio_pool, new_frame->buffer);
-                new_frame->buffer = NULL;
-                memory_return(core->frame_msg_pool, new_frame);
-                new_frame = NULL;
+                memset(new_frame->lang_tag,0,sizeof(new_frame->lang_tag));
+            }
+            if (enable_transcode) {
+#if defined(ENABLE_TRANSCODE)
+                dataqueue_message_struct *decode_msg;
+
+                decode_msg = (dataqueue_message_struct*)memory_take(core->fillet_msg_pool, sizeof(dataqueue_message_struct));
+                if (decode_msg) {
+                    decode_msg->buffer = new_frame;
+                    decode_msg->buffer_size = sizeof(sorted_frame_struct);
+                    dataqueue_put_front(core->transaudio[sub_source]->input_queue, decode_msg);
+                    decode_msg = NULL;
+                } else {
+                    fprintf(stderr,"SESSION:%d (MAIN) ERROR: unable to obtain message! CHECK CPU RESOURCES!!! UNRECOVERABLE ERROR!!!\n",
+                            core->session_id);
+                    send_direct_error(core, SIGNAL_DIRECT_ERROR_MSGPOOL, "Out of Audio Message Buffers - Check CPU LOAD!");
+                    _Exit(0);
+                }
+#endif // ENABLE_TRANSCODE
+            } else {
+                if (sync_thread_running && !quit_sync_thread) {
+                    pthread_mutex_lock(&sync_lock);
+                    audio_synchronizer_entries = add_frame(core->audio_frame_data, audio_synchronizer_entries, new_frame, MAX_FRAME_DATA_SYNC_AUDIO);
+                    if (audio_synchronizer_entries >= MAX_FRAME_DATA_SYNC_AUDIO) {
+                        restart_sync_thread = 1;
+                    }
+                    pthread_mutex_unlock(&sync_lock);
+                } else {
+                    memory_return(core->compressed_audio_pool, new_frame->buffer);
+                    new_frame->buffer = NULL;
+                    memory_return(core->frame_msg_pool, new_frame);
+                    new_frame = NULL;
+                }
             }
         }
     } else {

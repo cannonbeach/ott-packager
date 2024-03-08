@@ -308,6 +308,7 @@ typedef struct _audio_stream_struct_
     int                    audio_channels;
     int                    audio_object_type;
     int                    audio_samplerate;
+    int                    suspicious_audio;
     void                   *audio_queue;
 } audio_stream_struct;
 
@@ -325,6 +326,7 @@ typedef struct _video_stream_struct_
     int64_t                video_bitrate;
     int64_t                total_video_bytes;
     struct timespec        video_clock_start;
+    int                    suspicious_video;
     void                   *video_queue;
 } video_stream_struct;
 
@@ -398,6 +400,7 @@ typedef struct _fillet_app_struct_
 
     int                           transcode_enabled;
     int                           reinitialize_decoder;
+    pthread_mutex_t               *audio_mutex[MAX_AUDIO_SOURCES];
 
     // these are some basic runtime stats- should move to different data structure
     int64_t                       uptime;

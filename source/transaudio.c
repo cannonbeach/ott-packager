@@ -348,7 +348,9 @@ void *audio_monitor_thread(void *context)
 
                             last_monitor_anchor_dts = encode_msg->dts;
 
+                            pthread_mutex_lock(core->audio_mutex[audio_stream]);
                             core->decoded_source_info.decoded_actual_audio_data[audio_stream] += monitor_audio_frame_size;
+                            pthread_mutex_unlock(core->audio_mutex[audio_stream]);
 
                             dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, encode_msg);
                         } else {
@@ -398,25 +400,6 @@ void *audio_monitor_thread(void *context)
                     monitor_anchor_dts);
             dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, msg);
             last_monitor_anchor_dts = monitor_anchor_dts;
-            /*
-            if (monitor_anchor_dts < last_monitor_anchor_dts) {
-                fprintf(stderr,"Monitored audio frame is late, not passing through - PTS:%ld DTS:%ld LAST:%ld\n",
-                        monitor_anchor_pts,
-                        monitor_anchor_dts,
-                        last_monitor_anchor_dts);
-                memory_return(core->raw_audio_pool, msg->buffer);
-                msg->buffer = NULL;
-                memory_return(core->fillet_msg_pool, msg);
-                msg = NULL;
-
-                exit(0);
-            } else {
-                fprintf(stderr,"Passing through monitored audio frame - PTS:%ld DTS:%ld\n",
-                        monitor_anchor_pts,
-                        monitor_anchor_dts);
-                dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, msg);
-                last_monitor_anchor_dts = monitor_anchor_dts;
-            }*/
         }
     }
 cleanup_audio_monitor_thread:
@@ -458,6 +441,7 @@ void *audio_decode_thread(void *context)
     int threshold_check = 0;
     int dst_nb_channels = 0;
     int src_nb_channels = 0;
+    int previous_updated_output_buffer_size = 0;
 
     free(startup);
     startup = NULL;
@@ -601,7 +585,7 @@ restart_decode:
                         int audio_frame_size;
                         int64_t full_time;
                         int64_t pts;
-                        int updated_output_buffer_size;
+                        int updated_output_buffer_size = 0;
                         uint8_t *decoded_audio_buffer = NULL;
                         int64_t output_pts_full_time;
                         int64_t output_pts;
@@ -681,10 +665,10 @@ restart_decode:
                             // seeing this sometimes?
                             // audio_decode_thread: current source audio=-9223372036854775808 is less than first audio frame=1318257419, waiting to decode...
 
-                            fprintf(stderr,"\n\n\n\naudio_decode_thread: current source audio=%ld is less than first audio frame=%ld, waiting to decode...\n\n\n\n\n",
+                            fprintf(stderr,"\n\n\n\naudio_decode_thread: current source audio=%ld is less than first audio frame=%ld, waiting to decode...dropping sample\n\n\n\n\n",
                                     full_time,
                                     first_decoded_pts);
-                            syslog(LOG_INFO,"audio_decode_thread: current source audio=%ld is less than first audio frame=%ld, waiting to decode...\n",
+                            syslog(LOG_INFO,"audio_decode_thread: current source audio=%ld is less than first audio frame=%ld, waiting to decode...dropping sample\n",
                                    full_time,
                                    first_decoded_pts);
                             goto restart_decode;
@@ -755,12 +739,6 @@ restart_decode:
                         source_samples = audio_frame_size / (2 * 2 * decode_avctx->channels);
                         output_samples = av_rescale_rnd(swr_get_delay(swr, decode_avctx->sample_rate) + source_samples,
                                                         decode_avctx->sample_rate, decode_avctx->sample_rate, AV_ROUND_UP);
-                        //output_samples = avresample_available(swr)+
-                        //    av_rescale_rnd(avresample_get_delay(swr)+
-                        //                   source_samples,decode_avctx->sample_rate,decode_avctx->sample_rate,AV_ROUND_UP);
-
-                        //fprintf(stderr,"audio_decode_thread: source_samples=%d output_samples=%d audio_frame_size=%d src_nb_channels=%d decode_nb_samples=%d\n",
-                        //        source_samples, output_samples, audio_frame_size, src_nb_channels, decode_av_frame->nb_samples);
 
                         if (!swr_output_buffer) {
                             av_samples_alloc_array_and_samples(&swr_output_buffer,
@@ -800,11 +778,15 @@ restart_decode:
                         if (current_sample_out == 0) {
                             if (previous_delta_time != -1 && ticks_per_sample != 0) {
                                 expected_audio_data = (int64_t)((double)delta_time / (double)0.9 * (double)ticks_per_sample);
+
+                                pthread_mutex_lock(core->audio_mutex[audio_stream]);
                                 diff_audio = expected_audio_data - core->decoded_source_info.decoded_actual_audio_data[audio_stream];
                                 fprintf(stderr,"audio_decode_thread: expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld  ticks_per_sample:%f\n",
                                         expected_audio_data, core->decoded_source_info.decoded_actual_audio_data[audio_stream], full_time, diff_audio, ticks_per_sample);
                                 syslog(LOG_INFO,"audio_decode_thread: expected audio data:%ld   actual audio data:%ld   full_time:%ld delta:%ld  ticks_per_sample:%f\n",
                                        expected_audio_data, core->decoded_source_info.decoded_actual_audio_data[audio_stream], full_time, diff_audio, ticks_per_sample);
+                                pthread_mutex_unlock(core->audio_mutex[audio_stream]);
+
                                 // check how much source audio we have vs. how much we should have
                                 // if audio is missing, then there could be some missing data
                                 // that would throw off the a/v sync for the mp4 file output mode
@@ -814,7 +796,7 @@ restart_decode:
                                 // and rely on the docker container to restart the application in a known healthy state
                                 int quit_threshold = 65535*output_channels*2;
                                 if (diff_audio > quit_threshold ||
-                                    diff_audio < -quit_threshold) {
+                                    diff_audio < (-2*quit_threshold)) {
                                     fprintf(stderr,"audio_decode_thread: fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
                                     syslog(LOG_ERR,"audio_decode_thread: fatal error: a/v sync is off - too much or too little audio is present - %ld samples\n", diff_audio);
                                     threshold_check++;
@@ -829,14 +811,17 @@ restart_decode:
                         }
                         previous_delta_time = delta_time;
                         //fprintf(stderr,"audio_decode_thread: updated_output_buffer_size=%d\n", updated_output_buffer_size);
-                        core->decoded_source_info.decoded_actual_audio_data[audio_stream] += updated_output_buffer_size;
-
                         // check size of updated_output_buffer_size+1
                         if (updated_output_buffer_size > 65535 || updated_output_buffer_size < 0) {
                             fprintf(stderr,"audio_decode_thread: warning: output buffer size is excessively large or malformed: %d \n", updated_output_buffer_size);
                             send_signal(core, SIGNAL_MALFORMED_DATA, "Malformed Audio Detected");
-                            updated_output_buffer_size = 65535;
+                            updated_output_buffer_size = previous_updated_output_buffer_size;
+                        } else {
+                            previous_updated_output_buffer_size = updated_output_buffer_size;
                         }
+                        pthread_mutex_lock(core->audio_mutex[audio_stream]);
+                        core->decoded_source_info.decoded_actual_audio_data[audio_stream] += updated_output_buffer_size;
+                        pthread_mutex_unlock(core->audio_mutex[audio_stream]);
 
                         decoded_audio_buffer = (uint8_t*)memory_take(core->raw_audio_pool, updated_output_buffer_size);
                         if (!decoded_audio_buffer) {
@@ -861,9 +846,10 @@ restart_decode:
                             last_data_amount += updated_output_buffer_size;
                         }
 
-                        //total_audio_time_output = (int64_t)((double)ticks_per_sample * (double)core->decoded_source_info.decoded_actual_audio_data[audio_stream]) * (double)0.9;
+                        pthread_mutex_lock(core->audio_mutex[audio_stream]);
                         total_audio_time_output = (int64_t)((double)core->decoded_source_info.decoded_actual_audio_data[audio_stream]) / ((double)dst_nb_channels * (double)2.0);
                         total_audio_time_output = (int64_t)((double)total_audio_time_output * (double)90000 / (double)decode_avctx->sample_rate);
+                        pthread_mutex_unlock(core->audio_mutex[audio_stream]);
 
                         output_pts_full_time = (int64_t)first_decoded_audio_pts + (int64_t)total_audio_time_output;
                         output_pts = output_pts_full_time % (int64_t)8589934592;
@@ -906,14 +892,18 @@ restart_decode:
                                 exit(0);
                             }
                             current_sample_out++;
+                            pthread_mutex_lock(core->audio_mutex[audio_stream]);
                             core->decoded_source_info.decoded_actual_audio_data[audio_stream] += updated_output_buffer_size;
+                            pthread_mutex_unlock(core->audio_mutex[audio_stream]);
                             diff_audio -= updated_output_buffer_size;
 
                             syslog(LOG_INFO,"audio_decode_thread: inserting silence for missing audio, diff_audio=%ld\n", diff_audio);
                             fprintf(stderr,"audio_decode_thread: inserting silence for missing audio, diff_audio=%ld\n", diff_audio);
                             send_signal(core, SIGNAL_INSERT_SILENCE, "Inserting Silence To Maintain A/V Sync");
 
+                            pthread_mutex_lock(core->audio_mutex[audio_stream]);
                             total_audio_time_output = (int64_t)((double)core->decoded_source_info.decoded_actual_audio_data[audio_stream]) / ((double)dst_nb_channels * (double)2.0);
+                            pthread_mutex_unlock(core->audio_mutex[audio_stream]);
                             total_audio_time_output = (int64_t)((double)total_audio_time_output * (double)90000 / (double)decode_avctx->sample_rate);
                             //total_audio_time_output = (int64_t)((double)ticks_per_sample * (double)core->decoded_source_info.decoded_actual_audio_data[audio_stream]);
                             output_pts_full_time = (int64_t)first_decoded_audio_pts + (int64_t)total_audio_time_output;
@@ -924,7 +914,9 @@ restart_decode:
                             fprintf(stderr,"audio_decode_thread: dropping audio too far ahead, diff_audio=%ld\n", diff_audio);
                             memory_return(core->raw_audio_pool, decoded_audio_buffer);
                             decoded_audio_buffer = NULL;
+                            pthread_mutex_lock(core->audio_mutex[audio_stream]);
                             core->decoded_source_info.decoded_actual_audio_data[audio_stream] -= updated_output_buffer_size;
+                            pthread_mutex_unlock(core->audio_mutex[audio_stream]);
                             diff_audio += updated_output_buffer_size;
                             send_signal(core, SIGNAL_DROP_AUDIO, "Dropping Audio Samples To Maintain A/V Sync");
                         } else {
@@ -985,6 +977,11 @@ int start_audio_transcode_threads(fillet_app_struct *core)
 {
     int current_audio;
 
+    for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
+        core->audio_mutex[current_audio] = (pthread_mutex_t*)malloc(sizeof(pthread_mutex_t));
+        pthread_mutex_init(core->audio_mutex[current_audio], NULL);
+    }
+
     audio_encode_thread_running = 1;
     for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
         startup_buffer_struct *startup;
@@ -1032,6 +1029,12 @@ int stop_audio_transcode_threads(fillet_app_struct *core)
     audio_encode_thread_running = 0;
     for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
         pthread_join(audio_encode_thread_id[current_audio], NULL);
+    }
+
+    for (current_audio = 0; current_audio < MAX_AUDIO_SOURCES; current_audio++) {
+        pthread_mutex_destroy(core->audio_mutex[current_audio]);
+        free(core->audio_mutex[current_audio]);
+        core->audio_mutex[current_audio] = NULL;
     }
 
     return 0;
