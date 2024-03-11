@@ -442,6 +442,7 @@ void *audio_decode_thread(void *context)
     int dst_nb_channels = 0;
     int src_nb_channels = 0;
     int previous_updated_output_buffer_size = 0;
+    int audio_decode_fail = 0;
 
     free(startup);
     startup = NULL;
@@ -477,6 +478,25 @@ restart_decode:
             sorted_frame_struct *frame = (sorted_frame_struct*)msg->buffer;
             if (frame) {
                 int retcode;
+
+                if (audio_decode_fail >= 5) {
+                    av_frame_free(&decode_av_frame);
+                    av_packet_free(&decode_pkt);
+                    avcodec_close(decode_avctx);
+                    avcodec_free_context(&decode_avctx);
+                    av_freep(&swr_output_buffer);
+                    av_parser_close(decode_parser);
+                    swr_free(&swr);
+
+                    decode_av_frame = NULL;
+                    decode_pkt = NULL;
+                    decode_avctx = NULL;
+                    swr_output_buffer = NULL;
+                    decode_parser = NULL;
+                    swr = NULL;
+
+                    audio_decoder_ready = 0;
+                }
 
                 if (!audio_decoder_ready) {
                     if (frame->media_type == MEDIA_TYPE_AAC) {
@@ -578,6 +598,7 @@ restart_decode:
                     if (retcode < 0) {
                         fprintf(stderr,"error: unable to decode audio frame - sorry - buffersize:%d, retcode=%d\n", decode_pkt->size, retcode);
                         send_signal(core, SIGNAL_DECODE_ERROR, "Audio Decode Error");
+                        audio_decode_fail++;
                         break;
                     }
 
@@ -610,6 +631,8 @@ restart_decode:
                                                                       1);
 
                         ticks_per_sample = (double)(((double)decode_avctx->sample_rate / (double)100000.0)) * (double)2.0 * (double)output_channels;
+
+                        audio_decode_fail = 0;
 
                         fprintf(stderr,"audio_decode_thread: decoded audio_frame_size:%d, channels:%d, samplerate:%d, samplefmt:%s, pts:%ld, full:%ld\n",
                                 audio_frame_size,
