@@ -1847,24 +1847,38 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
         }
 
+        if (dts == 0) {
+            dts = pts;
+        }
         if (dts > 0) {
             if (vstream->last_timestamp_dts != -1) {
                 int64_t delta_dts = dts + vstream->overflow_dts - vstream->last_timestamp_dts;
                 int64_t immediate_delta_dts = dts - vstream->last_timestamp_dts;
 
+                fprintf(stderr,"receive_frame: (video=%d), pts=%ld, dts=%ld, last_timestamp_dts=%ld, overflow_dts=%ld, immediate_delta_dts=%ld, delta_dts=%ld\n",
+                        source,
+                        pts,
+                        dts,
+                        vstream->last_timestamp_dts,
+                        vstream->overflow_dts,
+                        immediate_delta_dts,
+                        delta_dts);
+
                 if (immediate_delta_dts < 0) {
                     if (vstream->last_timestamp_dts <= 8589900000 && dts > 50000) {
                         skip_video_sample = 1;
-                        fprintf(stderr,"receive_frame: (video=%d), last_timestamp_pts=%ld, pts=%ld, dropping sample\n",
+                        fprintf(stderr,"receive_frame: (video=%d), last_timestamp_pts=%ld, pts=%ld, immediate_delta_dts=%ld, dropping sample\n",
                                 source,
                                 vstream->last_timestamp_dts,
+                                immediate_delta_dts,
                                 dts);
                         vstream->suspicious_video++;
                         if (vstream->suspicious_video >= 10) {
                             restart_sync_thread = 1;
                         }
                     }
-                } else if (vstream->last_timestamp_pts >= 8589900000 && pts < 50000) {
+                }
+                if (vstream->last_timestamp_dts >= 8589900000 && dts < 50000) {
                     vstream->overflow_dts += 8589934592;
                     syslog(LOG_INFO,"receive_frame: (video=%d), delta=%ld, overflow pts=%ld, pts=%ld (hit the 2^33 pts rollover)\n",
                            source,
@@ -1878,15 +1892,11 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                             dts);
                 }
             }
-
-            if (!skip_video_sample) {
-                vstream->last_timestamp_dts = dts + vstream->overflow_dts;
-            }
         }
 
         if (!skip_video_sample) {
             vstream->suspicious_video = 0;
-            vstream->last_timestamp_pts = pts + vstream->overflow_dts;
+            vstream->last_timestamp_dts = dts;
             vstream->current_receive_count++;
             if (sample_flags) {
                 vstream->last_intra_count = vstream->current_receive_count;
@@ -2220,7 +2230,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                         restart_sync_thread = 1;
                     }
                 }
-            } else if (astream->last_timestamp_pts >= 8589900000 && pts < 50000) {
+            }
+            if (astream->last_timestamp_pts >= 8589900000 && pts < 50000) {
                 astream->overflow_pts += 8589934592;
                 syslog(LOG_INFO,"receive_frame: (audio=%2d stream=%d), delta=%ld, overflow pts=%ld, pts=%ld (hit the 2^33 pts rollover)\n",
                        source,
@@ -2238,7 +2249,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
         }
 
         if (!skip_audio_sample) {
-            astream->last_timestamp_pts = pts + astream->overflow_pts;
+            astream->last_timestamp_pts = pts;
             astream->suspicious_audio = 0;
 
             new_frame = (sorted_frame_struct*)memory_take(core->frame_msg_pool, sizeof(sorted_frame_struct));
