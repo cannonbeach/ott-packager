@@ -281,11 +281,12 @@ void *signal_thread(void *context)
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
-                         "    \"message\": \"scte35 out of network start\"\n"
+                         "    \"message\": \"%s\"\n"
                          "}\n",
                          formattedtime,
                          node_hostname,
-                         id);
+                         id,
+                         msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_SCTE35_END) {
@@ -295,11 +296,42 @@ void *signal_thread(void *context)
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
                          "    \"status\": \"success\",\n"
-                         "    \"message\": \"scte35 out of network done\"\n"
+                         "    \"message\": \"%s\"\n"
                          "}\n",
                          formattedtime,
                          node_hostname,
-                         id);
+                         id,
+                         msg->smallbuf);
+                signal_management_interface(core, response_buffer, strlen(response_buffer));
+            }
+            if (buffer_type == SIGNAL_SCTE35_TIME_REMAINING) {
+                snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
+                         "{\n"
+                         "    \"accesstime\": \"%s\",\n"
+                         "    \"host\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
+                         "    \"status\": \"success\",\n"
+                         "    \"message\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         node_hostname,
+                         id,
+                         msg->smallbuf);
+                signal_management_interface(core, response_buffer, strlen(response_buffer));
+            }
+            if (buffer_type == SIGNAL_SCTE35_DROP_MESSAGE) {
+                snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
+                         "{\n"
+                         "    \"accesstime\": \"%s\",\n"
+                         "    \"host\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
+                         "    \"status\": \"error\",\n"
+                         "    \"message\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         node_hostname,
+                         id,
+                         msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
             if (buffer_type == SIGNAL_SEGMENT_PUBLISHED) {
@@ -399,6 +431,51 @@ void *signal_thread(void *context)
                          "    \"status\": \"success\",\n"
                          "    \"message\": \"manifest written\",\n"
                          "    \"segment\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         node_hostname,
+                         id,
+                         msg->smallbuf);
+                signal_management_interface(core, response_buffer, strlen(response_buffer));
+            }
+            if (buffer_type == SIGNAL_FRAME_VIDEO_SPLICE) {
+                snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
+                         "{\n"
+                         "    \"accesstime\": \"%s\",\n"
+                         "    \"host\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
+                         "    \"status\": \"warning\",\n"
+                         "    \"message\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         node_hostname,
+                         id,
+                         msg->smallbuf);
+                signal_management_interface(core, response_buffer, strlen(response_buffer));
+            }
+            if (buffer_type == SIGNAL_FRAME_VIDEO_FILLER) {
+                snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
+                         "{\n"
+                         "    \"accesstime\": \"%s\",\n"
+                         "    \"host\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
+                         "    \"status\": \"warning\",\n"
+                         "    \"message\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         node_hostname,
+                         id,
+                         msg->smallbuf);
+                signal_management_interface(core, response_buffer, strlen(response_buffer));
+            }
+            if (buffer_type == SIGNAL_FRAME_AUDIO_FILLER) {
+                snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
+                         "{\n"
+                         "    \"accesstime\": \"%s\",\n"
+                         "    \"host\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
+                         "    \"status\": \"warning\",\n"
+                         "    \"message\": \"%s\"\n"
                          "}\n",
                          formattedtime,
                          node_hostname,

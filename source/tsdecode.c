@@ -628,12 +628,11 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                            // splice time table
                                            int time_specified_flag = !!(splice[0] & 0x80);
                                            if (time_specified_flag) {
-                                               pts_time = ((int64_t)(splice[0] & 0x01) << 32) +
-                                                   (int64_t)(splice[1] << 24) +
-                                                   (int64_t)(splice[2] << 16) +
-                                                   (int64_t)(splice[3] << 8) +
-                                                   (int64_t)splice[4];
-                                               pts_time = pts_time & 0x1ffffffff;
+                                               pts_time = (((int64_t)(splice[0]) & 0x01) << 32) +
+                                                   (((int64_t)(splice[1]) << 24)) +
+                                                   (((int64_t)(splice[2]) << 16)) +
+                                                   (((int64_t)(splice[3]) << 8)) +
+                                                   ((int64_t)splice[4]);
                                                syslog(LOG_INFO,"decode_packets: scte35 pts_time %ld\n", pts_time);
                                                splice += 5;
                                            } else {
@@ -653,11 +652,11 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                                    int time_specified_flag = !!(splice[0] & 0x80);
                                                    if (time_specified_flag) {
                                                        int64_t pts_time;
-                                                       pts_time = ((int64_t)(splice[0] & 0x01) << 32) |
-                                                           (int64_t)(splice[1] << 24) |
-                                                           (int64_t)(splice[2] << 16) |
-                                                           (int64_t)(splice[3] << 8) |
-                                                           (int64_t)splice[4];
+                                                       pts_time = (((int64_t)(splice[0]) & 0x01) << 32) +
+                                                           (((int64_t)(splice[1]) << 24)) +
+                                                           (((int64_t)(splice[2]) << 16)) +
+                                                           (((int64_t)(splice[3]) << 8)) +
+                                                           ((int64_t)splice[4]);
                                                        //syslog(LOG_INFO,"SCTE35: PTS TIME (0/0): %ld\n", pts_time);
                                                        splice += 5;
                                                    } else {
@@ -670,11 +669,11 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                        if (duration_flag) {
                                            // break_duration()
                                            auto_return = !!(splice[0] & 0x80);
-                                           pts_duration = ((int64_t)(splice[0] & 0x01) << 32) |
-                                               (int64_t)(splice[1] << 24) |
-                                               (int64_t)(splice[2] << 16) |
-                                               (int64_t)(splice[3] << 8) |
-                                               (int64_t)splice[4];
+                                           pts_duration = (((int64_t)(splice[0]) & 0x01) << 32) +
+                                               (((int64_t)(splice[1]) << 24)) +
+                                               (((int64_t)(splice[2]) << 16)) +
+                                               (((int64_t)(splice[3]) << 8)) +
+                                               ((int64_t)splice[4]);
                                            splice += 5;
 
                                            // when auto_return is 1- safety mechanism

@@ -157,6 +157,7 @@ typedef struct _thread_start_struct_ {
 #define THUMBNAIL_WIDTH   176
 #define THUMBNAIL_HEIGHT  144
 #define MAX_FILENAME_SIZE 256
+#define MAX_MESSAGE_SIZE  256
 
 int video_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int64_t dts, int source, int splice_point, int64_t splice_duration, int64_t splice_duration_remaining);
 
@@ -489,8 +490,21 @@ void *video_encode_thread_nvenc(void *context)
         ret = av_frame_make_writable(gpu_data[current_encoder].encode_av_frame);
 
         if (source_splice_point == SPLICE_CUE_IN || source_splice_point == SPLICE_CUE_OUT) {
+            char splicemsg[MAX_MESSAGE_SIZE];
+
             syslog(LOG_INFO,"video_encode_thread_nvenc: scte35(%d), inserting IDR frame during splice point=%d\n",
                    current_encoder, source_splice_point);
+
+            if (source_splice_point == SPLICE_CUE_IN) {
+                snprintf(splicemsg, MAX_MESSAGE_SIZE-1, "Inserting IDR video frame for SCTE35 CUE IN splice point, encoder=%d",
+                         current_encoder);
+                send_signal(core, SIGNAL_FRAME_VIDEO_SPLICE, splicemsg);
+            } else if (source_splice_point == SPLICE_CUE_OUT) {
+                snprintf(splicemsg, MAX_MESSAGE_SIZE-1, "Inserting IDR video frame for SCTE35 CUE OUT splice point, encoder=%d",
+                         current_encoder);
+                send_signal(core, SIGNAL_FRAME_VIDEO_SPLICE, splicemsg);
+            }
+
             gpu_data[current_encoder].encode_surface->pict_type = AV_PICTURE_TYPE_I;
             gpu_data[current_encoder].encode_av_frame->pict_type = AV_PICTURE_TYPE_I;
             gpu_data[current_encoder].encode_surface->key_frame = 1;
@@ -1709,6 +1723,8 @@ void *video_monitor_thread(void *context)
                 video_monitor_time = (double)time_difference(&monitor_end, &monitor_start);
 #define VIDEO_MONITOR_DEAD_TIME 1000000
                 if (video_monitor_time >= VIDEO_MONITOR_DEAD_TIME) {
+                    char fillermsg[MAX_MESSAGE_SIZE];
+
                     clock_gettime(CLOCK_MONOTONIC, &monitor_start);
 
                     video_monitor_time = VIDEO_MONITOR_DEAD_TIME;
@@ -1730,8 +1746,13 @@ void *video_monitor_thread(void *context)
                     dead_frames_triggered = 1;
                     core->reinitialize_decoder = 1;
 
-                    fprintf(stderr,"VIDEO MONITOR TIMED OUT - INSERTING DEAD FRAMES: %ld  VIDEO MONITOR TIME: %f  FRAME DELTA: %f\n",
+                    fprintf(stderr,"video_monitor_thread: inserting dead filler frames=%ld  video_monitor_time=%f frame_delta=%f\n",
                             dead_frames, video_monitor_time, frame_delta);
+
+                    snprintf(fillermsg, MAX_MESSAGE_SIZE-1, "Signal Loss Inserting %ld Filler Video Frames, Frame Delta %f, Framerate %d/%d",
+                             dead_frames, frame_delta, monitor_num, monitor_den);
+                    send_signal(core, SIGNAL_FRAME_VIDEO_FILLER, fillermsg);
+
                     for (i = 0; i < dead_frames; i++) {
                         total_dead_frames++;
 
@@ -1775,7 +1796,7 @@ void *video_monitor_thread(void *context)
                             prepare_msg->splice_duration = 0;//splice_duration;
                             prepare_msg->splice_duration_remaining = 0;//splice_duration_remaining;
 
-                            fprintf(stderr,"VIDEO MONITOR - SENDING DEAD FRAME:%ld PTS:%ld DTS:%ld TOTAL:%ld\n",
+                            fprintf(stderr,"video_monitor_thread: total_dead_frames=%ld pts=%ld dts=%ld total=%ld\n",
                                     total_dead_frames,
                                     prepare_msg->pts,
                                     prepare_msg->dts,
@@ -1840,7 +1861,7 @@ void *video_monitor_thread(void *context)
             monitor_aspect_num = msg->aspect_num;
             monitor_aspect_den = msg->aspect_den;
 
-            fprintf(stderr,"Passing through monitored video frame: %dx%d PTS:%ld DTS:%ld\n",
+            fprintf(stderr,"video_monitor_thread: passing through monitored video frame: %dx%d, pts=%ld, dts=%ld\n",
                     monitor_width,
                     monitor_height,
                     monitor_anchor_pts,

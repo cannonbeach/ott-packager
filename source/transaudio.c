@@ -62,6 +62,7 @@ static pthread_t audio_monitor_thread_id[MAX_AUDIO_SOURCES];
 static pthread_t audio_encode_thread_id[MAX_AUDIO_SOURCES];
 
 #define AUDIO_THRESHOLD_CHECK 16
+#define MAX_MESSAGE_SIZE      256
 
 int audio_sink_frame_callback(fillet_app_struct *core, uint8_t *new_buffer, int sample_size, int64_t pts, int sub_stream);
 
@@ -249,15 +250,15 @@ void *audio_monitor_thread(void *context)
 {
     startup_buffer_struct *startup = (startup_buffer_struct*)context;
     fillet_app_struct *core = (fillet_app_struct*)startup->core;
-    dataqueue_message_struct *msg;
-    dataqueue_message_struct *encode_msg;
+    dataqueue_message_struct *msg = NULL;
+    dataqueue_message_struct *encode_msg = NULL;
     int audio_stream = startup->instance;
     struct timespec monitor_start;
     struct timespec monitor_end;
-    double audio_monitor_dead_time;
+    double audio_monitor_dead_time = 0;
     int64_t total_audio_monitor_dead_time = 0;
     int64_t dead_frames;
-    double dead_frames_actual;
+    double dead_frames_actual = 0;
     int64_t total_dead_frames = 0;
     double expected_dead_frames = 0;
     int i;
@@ -269,10 +270,10 @@ void *audio_monitor_thread(void *context)
     int64_t monitor_first_pts = 0;
     double monitor_ticks_per_sample = 0;
     int monitor_ready = 0;
-    double audio_monitor_time;
-    double frame_delta;
-    uint8_t *output_audio_frame;
-    double dead_frame_drift;
+    double audio_monitor_time = 0;
+    double frame_delta = 0;
+    uint8_t *output_audio_frame = NULL;
+    double dead_frame_drift = 0;
     int dead_frame_adjustment = 0;
     int64_t last_monitor_anchor_dts = 0;
 
@@ -289,6 +290,8 @@ void *audio_monitor_thread(void *context)
                 audio_monitor_time = (double)time_difference(&monitor_end, &monitor_start);
 #define AUDIO_MONITOR_DEAD_TIME 1000000
                 if (audio_monitor_time >= AUDIO_MONITOR_DEAD_TIME) {
+                    char fillermsg[MAX_MESSAGE_SIZE];
+
                     clock_gettime(CLOCK_MONOTONIC, &monitor_start);
 
                     audio_monitor_time = AUDIO_MONITOR_DEAD_TIME;
@@ -308,8 +311,13 @@ void *audio_monitor_thread(void *context)
                     expected_dead_frames += dead_frames_actual;
                     dead_frames = (int64_t)dead_frames_actual + dead_frame_adjustment;
 
-                    fprintf(stderr,"AUDIO MONITOR TIMED OUT - INSERTING DEAD FRAMES: %ld  AUDIO MONITOR TIME: %f  FRAME DELTA: %f  FRAME SIZE: %d  CHANNELS: %d\n",
+                    fprintf(stderr,"audio_monitor_thread: inserting dead filler frames=%ld audio_monitor_time=%f frame_delta=%f frame_size=%d channels=%d\n",
                             dead_frames, audio_monitor_time, frame_delta, monitor_audio_frame_size, monitor_channels);
+
+                    snprintf(fillermsg, MAX_MESSAGE_SIZE-1, "Signal Loss Inserting %ld Filler Audio Frames, Audio Stream %d, Frame Delta %f, Frame Size %d, Channels %d",
+                             dead_frames, audio_stream, frame_delta, monitor_audio_frame_size, monitor_channels);
+                    send_signal(core, SIGNAL_FRAME_AUDIO_FILLER, fillermsg);
+
                     for (i = 0; i < dead_frames; i++) {
                         total_dead_frames++;
 
@@ -336,7 +344,7 @@ void *audio_monitor_thread(void *context)
                                 encode_msg->dts = encode_msg->dts - MAX_DTS;
                             }
 
-                            fprintf(stderr,"AUDIO MONITOR - INSERTING DEAD FRAME PTS:%ld DTS:%ld TOTAL:%ld SIZE:%d\n",
+                            fprintf(stderr,"audio_monitor_thread: inserting dead filler frame, pts=%ld, dts=%ld, total=%ld, size=%d\n",
                                     encode_msg->pts,// - monitor_first_pts,
                                     encode_msg->dts,// - monitor_first_pts,
                                     total_audio_monitor_dead_time,
@@ -392,12 +400,9 @@ void *audio_monitor_thread(void *context)
             monitor_sample_rate = msg->sample_rate;
             monitor_first_pts = msg->first_pts;
 
-            fprintf(stderr,"Monitored audio information, PTS:%ld, DTS:%ld, CHANNELS:%d, SR:%d\n",
+            fprintf(stderr,"audio_monitor_thread: monitored audio information, pts=%ld, dts=%ld, channels=%d, sr=%d\n",
                     monitor_anchor_pts, monitor_anchor_dts, monitor_channels, monitor_sample_rate);
 
-            fprintf(stderr,"Passing through monitored audio frame - PTS:%ld DTS:%ld\n",
-                    monitor_anchor_pts,
-                    monitor_anchor_dts);
             dataqueue_put_front(core->encodeaudio[audio_stream]->input_queue, msg);
             last_monitor_anchor_dts = monitor_anchor_dts;
         }
@@ -650,7 +655,7 @@ restart_decode:
                                decode_av_frame->pts,
                                decode_av_frame->pkt_dts);
 
-                        // the ffmpeg decoder should be providing the WAV format order for 5.1- FrontLeft, FrontRight, Center, LFE, Side/BackLeft, Side/BackRight
+                        // the ffmpeg decoder should be providing the WAV format order for 5.1 - FrontLeft, FrontRight, Center, LFE, Side/BackLeft, Side/BackRight
                         decode_frame_count++;
 
                         if (current_sample_out == 0) {
@@ -662,7 +667,6 @@ restart_decode:
                         last_full_time = full_time;
                         pts = decode_av_frame->pts;
                         if (first_decoded_pts == -1) {
-                            //video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;
                             first_decoded_pts = full_time;
                             first_decoded_audio_pts = full_time;
                         }
