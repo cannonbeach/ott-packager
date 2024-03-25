@@ -1948,36 +1948,53 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     int scte35_data_size = scte35_msg->buffer_size;
 
                     if (scte35_data->splice_command_type == 0x05) {
+                        char signal_msg[MAX_STR_SIZE];
                         if (scte35_data->splice_immediate) {
                             core->scte35_ready = 1;
                             core->scte35_pts = 0;
                             core->scte35_duration = scte35_data->pts_duration;
                             core->scte35_duration_remaining = scte35_data->pts_duration;
                             core->scte35_triggered = 0;
-                            send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
+                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), Immediate Splice, anchor_time=%ld, duration=%ld",
+                                     new_frame->full_time % 8589934592, core->scte35_duration);
+                            send_signal(core, SIGNAL_SCTE35_START, signal_msg);
                         } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
                             core->scte35_ready = 1;
                             core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
+                            if (core->scte35_pts > (int64_t)8589934592) {
+                                core->scte35_pts -= (int64_t)8589934592;
+                            }
                             core->scte35_duration = scte35_data->pts_duration;
                             core->scte35_duration_remaining = scte35_data->pts_duration;
                             core->scte35_triggered = 0;
-                            send_signal(core, SIGNAL_SCTE35_START, "SCTE35 Out Of Network Detected (OUT)");
-                            // pts_adjustment is non-zero
+                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), anchor_time=%ld, splice_time=%ld, duration=%ld",
+                                     new_frame->full_time % 8589934592, core->scte35_pts, core->scte35_duration);
+                            send_signal(core, SIGNAL_SCTE35_START, signal_msg);
                         } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 1) {
                             // this is an out of network indicator without a duration
                             // which really sucks and we don't support it
                             core->scte35_ready = 0;
-                            fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is true (cue-out)\n");
-                        } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 0) {
+                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), anchor_time=%ld, splice_time=%ld, no duration, no action",
+                                     new_frame->full_time % 8589934592, core->scte35_pts);
+                            send_signal(core, SIGNAL_SCTE35_START, signal_msg);
+                        } else if (scte35_data->out_of_network_indicator == 0) {
                             core->scte35_ready = 0;
-                            fprintf(stderr,"receive_frame: unsupported scte35 message received, no duration, and out of network indicator is false (cue-in)\n");
+                            core->scte35_pts = scte35_data->pts_time + scte35_data->pts_adjustment;
+                            if (core->scte35_pts > (int64_t)8589934592) {
+                                core->scte35_pts -= (int64_t)8589934592;
+                            }
+                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue In Network Detected (IN), anchor_time=%ld, splice_time=%ld",
+                                     new_frame->full_time % 8589934592, core->scte35_pts);
+                            send_signal(core, SIGNAL_SCTE35_END, signal_msg);
                         } else {
                             // additional modes needs to be included
                             // non pts_duration mode
                             // also need to look for signal back to network feed
+                            // unknown splice condition, send signal?
                             core->scte35_ready = 0;
                         }
                     } else {
+                        // unhandled splice message, send signal
                         core->scte35_ready = 0;
                     }
                     memory_return(core->scte35_pool, scte35_msg->buffer);
@@ -1989,13 +2006,14 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
             }
 
             if (core->scte35_ready) {
+                char signal_msg[MAX_STR_SIZE];
                 int64_t scte35_time_diff;
                 int64_t anchor_time = new_frame->full_time % 8589934592;
                 if (core->scte35_pts == 0) {
                     scte35_time_diff = 0;
-                    core->scte35_pts = anchor_time;
+                    core->scte35_pts = anchor_time;  // immediate trigger
                 } else {
-                    scte35_time_diff = core->scte35_pts - anchor_time;
+                    scte35_time_diff = core->scte35_pts - anchor_time;  // how close to the trigger
                 }
                 syslog(LOG_INFO,"receive_frame: scte35_time_diff=%ld, pts=%ld, scte35pts=%ld, duration=%ld, remaining=%ld, triggered(acvtive)=%d\n",
                        scte35_time_diff,
@@ -2015,7 +2033,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                         core->scte35_duration = 0;
                         new_frame->splice_point = SPLICE_CUE_IN; // splice back point
                         core->scte35_ready = 0;
-                        send_signal(core, SIGNAL_SCTE35_END, "SCTE35 Out Of Network Detected (IN)");
+                        snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Splice Duration Finished, anchor_time=%ld", anchor_time);
+                        send_signal(core, SIGNAL_SCTE35_END, signal_msg);
                         core->scte35_last_pts_diff = 0;
                     } else {
                         new_frame->splice_point = 0;
@@ -2023,9 +2042,16 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     }
                     fprintf(stderr,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
                     syslog(LOG_INFO,"receive_frame: scte35 time remaining=%ld\n", new_frame->splice_duration_remaining);
+
+                    //snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 time remaining=%ld/%ld", new_frame->splice_duration_remaining, core->scte35_duration);
+                    //send_signal(core, SIGNAL_SCTE35_TIME_REMAINING, signal_msg);
                     new_frame->splice_duration = core->scte35_duration;
                 } else if (scte35_time_diff < (-5400000*5)) {
-                    syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
+                    syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too late, time inconsistent=%ld, anchor_time=%ld, scte35_pts=%ld, duration=%ld, triggered=%d\n",
+                           scte35_time_diff, anchor_time, core->scte35_pts, core->scte35_duration, core->scte35_triggered);
+                    snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 dropping message, too late, time inconsistent=%ld, anchor_time=%ld, scte35_pts=%ld, duration=%ld, triggered=%d",
+                             scte35_time_diff, anchor_time, core->scte35_pts, core->scte35_duration, core->scte35_triggered);
+                    send_signal(core, SIGNAL_SCTE35_DROP_MESSAGE, signal_msg);
                     core->scte35_triggered = 0;
                     core->scte35_ready = 0;
                     core->scte35_last_pts_diff = 0;
@@ -2037,6 +2063,9 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     new_frame->splice_duration_remaining = 0;
                 } else if (scte35_time_diff > (5400000*10)) {
                     syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
+                    snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 dropping message, too early, time inconsistent=%ld, anchor_time=%ld, scte35_pts=%ld, duration=%ld, triggered=%d",
+                             scte35_time_diff, anchor_time, core->scte35_pts, core->scte35_duration, core->scte35_triggered);
+                    send_signal(core, SIGNAL_SCTE35_DROP_MESSAGE, signal_msg);
                     core->scte35_triggered = 0;
                     core->scte35_ready = 0;
                     core->scte35_last_pts_diff = 0;
@@ -2053,6 +2082,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     new_frame->splice_duration_remaining = core->scte35_duration;
                     core->scte35_triggered = 1;
                     syslog(LOG_INFO,"receive_frame: activating scte35, setting scte35_triggered to core->scte35_triggered to 1 and new_frame->splice_point to 1\n");
+                    snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Signal Triggered, anchor_time=%ld, scte35pts=%ld",
+                             anchor_time, core->scte35_pts);
                     // trigger point
                 } else if (scte35_time_diff < 0) {
                     // it's already too late- not sure what happened
@@ -2646,8 +2677,8 @@ int main(int argc, char **argv)
 
              loop_count++;
 #if defined(ENABLE_TRANSCODE)
-#define WAIT_THRESHOLD_WARNING 3
-#define WAIT_THRESHOLD_ERROR   10
+#define WAIT_THRESHOLD_WARNING 8
+#define WAIT_THRESHOLD_ERROR   15
 #define WAIT_THRESHOLD_FAIL    30
 #define LEVEL_CHECK_THRESHOLD  500
              if (core->transcode_enabled) {
