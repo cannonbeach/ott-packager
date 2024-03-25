@@ -42,10 +42,6 @@ app.use(express.static('public'));
 const logfilename = '/var/log/eventlog.log';
 
 const logger = createLogger({
-//    format: format.combine(
-//        format.json(),
-//        format.timestamp()
-    //    ),
     format: format.json(),
     transports: [
         new transports.File( {
