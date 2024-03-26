@@ -9,11 +9,11 @@ This application is intended to serve as a reliable and scalable OTT streaming r
     HLS (HTTP Live Streaming) - Transport Stream HLS and Fragmented MP4 HLS (CMAF style)
     DASH (Dynamic Adaptive Streaming over HTTP) - Fragmented MP4
 
-With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally transcode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.
+With this application, you can ingest *live* MPEG2 transport streams carried over UDP (Multicast or Unicast) for transcoding and/or repackaging into HTTP Live Streaming (HLS) (both TS and MP4) and DASH output container formats.  The application can optionally transcode or just simply repackage.  If you are repackaging then the source streams need to be formatted as MPEG2 transport containing H264/HEVC and AAC audio, however if you are transcoding then you can ingest a MPEG2 transport stream containing other formats as well.  In the transcode mode, we will also process the SCTE35 messages (CUE-OUT/CUE-IN) into the HLS manifests.
 
 There are two ways to use this application.  The first and simplest method is use to the command version of the application.  You can quickly clone the repository, compile and easily start streaming.  The Quickstart for the web application is further down in the README and is a bit more involved to get setup and running, but provides a scriptable API as well as a nice clean interface with thumbnails and other status information in the transcoding mode.  The web application is still in the early stages and I will continually be adding features for managing these types of streaming services.
 
-I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time.  If there are specific features you would like to see, a funding donation goes a long way in making it happen.  I can also offer support services for deployment to address any devops type of issues, troubleshoot hardware (or software issues), or just offer general advice.
+I would also appreciate any funding support, even if it is a one time donation.  I only work on this project in my spare time.  If there are specific features you would like to see, a funding donation goes a long way to make it happen.  I can also offer support services for deployment to address any devops type of issues, troubleshoot hardware (or software issues), or just offer general advice.
 <br>
 
 ## Quickstart (NodeJS Web Application - Ubuntu 20.04 Server/Desktop)
@@ -337,6 +337,19 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 <br>
 
 ### Current Status
+
+(03/26/24) SCTE35
+
+Ok, I've been scrapping my way through some remaining SCTE35 issues and have finally gotten things resolved.  It is working well for HLS outputs, so if you find something that is not working correctly, you all need to let me know.
+There are also some new log messages that go into /var/log/eventlog.log.  Have fun with it.
+
+{"accesstime":"2024-03-26T19:23:27Z","host":"tapeworm","id":1708558258,"level":"info","message":"SCTE35 Cue Out of Network Detected (OUT), anchor_time=6158078666, splice_time=6158737825, duration=5400000","status":"success"}
+{"accesstime":"2024-03-26T19:23:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE OUT splice point, encoder=0","status":"success"}
+{"accesstime":"2024-03-26T19:23:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE OUT splice point, encoder=1","status":"success"}
+{"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"SCTE35 Splice Duration Finished, anchor_time=6164138720","status":"success"}
+{"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"SCTE35 Cue In Network Detected (IN), anchor_time=6164140222, splice_time=6164137219","status":"success"}
+{"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE IN splice point, encoder=0","status":"success"}
+{"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE IN splice point, encoder=1","status":"success"}
 
 (02/22/24) Small update
 
