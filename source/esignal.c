@@ -184,7 +184,7 @@ int send_direct_error(fillet_app_struct *core, int signal_type, const char *mess
              "    \"host\": \"%s\",\n"
              "    \"id\": %ld,\n"
              "    \"status\": \"fatal error\",\n"
-             "    \"message\": \"(%s)\"\n"
+             "    \"message\": \"%s\"\n"
              "}\n",
              formattedtime,
              node_hostname,
@@ -444,7 +444,7 @@ void *signal_thread(void *context)
                          "    \"accesstime\": \"%s\",\n"
                          "    \"host\": \"%s\",\n"
                          "    \"id\": %ld,\n"
-                         "    \"status\": \"warning\",\n"
+                         "    \"status\": \"success\",\n"
                          "    \"message\": \"%s\"\n"
                          "}\n",
                          formattedtime,
