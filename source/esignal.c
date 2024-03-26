@@ -453,6 +453,22 @@ void *signal_thread(void *context)
                          msg->smallbuf);
                 signal_management_interface(core, response_buffer, strlen(response_buffer));
             }
+            if (buffer_type == SIGNAL_SCTE35_TRIGGERED) {
+                snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
+                         "{\n"
+                         "    \"accesstime\": \"%s\",\n"
+                         "    \"host\": \"%s\",\n"
+                         "    \"id\": %ld,\n"
+                         "    \"status\": \"success\",\n"
+                         "    \"message\": \"%s\"\n"
+                         "}\n",
+                         formattedtime,
+                         node_hostname,
+                         id,
+                         msg->smallbuf);
+                signal_management_interface(core, response_buffer, strlen(response_buffer));
+            }
+
             if (buffer_type == SIGNAL_FRAME_VIDEO_FILLER) {
                 snprintf(response_buffer, MAX_SIGNAL_RESPONSE_SIZE-1,
                          "{\n"

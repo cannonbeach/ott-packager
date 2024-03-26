@@ -88,6 +88,7 @@ typedef struct _scte35_data_struct_ {
     int64_t         pts_time;
     int64_t         pts_duration;
     int64_t         pts_adjustment;
+    int             auto_return;
     int             splice_immediate;
     int             program_id;
     int             cancel;

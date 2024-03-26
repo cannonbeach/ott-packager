@@ -708,6 +708,7 @@ int decode_packets(uint8_t *transport_packet_data, int packet_count, transport_d
                                        scte35_data->splice_event_id = splice_event_id;
                                        scte35_data->pts_time = pts_time;
                                        scte35_data->pts_duration = pts_duration;
+                                       scte35_data->auto_return = auto_return;
                                        scte35_data->pts_adjustment = pts_adjustment;
                                        scte35_data->splice_immediate = splice_immediate_flag;
                                        scte35_data->program_id = unique_program_id;

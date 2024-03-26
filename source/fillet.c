@@ -1955,8 +1955,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                             core->scte35_duration = scte35_data->pts_duration;
                             core->scte35_duration_remaining = scte35_data->pts_duration;
                             core->scte35_triggered = 0;
-                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), Immediate Splice, anchor_time=%ld, duration=%ld",
-                                     new_frame->full_time % 8589934592, core->scte35_duration);
+                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), Immediate Splice, anchor_time=%ld, duration=%ld, auto_return=%d",
+                                     new_frame->full_time % 8589934592, core->scte35_duration, scte35_data->auto_return);
                             send_signal(core, SIGNAL_SCTE35_START, signal_msg);
                         } else if (scte35_data->pts_duration > 0 && scte35_data->cancel == 0 && scte35_data->out_of_network_indicator) {
                             core->scte35_ready = 1;
@@ -1967,8 +1967,8 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                             core->scte35_duration = scte35_data->pts_duration;
                             core->scte35_duration_remaining = scte35_data->pts_duration;
                             core->scte35_triggered = 0;
-                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), anchor_time=%ld, splice_time=%ld, duration=%ld",
-                                     new_frame->full_time % 8589934592, core->scte35_pts, core->scte35_duration);
+                            snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Cue Out of Network Detected (OUT), anchor_time=%ld, splice_time=%ld, duration=%ld, auto_return=%d",
+                                     new_frame->full_time % 8589934592, core->scte35_pts, core->scte35_duration, scte35_data->auto_return);
                             send_signal(core, SIGNAL_SCTE35_START, signal_msg);
                         } else if (scte35_data->pts_duration == 0 && scte35_data->out_of_network_indicator == 1) {
                             // this is an out of network indicator without a duration
@@ -2085,6 +2085,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 Signal Triggered, anchor_time=%ld, scte35pts=%ld",
                              anchor_time, core->scte35_pts);
                     // trigger point
+                    send_signal(core, SIGNAL_SCTE35_TRIGGERED, signal_msg);
                 } else if (scte35_time_diff < 0) {
                     // it's already too late- not sure what happened
                     core->scte35_ready = 0;
