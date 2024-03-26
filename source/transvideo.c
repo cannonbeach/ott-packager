@@ -697,6 +697,11 @@ void *video_encode_thread_nvenc(void *context)
             }
 #endif
 
+            if (core->video_encode_time_set == 0) {
+                core->video_encode_time_set = 1;
+                clock_gettime(CLOCK_MONOTONIC, &core->video_encode_time);
+            }
+
             video_sink_frame_callback(core, nal_buffer,
                                       nalsize,
                                       pts, dts, current_encoder,
