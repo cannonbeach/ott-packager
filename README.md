@@ -274,7 +274,7 @@ And instead of building a full dashboard monitoring system, I've been looking at
 
 There is nothing more frustrating when you clone an open source project off of GitHub and can't get it to compile or work!  I do my best to make sure everything works within the context of the resources I have available to me.  I am not doing nightly builds and do not have a complicated autotest framework.  I work on this in my spare time so it's possible something may slip by.   *If something doesn't work, then please reach out to me or post a bug in the "Issues" section.*  I know the instructions and setup scripts are a bit extensive and detailed, but if you follow them line by line they *do* work.
 
-I am currently using Winston to log messages back through the NodeJS interace.  Here is a sample of the logging information provided which is currently logged to /var/log/eventlog.log on the "Host" system.  I have not finalized this format because I'd like to add the docker container identifier to this along with some additional supporting data (like time of day, IP address, etc).
+I am currently using Winston to log messages back through the NodeJS interace.  Here is a sample of the logging information provided which is currently logged to /var/log/eventlog.log on the "Host" system.  
 
 Some troubleshooting tips:
 1. You can run the webapp through the command line and see messages on the console:
@@ -312,26 +312,52 @@ You can change config settings manually by editing the .json files in /var/tmp/c
 
 I suggest you be resourceful and try to debug things.  These types of systems are not always easy to setup.
 
-While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You should also add the eventlog.log to the logrotate.conf on your Ubuntu system to prevent your drive from filling up.  I'll include instructions on this after I finalize the logging format.
+While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You should also add the eventlog.log to the logrotate.conf on your Ubuntu system to prevent your drive from filling up.  
 
 ```
-{"time":"2019-10-25T21:34:37Z","id":1571765102,"status":"success","message":"manifest written","filename":"/var/www/html/nbc/video3fmp4.m3u8","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"warning","message":"silence insert (Inserting Silence To Maintain A/V Sync)","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"success","message":"segment written","filename":"/var/www/html/nbc/video_stream0_96.ts","level":"info"}
-{"time":"2019-10-25T21:34:38Z","id":1571765102,"status":"success","message":"segment written","filename":"/var/www/html/nbc/video0/segment8378368.mp4","level":"info"}
-....
-{"time":"2019-10-25T21:35:05Z","id":1571765102,"status":"success","message":"input signal locked","source":"0.0.0.0:9500:eth0","level":"info"}
-....
-{"time":"2019-10-25T21:40:41Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
-{"time":"2019-10-25T21:41:14Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
-{"time":"2019-10-25T21:41:29Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
-{"time":"2019-10-25T21:41:29Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
-{"time":"2019-10-25T21:41:47Z","id":1571765102,"status":"error","message":"decode error (Audio Decode Error)","level":"info"}
-{"time":"2019-10-25T21:41:58Z","status":"fatal error","message":"(Unrecoverable Discontinuity Detected - Restarting Service)","level":"info"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video0fmp4.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/video_stream1_36.ts","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/video1/segment163198501845.mp4","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video1.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video1fmp4.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/audio_stream0_substream_0_36.ts","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/audio0_substream0/segment163198503286.mp4","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/audio0_substream0.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/audio0_substream0_fmp4.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:36Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/master.mpd","status":"success"}
+{"accesstime":"2024-03-27T14:12:42Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/video_stream0_37.ts","status":"success"}
+{"accesstime":"2024-03-27T14:12:42Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/video0/segment163199042385.mp4","status":"success"}
+{"accesstime":"2024-03-27T14:12:42Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video0.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:42Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video0fmp4.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/video_stream1_37.ts","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/video1/segment163199042385.mp4","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video1.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/video1fmp4.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/audio_stream0_substream_0_37.ts","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"segment written","segment":"/var/www/html/hls/audio0_substream0/segment163199042806.mp4","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/audio0_substream0.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/audio0_substream0_fmp4.m3u8","status":"success"}
+{"accesstime":"2024-03-27T14:12:43Z","host":"tapeworm","id":1708558258,"level":"info","message":"manifest written","segment":"/var/www/html/hls/master.mpd","status":"success"}
+```
+<br>
+Add the following to "/etc/logrotate.d/rsyslog" to properly rotate the eventlog.log file on a daily basis.
+<br>
+
+```
+/var/log/eventlog.log
+{
+	rotate 4
+	weekly
+	missingok
+	notifempty
+	compress
+	delaycompress
+	sharedscripts
+	copytruncate
+	postrotate
+		/usr/lib/rsyslog/rsyslog-rotate
+	endscript
+}
 ```
 
 <br>
@@ -343,6 +369,7 @@ While running the webapp, you can do a "tail -f /var/log/eventlog.log".  You sho
 Ok, I've been scrapping my way through some remaining SCTE35 issues and have finally gotten things resolved.  It is working well for HLS outputs, so if you find something that is not working correctly, you all need to let me know.
 There are also some new log messages that go into /var/log/eventlog.log.  Have fun with it.
 
+```
 {"accesstime":"2024-03-26T19:23:27Z","host":"tapeworm","id":1708558258,"level":"info","message":"SCTE35 Cue Out of Network Detected (OUT), anchor_time=6158078666, splice_time=6158737825, duration=5400000","status":"success"}
 {"accesstime":"2024-03-26T19:23:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE OUT splice point, encoder=0","status":"success"}
 {"accesstime":"2024-03-26T19:23:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE OUT splice point, encoder=1","status":"success"}
@@ -350,6 +377,7 @@ There are also some new log messages that go into /var/log/eventlog.log.  Have f
 {"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"SCTE35 Cue In Network Detected (IN), anchor_time=6164140222, splice_time=6164137219","status":"success"}
 {"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE IN splice point, encoder=0","status":"success"}
 {"accesstime":"2024-03-26T19:24:29Z","host":"tapeworm","id":1708558258,"level":"info","message":"Inserting IDR video frame for SCTE35 CUE IN splice point, encoder=1","status":"success"}
+```
 
 (02/22/24) Small update
 
