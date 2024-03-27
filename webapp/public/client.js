@@ -119,6 +119,8 @@ document.addEventListener('click',function(e){
         fetch(clickedButton,{method: 'GET'})
             .then(response => {
                 if (response.ok) {
+                    var updata;
+                    console.log('pulled log data from server');
                     return response.text();
                 } else {
                     currentButton.disabled = false;
@@ -127,7 +129,9 @@ document.addEventListener('click',function(e){
             })
 
             .then(data => {
-                alert(data);
+                updata = data;
+                updata = updata.replace(/(?:\r\n|\r|\n)/g, ",");
+                alert(updata);
                 currentButton.disabled = false;
             })
     } else if (strncmp(buttonString,"remove",6) == 0) {
@@ -1126,10 +1130,11 @@ function request_service_status(service)
 
                     var status_string;
 
-                    status_string = '<p>Detected '+service_words.source_interruptions+' source interruptions<br>';
+                    status_string = '<p>Version '+service_words.version+'</p><br>';
+                    status_string += '<p>Detected '+service_words.source_interruptions+' source interruptions<br>';
                     status_string += 'Detected '+service_words.source_errors+' source errors<br>';
                     status_string += 'Processed '+service_words.video_frames+' video frames<br>';
-                    status_string += 'Latency '+service_words.latency+'<p>';
+                    status_string += 'Latency '+service_words.latency+'</p>';
                     document.getElementById(elementname_status).innerHTML = status_string;
 
                     /*

@@ -38,6 +38,7 @@
 #include "esignal.h"
 #include "background.h"
 #include "curl.h"
+#include "filletversion.h"
 
 #define MAX_CONNECTIONS    8
 #define MAX_REQUEST_SIZE   65535
@@ -129,7 +130,7 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
     snprintf(status_response, MAX_RESPONSE_SIZE-1,
              "{\n"
              "    \"application\": \"fillet\",\n"
-             "    \"version\": \"1.0.0\",\n"
+             "    \"version\": \"%s\",\n"
              "    \"timestamp\": \"%s\",\n"
              "    \"status\": \"success\",\n"
              "    \"code\": 200,\n"
@@ -165,6 +166,7 @@ int build_response_repackage(fillet_app_struct *core, char *response_buffer, int
              "        }\n"
              "    }\n"
              "}\n",
+             FILLET_VERSION,
              response_timestamp,
              core->input_signal,
              core->uptime,
@@ -297,7 +299,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
     snprintf(status_response, MAX_RESPONSE_SIZE-1,
              "{\n"
              "    \"application\": \"fillet\",\n"
-             "    \"version\": \"1.0.0\",\n"
+             "    \"version\": \"%s\",\n"
              "    \"timestamp\": \"%s\",\n"
              "    \"status\": \"success\",\n"
              "    \"code\": 200,\n"
@@ -356,6 +358,7 @@ int build_response_transcode(fillet_app_struct *core, char *response_buffer, int
              "        }\n"
              "    }\n"
              "}\n",
+             FILLET_VERSION,
              response_timestamp,
              core->input_signal,
              core->uptime,

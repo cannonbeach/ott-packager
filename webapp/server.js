@@ -548,8 +548,7 @@ app.get('/api/v1/get_last_success/:uid', (req, res) => {
 app.get('/api/v1/get_event_log/:uid', (req, res) => {
     //console.log('received event log request: ', req.params.uid);
 
-    var newestlog = 'eventlog.log';
-    //getNewestFile(logFolder, new RegExp('eventlog.log'))
+    var newestlog = logfilename;
     console.log('newest log filename: ', newestlog);
 
     readLastLines.read(newestlog, 10)
@@ -558,12 +557,12 @@ app.get('/api/v1/get_event_log/:uid', (req, res) => {
             var retdata;
             var current_status = 'success';
             obj = new Object();
-            obj = lines;
-            retdata = obj;
-            //obj.status = lines; //current_status;
+            //obj = lines;
+            //retdata = obj;
+            obj.status = lines;//current_status;
             //retdata = JSON.stringify(obj);
-            console.log(retdata);
-            res.send(retdata);
+            console.log(obj);
+            res.send(lines);
         });
 });
 
@@ -1443,6 +1442,8 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                             obj.transcoding = words.data.system.transcoding;
                             obj.scte35 = words.data.system.scte35;
 
+                            obj.version = words.version;
+
                             retdata = JSON.stringify(obj);
 
                             //console.log(retdata);
@@ -1501,6 +1502,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                                 obj.video_bitrate = 0;//words.data.source.stream0["video-bitrate"];
                                 obj.video_frames = 0;//words.data.source.stream0["video-received-frames"];
                                 obj.outputs = 0;//words.data.output.outputs;
+                                obj.version = "";
                             } else {
                                 obj.input_interface = words.inputinterface;
                                 obj.videosources = words.videosources;
@@ -1521,6 +1523,7 @@ app.get('/api/v1/get_service_status/:uid', (req, res) => {
                                 obj.segment_length = words.segmentsize;
                                 obj.scte35 = words.enablescte35;
                                 obj.outputs = 0;
+                                obj.version = "";
                             }
 
                             /*

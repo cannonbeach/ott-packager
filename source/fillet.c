@@ -52,6 +52,7 @@
 #include "background.h"
 #include "webdav.h"
 #include "esignal.h"
+#include "filletversion.h"
 #if defined(ENABLE_TRANSCODE)
 #include "transvideo.h"
 #include "transaudio.h"

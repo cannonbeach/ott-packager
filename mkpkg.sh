@@ -4,9 +4,18 @@ latest=$(git tag -l --merged master --sort='-*authordate' | head -n1)
 semver_parts=(${latest//./ })
 major=1
 minor=${semver_parts[1]}
-version=${major}.$((minor+1))
+build=`git log -1 --format="%h"`
+version=${major}.$((minor+1)).${build}
 
-echo "current version ${version}"
+rm ./include/filletversion.h
+cat > ./include/filletversion.h <<EOF
+#if !defined(FILLET_VERSION_H)
+#define FILLET_VERSION_H
+#define FILLET_VERSION "$version"
+#endif
+EOF
+
+echo "Current fillet version: ${version}"
 
 echo "Building packager fillet"
 make -f MakefileRepackage clean
