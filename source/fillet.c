@@ -2046,7 +2046,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     //snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 time remaining=%ld/%ld", new_frame->splice_duration_remaining, core->scte35_duration);
                     //send_signal(core, SIGNAL_SCTE35_TIME_REMAINING, signal_msg);
                     new_frame->splice_duration = core->scte35_duration;
-                } else if (scte35_time_diff < (-5400000*5)) {
+                } else if (scte35_time_diff < (-90000*5)) {  // 5 seconds late?
                     syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too late, time inconsistent=%ld, anchor_time=%ld, scte35_pts=%ld, duration=%ld, triggered=%d\n",
                            scte35_time_diff, anchor_time, core->scte35_pts, core->scte35_duration, core->scte35_triggered);
                     snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 dropping message, too late, time inconsistent=%ld, anchor_time=%ld, scte35_pts=%ld, duration=%ld, triggered=%d",
@@ -2061,7 +2061,7 @@ static int receive_frame(uint8_t *sample, int sample_size, int sample_type, uint
                     new_frame->splice_point = 0;
                     new_frame->splice_duration = 0;
                     new_frame->splice_duration_remaining = 0;
-                } else if (scte35_time_diff > (5400000*10)) {
+                } else if (scte35_time_diff > (90000*30)) {  // 30 seconds too early
                     syslog(LOG_INFO,"receive_frame: scte35 dropping sample, too early, time inconsistent=%ld\n", scte35_time_diff);
                     snprintf(signal_msg, MAX_STR_SIZE-1, "SCTE35 dropping message, too early, time inconsistent=%ld, anchor_time=%ld, scte35_pts=%ld, duration=%ld, triggered=%d",
                              scte35_time_diff, anchor_time, core->scte35_pts, core->scte35_duration, core->scte35_triggered);
