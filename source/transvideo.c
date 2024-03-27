@@ -2449,8 +2449,12 @@ void *video_decode_thread(void *context)
     int last_video_frame_size = -1;
     uint8_t *wbuffer;
     int64_t last_splice_duration = 0;
-    //int saved_splice_point = 0;
-
+    double decode_errors_per_second = 0;
+    int decoded_framerate = 30;
+    int rotating_decode_frame = 0;
+    int i;
+    int sum_of_decode_errors = 0;
+    int output_frames = 0;
 #if defined(ENABLE_GPU_DECODE)
     AVHWFramesContext *nvidia_frames_ctx = NULL;
     AVBufferRef *nvidia_device_ctx = NULL;
@@ -2461,10 +2465,12 @@ void *video_decode_thread(void *context)
 
 #define MAX_DECODE_SIGNAL_WINDOW 180
     signal_struct signal_data[MAX_DECODE_SIGNAL_WINDOW];
+    int decode_error[MAX_DECODE_SIGNAL_WINDOW];
     int signal_write_index = 0;
     video_stream_struct *vstream = (video_stream_struct*)core->source_video_stream[0].video_stream;
 
     memset(signal_data,0,sizeof(signal_data));
+    memset(decode_error,0,sizeof(decode_error));
 
     fprintf(stderr,"status: starting video decode thread: %d\n", video_decode_thread_running);
 
@@ -2498,6 +2504,7 @@ void *video_decode_thread(void *context)
                 char gpu_select_string[MAX_FILENAME_SIZE];
 
                 if (core->reinitialize_decoder) {
+                    memset(decode_error,0,sizeof(decode_error));
                     av_frame_free(&decode_av_frame);
                     av_packet_free(&decode_pkt);
 #if defined(ENABLE_GPU_DECODE)
@@ -2511,6 +2518,7 @@ void *video_decode_thread(void *context)
                     av_freep(&output_data[0]);
                     core->reinitialize_decoder = 0;
                     video_decoder_ready = 0;
+                    output_frames = 0;
                 }
 
                 if (!video_decoder_ready) {
@@ -2620,13 +2628,7 @@ void *video_decode_thread(void *context)
                     working_incoming_video_buffer += decode_happy;
 
                     if (decode_pkt->size == 0) {
-                        //if (saved_splice_point > 0) {
-                        //    frame->splice_point = saved_splice_point;
-                        //    saved_splice_point = 0;
-                        //}
                         continue;
-                    } else {
-                        //saved_splice_point = frame->splice_point;
                     }
 
                     decode_pkt->pts = frame->pts;
@@ -2658,9 +2660,34 @@ void *video_decode_thread(void *context)
 
                     retcode = avcodec_send_packet(decode_avctx, decode_pkt);
                     if (retcode < 0) {
-                        //error decoding video frame-report!
+                        // error decoding video frame - report!
                         fprintf(stderr,"video_decode_thread: decode not happy, unable to decode video frame - very sorry\n");
-                        send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");
+                        if (output_frames > 0) {
+                            send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");
+                            decode_error[rotating_decode_frame] = 1;
+                        }
+                    } else {
+                        decode_error[rotating_decode_frame] = 0;
+                    }
+                    if (decoded_framerate > 0) {
+                        rotating_decode_frame = (rotating_decode_frame + 1) % decoded_framerate;
+                    }
+
+                    sum_of_decode_errors = 0;
+                    for (i = 0; i < decoded_framerate; i++) {
+                        sum_of_decode_errors += decode_error[rotating_decode_frame];
+                    }
+                    decode_errors_per_second = (double)sum_of_decode_errors;
+                    if (decoded_framerate > 0) {
+                        if (decode_errors_per_second > (decoded_framerate/2)) {
+                            char errormsg[MAX_MESSAGE_SIZE];
+                            snprintf(errormsg, MAX_MESSAGE_SIZE-1, "Video Decode Rate Per Second Exceeded, Waiting to Stabilize, %.2f Errors Per Second, Frame Window=%d",
+                                     decode_errors_per_second, decoded_framerate);
+                            send_signal(core, SIGNAL_DECODE_ERROR, errormsg);
+                            if (core->reinitialize_decoder == 0) {
+                                core->reinitialize_decoder = 1;
+                            }
+                        }
                     }
 
                     while (retcode >= 0) {
@@ -2729,7 +2756,11 @@ void *video_decode_thread(void *context)
 
                         if (frame_width > 3840 &&
                             frame_height > 2160) {
-                            // error decoding video frame
+                            send_signal(core, SIGNAL_DECODE_ERROR, "Video Decode Error");
+                            decode_error[rotating_decode_frame] = 1;
+                            if (decoded_framerate > 0) {
+                                rotating_decode_frame = (rotating_decode_frame + 1) % decoded_framerate;
+                            }
                             break;
                         }
 
@@ -2752,8 +2783,8 @@ void *video_decode_thread(void *context)
                             exit(0);
                         }
 
-                        //422 to 420 conversion if needed
-                        //10 to 8 bit conversion if needed
+                        // 422 to 420 conversion if needed
+                        // 10 to 8 bit conversion if needed (no support for HDR to SDR mapping)
                         source_data[0] = decode_av_frame->data[0];
                         source_data[1] = decode_av_frame->data[1];
                         source_data[2] = decode_av_frame->data[2];
@@ -2935,13 +2966,18 @@ void *video_decode_thread(void *context)
 
                             if (!vstream->found_key_frame) {
                                 vstream->found_key_frame = 1;
-                                vstream->first_timestamp = decode_av_frame->pts; //prepare_msg->dts;  // full time
+                                vstream->first_timestamp = decode_av_frame->pts;
                                 fprintf(stderr,"video_decode_thread: setting first timestamp to %ld\n", vstream->first_timestamp);
                             }
 
-                            //ffmpeg does this inverse because of the 1/X
+                            // ffmpeg does this inverse because of the 1/X
                             prepare_msg->fps_num = decode_avctx->framerate.num;
                             prepare_msg->fps_den = decode_avctx->framerate.den;
+                            if (decode_avctx->framerate.den > 0) {
+                                decoded_framerate = (int)(((double)decode_avctx->framerate.num / (double)decode_avctx->framerate.den)+0.5f);
+                            } else {
+                                decoded_framerate = 30;
+                            }
 
                             fprintf(stderr,"video_decode_thread: fps=%d/%d, framerate.den=%d framerate.num=%d ticks_per_frame=%d\n",
                                     prepare_msg->fps_num, prepare_msg->fps_den,
@@ -2949,7 +2985,6 @@ void *video_decode_thread(void *context)
                                     decode_avctx->framerate.num,
                                     decode_avctx->ticks_per_frame);
 
-                            //fprintf(stderr,"FPS: %d / %d\n", prepare_msg->fps_num, prepare_msg->fps_den);
                             prepare_msg->aspect_num = decode_avctx->sample_aspect_ratio.num;
                             prepare_msg->aspect_den = decode_avctx->sample_aspect_ratio.den;
                             prepare_msg->width = frame_width;
@@ -2965,6 +3000,8 @@ void *video_decode_thread(void *context)
                             core->decoded_source_info.decoded_aspect_num = prepare_msg->aspect_num;
                             core->decoded_source_info.decoded_aspect_den = prepare_msg->aspect_den;
                             core->decoded_source_info.decoded_video_media_type = frame->media_type;
+
+                            output_frames++;
 
                             dataqueue_put_front(core->monitorvideo->input_queue, prepare_msg);
                         } else {
